@@ -25,4 +25,4 @@ jobs:
       - name: Publish verified assets
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" dist/riff-*.tar.gz dist/install.py dist/SHA256SUMS --verify-tag --generate-notes --title "Riff $GITHUB_REF_NAME"
+        run: gh release create "$GITHUB_REF_NAME" dist/riff-*.tar.gz dist/install.py dist/SHA256SUMS --verify-tag --notes-file .github/release-notes.md --title "Riff $GITHUB_REF_NAME"

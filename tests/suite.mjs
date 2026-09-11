@@ -22,7 +22,7 @@ try {
   await page.goto(fixture.url);
   await page.locator("#play:not([disabled])").waitFor();
   assert.equal(await page.locator("html").getAttribute("data-theme"), "dark");
-  assert.equal(await page.locator(".brand-i img").getAttribute("src"), "/flip-face.svg");
+  assert.equal(await page.locator(".brand-r img").getAttribute("src"), "/flip-face.svg");
   await page.getByLabel("Switch color theme", { exact: true }).click();
   await page.reload();
   assert.equal(await page.locator("html").getAttribute("data-theme"), "light");

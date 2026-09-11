@@ -19,7 +19,9 @@ Keep UI copy musical, make suggestions editable, and document actual engine limi
 New low-memory claims need measured peak process memory and duration/settings.
 Read `DESIGN.md` before changing the studio's interaction model.
 
-Release maintainers increment `VERSION` and package.json together, run the checks,
-and create a `vX.Y.Z` tag. The release workflow builds a curated archive, checks
-installation in a fresh temporary workspace, and publishes its SHA-256 checksum.
+Release maintainers increment `VERSION`, package.json, and package-lock.json
+together, update `.github/release-notes.md`, run the checks, and create a `vX.Y.Z`
+tag. The release workflow builds a curated archive, checks installation in a fresh
+temporary workspace, and publishes its SHA-256 checksum using the GitHub Actions
+bot. Release notes describe the changes without automatic contributor mentions.
 The installer and updater only consume official release assets.

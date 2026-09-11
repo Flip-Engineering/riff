@@ -39,9 +39,9 @@ input, textarea, select { color: var(--ink); caret-color: var(--blue); }
 input::placeholder, textarea::placeholder { color: var(--muted); opacity: 1; }
 button:focus-visible, a:focus-visible, summary:focus-visible { outline: 2px solid var(--blue); outline-offset: 4px; }
 .brand { gap: 0; }
-.brand-word { display: inline-flex; align-items: baseline; font-size: 34px; letter-spacing: -1.8px; }
-.brand-i { position: relative; }
-.brand-i img { width: 12px; height: 12px; position: absolute; left: 0; top: 1px; }
+.brand-word { display: inline-flex; align-items: baseline; font-size: 34px; line-height: 1; letter-spacing: -1.8px; }
+.brand-r { position: relative; }
+.brand-r img { width: .5em; height: .5em; position: absolute; left: -.11em; bottom: -.02em; }
 .brand-period { color: var(--secondary); }
 .footer-tagline { color: var(--quiet); text-decoration: none; }
 .footer-tagline:hover { color: var(--blue); }
@@ -123,7 +123,6 @@ button:focus-visible, a:focus-visible, summary:focus-visible { outline: 2px soli
   .header-right { gap: 1px; }
   .header-right .icon-button { width: 30px; height: 34px; }
   .brand-word { font-size: 30px; }
-  .brand-i img { width: 10px; height: 10px; }
   .main-nav .nav-button { padding-inline: 10px; }
   .system-dialog { padding: 20px; }
 }

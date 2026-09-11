@@ -15,8 +15,9 @@ The implementation is in `web/suite.css`, with a persisted light/dark choice.
 | Secondary text | #D5C3C8 | #5E4A4E |
 | Muted text | #9A8088 | #8A767B |
 
-`web/flip-face.svg` uses the canonical Flip avatar part geometry with the Flip
-seed (`phash2("Flip") = 122206397`), colored for this palette. It appears at
-10–12 pixels as the dot of the i in Riff. The app icon includes a small related
-face detail. Flip Engineering attribution stays in the footer and About dialog.
-There are no mascot panels competing with the music.
+`web/flip-face.svg` is the unchanged `priv/static/emoji/default/smirk.svg`
+artwork from that same Flip server revision: the @Flip character's wide,
+rounded face, original pink palette, gold cheek sparkles, and freckles.
+It appears as a small overlay at the base of the **r** in Riff; the **i** keeps
+its normal dot. The app icon uses the same artwork and placement. Flip
+Engineering attribution stays in the footer and About dialog.
