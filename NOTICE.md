@@ -9,7 +9,8 @@ retain their own licenses.
   Weights are not included in Riff releases.
 - **audio.cpp**: [Apache 2.0](https://github.com/0xShug0/audio.cpp/blob/fbe3eedbf6c504e45189e2cdcf1b257740a28863/LICENSE).
   The installer fetches its pinned source and dependencies, retaining their license
-  files. Patches in this repository identify changes for Riff.
+  files. Patches in this repository identify changes for Riff and retain the Apache 2.0
+  terms; the full license is included in `patches/LICENSE`.
 - **abcjs 6.7.0**, Paul Rosen and contributors: MIT. The unmodified browser bundle
   and its license are in `web/vendor/`.
 - **Qwen3-0.6B-MLX-4bit**, optional writer: Apache 2.0. The pinned model and its
