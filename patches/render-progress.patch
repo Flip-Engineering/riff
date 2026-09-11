@@ -1,0 +1,41 @@
+diff --git a/src/models/yue2/nar_runtime.cpp b/src/models/yue2/nar_runtime.cpp
+index ed7f25e..a323afb 100644
+--- a/src/models/yue2/nar_runtime.cpp
++++ b/src/models/yue2/nar_runtime.cpp
+@@ -600,7 +600,9 @@ struct Yue2NarRuntime::Impl {
+     std::vector<float> solve_chunk(
+         const Yue2ArDevicePrefixState & ar_state,
+         const std::vector<float> & noise,
+-        int64_t ode_steps) {
++        int64_t ode_steps,
++        int64_t completed_frames,
++        int64_t total_frames) {
+         auto state = noise;
+         const auto total_start = Clock::now();
+         const auto & config = assets->config.model;
+@@ -610,6 +612,7 @@ struct Yue2NarRuntime::Impl {
+         const float dt = 1.0F / static_cast<float>(ode_steps);
+         HostVelocityTiming host_timing;
+         double host_update_ms = 0.0;
++        engine::debug::timing_log_scalar("yue2.nar.progress", static_cast<double>(completed_frames) / total_frames);
+         for (int64_t step = 0; step < ode_steps; ++step) {
+             const float t = 1.0F - static_cast<float>(step) * dt;
+             const auto first = velocity(chunk_graph, ar_state, state, logit_clamped(t), host_timing);
+@@ -625,6 +628,8 @@ struct Yue2NarRuntime::Impl {
+                 state[i] -= second[i] * dt;
+             }
+             host_update_ms += engine::debug::elapsed_ms(update_start);
++            const double completed = completed_frames + static_cast<double>(frames) * (step + 1) / ode_steps;
++            engine::debug::timing_log_scalar("yue2.nar.progress", completed / total_frames);
+         }
+         engine::debug::timing_log_scalar("yue2.nar.chunk.frames", frames);
+         engine::debug::timing_log_scalar("yue2.nar.chunk.ode_steps", ode_steps);
+@@ -698,7 +703,7 @@ struct Yue2NarRuntime::Impl {
+             auto ar_state = prefill_state(ar_tokens);
+             prefill_ms += engine::debug::elapsed_ms(prefill_start);
+             const auto solve_start = Clock::now();
+-            auto chunk = solve_chunk(ar_state, noise, ode_steps);
++            auto chunk = solve_chunk(ar_state, noise, ode_steps, begin, static_cast<int64_t>(codec.size()));
+             solve_ms += engine::debug::elapsed_ms(solve_start);
+             const auto append_start = Clock::now();
+             out.insert(out.end(), chunk.begin(), chunk.end());

@@ -1,0 +1,95 @@
+--- a/include/engine/models/yue2/types.h
++++ b/include/engine/models/yue2/types.h
+@@ -77,6 +77,8 @@
+     Yue2CotMode cot = Yue2CotMode::Full;
+     std::string abc;
+     std::vector<int32_t> semantic_codes;
++    std::string score_tokens_out;
++    bool plan_only = false;
+     std::vector<float> nar_noise;
+     uint64_t seed = 831001;
+     float cfg_scale = -1.0F;
+--- a/src/models/yue2/request.cpp
++++ b/src/models/yue2/request.cpp
+@@ -57,6 +57,18 @@
+     const std::unordered_map<std::string, std::string> & options) {
+     if (const auto cot = runtime::find_option(options, {"cot"})) {
+         out.cot = parse_cot_mode(*cot);
++    }
++    if (const auto value = runtime::find_option(options, {"score_tokens_out"})) {
++        out.score_tokens_out = *value;
++    }
++    if (const auto value = runtime::find_option(options, {"plan_only"})) {
++        if (*value != "true" && *value != "false") {
++            throw std::runtime_error("Yue2 plan_only must be true or false");
++        }
++        out.plan_only = *value == "true";
++        if (out.plan_only && out.cot == Yue2CotMode::Off) {
++            throw std::runtime_error("Yue2 plan_only requires melody or full planning");
++        }
+     }
+     if (const auto seed = runtime::parse_u64_option(options, {"seed"})) {
+         out.seed = *seed;
+--- a/src/models/yue2/pipeline.cpp
++++ b/src/models/yue2/pipeline.cpp
+@@ -6,6 +6,7 @@
+ 
+ #include <algorithm>
+ #include <chrono>
++#include <fstream>
+ #include <cstdint>
+ #include <stdexcept>
+ #include <utility>
+@@ -172,6 +173,23 @@
+             engine::debug::timing_log_scalar("yue2.semantic.abc_truncated", out.plan.truncated);
+             ar->release_runtime_graphs();
+         }
++        if (!request.score_tokens_out.empty() && request.cot != Yue2CotMode::Off) {
++            std::ofstream score(request.score_tokens_out, std::ios::binary | std::ios::trunc);
++            if (!score) {
++                throw std::runtime_error("Could not open the requested symbolic plan output");
++            }
++            score << "{\"truncated\":" << (out.plan.truncated ? "true" : "false") << ",\"tokens\":[";
++            for (size_t i = 0; i < out.plan.abc_ids.size(); ++i) {
++                if (i) score << ',';
++                score << out.plan.abc_ids[i];
++            }
++            score << "]}\n";
++            score.flush();
++            if (!score) throw std::runtime_error("Could not save the symbolic plan");
++        }
++        if (request.plan_only) {
++            return out;
++        }
+         ensure_ar();
+         const auto negative_start = Clock::now();
+         const auto neg = negative_prefix(request, tokenizer, out.plan.abc_ids);
+@@ -313,6 +331,7 @@
+         const auto semantic_start = Clock::now();
+         auto semantic = generate_semantic(request, std::move(planned));
+         engine::debug::timing_log_scalar("yue2.semantic_ms", engine::debug::elapsed_ms(semantic_start, Clock::now()));
++        if (request.plan_only) return {};
+         const auto nar_start = Clock::now();
+         auto latents = synthesize_latents(semantic, request.generation, request.nar_noise, request.seed);
+         engine::debug::timing_log_scalar("yue2.nar_ms", engine::debug::elapsed_ms(nar_start, Clock::now()));
+--- a/src/models/yue2/session.cpp
++++ b/src/models/yue2/session.cpp
+@@ -160,6 +160,8 @@
+         {"lyrics", "string", "Lyrics to generate.", false},
+         {"abc", "string", "ABC score conditioning text.", false},
+         {"abc_file", "path", "Path to ABC score conditioning text.", false},
++        {"score_tokens_out", "path", "Save the actual symbolic plan token IDs as JSON.", false},
++        {"plan_only", "true|false", "Generate a symbolic plan without rendering audio.", false, "false"},
+         {"cot", "off|melody|full", "Planning mode.", false, "off"},
+         {"seed", "int", "Generation seed.", false, "0"},
+         {"cfg_scale", "float", "Classifier-free guidance scale.", false, "1.0", "0.0", "20.0"},
+@@ -231,7 +233,8 @@
+     const auto wall_start = Clock::now();
+     const auto parsed = parse_yue2_request(request, assets_->config.generation);
+     runtime::TaskResult result;
+-    result.audio_output = pipeline_->run(parsed);
++    auto audio = pipeline_->run(parsed);
++    if (!parsed.plan_only) result.audio_output = std::move(audio);
+     engine::debug::timing_log_scalar("session.wall_ms", engine::debug::elapsed_ms(wall_start, Clock::now()));
+     return result;
+ }

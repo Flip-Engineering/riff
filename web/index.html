@@ -1,0 +1,1157 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#1c1216" />
+    <meta
+      name="description"
+      content="Riff is a music studio. Write a verse, find its sound, and keep the takes you love."
+    />
+    <title>Riff — generative music studio</title>
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <script src="/theme.js"></script>
+    <link rel="stylesheet" href="/style.css" />
+    <link rel="stylesheet" href="/suite.css" />
+    <script src="/explore.js" defer></script>
+    <script src="/visualizer.js" defer></script>
+    <script src="/app.js" defer></script>
+    <script src="/review.js" defer></script>
+    <script src="/controls.js" defer></script>
+    <script src="/vendor/abcjs-basic-min.js" defer></script>
+    <script src="/score.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to studio</a>
+    <header class="app-header">
+      <a class="brand" href="#studio" aria-label="Riff home"
+        ><span class="brand-word">r<span class="brand-i">ı<img src="/flip-face.svg" alt="" /></span>ff<span class="brand-period">.</span></span
+        ></a
+      >
+      <nav class="main-nav" aria-label="Main navigation">
+        <button
+          type="button"
+          data-view="studio"
+          class="nav-button active"
+          aria-current="page"
+        >
+          Studio
+        </button>
+        <button type="button" data-view="library" class="nav-button">
+          Library <span id="library-count" class="nav-count">0</span>
+        </button>
+      </nav>
+      <div class="header-right">
+        <button type="button" class="icon-button" id="theme-toggle" aria-label="Switch color theme" title="Switch color theme">◐</button>
+        <button type="button" class="icon-button" id="system-open" aria-label="Studio settings" title="Studio settings"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 17h16M8 4v6M16 14v6"/></svg></button>
+        <span class="studio-status" hidden
+          ><span class="status-dot"></span
+          ><span id="engine-label">Connecting</span></span
+        ><button
+          type="button"
+          class="icon-button"
+          id="review-settings-open"
+          aria-label="Review settings"
+          hidden
+        >
+          <span data-icon="wave"></span></button
+        ><button
+          type="button"
+          class="icon-button about-button"
+          id="about-open"
+          aria-label="About this studio"
+        >
+          <span data-icon="info"></span>
+        </button>
+      </div>
+    </header>
+
+    <main id="main" tabindex="-1">
+      <section
+        id="studio-view"
+        class="view studio-view"
+        aria-label="Music studio"
+      >
+        <div class="page-intro">
+          <div>
+            <h1>
+              Sound,<br />
+              taking shape.
+            </h1>
+            <p>A thought, a lyric, a world of sound.</p>
+          </div>
+        </div>
+        <div class="studio-grid">
+          <section class="writing-desk" aria-labelledby="compose-heading">
+            <div class="panel-heading">
+              <h2 id="compose-heading">New recording</h2>
+              <span id="draft-status" class="quiet-text"
+                >Your writing space</span
+              >
+            </div>
+            <form id="generation-form">
+              <fieldset class="creation-modes">
+                <legend class="sr-only">How to begin</legend>
+                <label
+                  ><input
+                    type="radio"
+                    name="creation-mode"
+                    value="free"
+                    checked
+                  /><span>Free play<small>Let it happen</small></span></label
+                >
+                <label
+                  ><input
+                    type="radio"
+                    name="creation-mode"
+                    value="instrumental"
+                  /><span
+                    >Instrumental<small>Just the music</small></span
+                  ></label
+                >
+                <label
+                  ><input
+                    type="radio"
+                    name="creation-mode"
+                    value="lyrics"
+                  /><span>My lyrics<small>Your own words</small></span></label
+                >
+                <label
+                  ><input
+                    type="radio"
+                    name="creation-mode"
+                    value="surprise"
+                  /><span
+                    >Surprise song<small>Words found for you</small></span
+                  ></label
+                >
+              </fieldset>
+              <label for="creative-brief" class="brief-label"
+                >Writer's prompt <span class="quiet-text">optional</span></label
+              >
+              <textarea
+                id="creative-brief"
+                class="brief-input"
+                rows="2"
+                placeholder="For Surprise me: a satellite that misses the sea. An impossible genre. Anything at all."
+              ></textarea>
+              <div class="idea-source">
+                <label for="idea-engine">Ideas from</label
+                ><select id="idea-engine">
+                  <option value="ai">AI writer</option>
+                  <option value="openrouter">OpenRouter writer</option>
+                  <option value="phrases">
+                    Phrase shuffle / instant
+                  </option></select
+                ><span id="writer-status" class="quiet-text" role="status"
+                  >Ready for an idea</span
+                >
+              </div>
+              <p id="cloud-writer-hint" class="control-hint" hidden>Uses the model and saved key in Review settings. OpenRouter usage charges apply.</p>
+              <div class="idea-toolbar">
+                <button type="button" id="surprise" class="surprise-button">
+                  <span data-icon="spark"></span>Surprise me</button
+                ><button
+                  type="button"
+                  id="stop-writing"
+                  class="text-button"
+                  hidden
+                >
+                  Stop writing</button
+                ><button
+                  type="button"
+                  id="undo-idea"
+                  class="text-button"
+                  disabled
+                >
+                  Undo surprise</button
+                ><span id="idea-caption" class="quiet-text"
+                  >An open beginning</span
+                >
+              </div>
+              <label class="sr-only" for="title">Recording title</label>
+              <input
+                id="title"
+                class="title-input"
+                name="title"
+                placeholder="Give this feeling a name"
+                autocomplete="off"
+              />
+              <div id="words-space">
+                <div class="field-heading">
+                  <label for="lyrics">The words</label
+                  ><span id="line-count" class="quiet-text"></span>
+                  <button
+                    type="button"
+                    class="text-button expand-field"
+                    data-expand="lyrics"
+                  >
+                    Expand lyrics
+                  </button>
+                </div>
+                <textarea
+                  id="lyrics"
+                  name="lyrics"
+                  class="lyrics-input"
+                  spellcheck="true"
+                  placeholder="Write a line, paste a poem, or explore a song of your own."
+                ></textarea>
+                <div class="section-tools">
+                  <span class="quiet-text">Add a section</span
+                  ><button type="button" data-section="Verse">
+                    Verse <span>+</span></button
+                  ><button type="button" data-section="Chorus">
+                    Chorus <span>+</span></button
+                  ><button type="button" data-section="Bridge">
+                    Bridge <span>+</span>
+                  </button>
+                </div>
+                <div class="word-discovery">
+                  <label class="sr-only" for="idea-theme">Lyric theme</label
+                  ><select id="idea-theme">
+                    <option value="anywhere">Any story</option>
+                    <option value="water">Open water</option>
+                    <option value="city">After hours</option>
+                    <option value="elsewhere">Elsewhere</option>
+                    <option value="wonder">Small wonders</option>
+                    <option value="weather">Weather systems</option>
+                    <option value="return">Slow return</option></select
+                  ><button
+                    type="button"
+                    class="text-button"
+                    id="shuffle-lyrics"
+                  >
+                    Shuffle words</button
+                  ><button
+                    type="button"
+                    class="hold-button"
+                    id="hold-words"
+                    aria-pressed="false"
+                  >
+                    Hold words
+                  </button>
+                </div>
+                <p class="control-hint" id="words-hint">
+                  Write freely, or add sections as your song takes shape.
+                </p>
+              </div>
+              <div id="instrumental-invitation" class="instrumental-invitation">
+                <span aria-hidden="true">∿</span>
+                <div>
+                  <strong id="invitation-title"
+                    >Let the music find its way.</strong
+                  >
+                  <p>Leave the sound open, or find a direction below.</p>
+                </div>
+              </div>
+              <div class="sound-section">
+                <div class="field-heading">
+                  <label for="style">The sound</label>
+                  <button
+                    type="button"
+                    class="text-button expand-field"
+                    data-expand="style"
+                  >
+                    Expand direction</button
+                  ><button
+                    type="button"
+                    class="text-button spark-button"
+                    id="spark"
+                  >
+                    <span data-icon="spark"></span>Find a spark
+                  </button>
+                </div>
+                <textarea
+                  id="style"
+                  name="style"
+                  class="style-input"
+                  rows="3"
+                  placeholder="Describe a sound, or let the music find its own direction."
+                ></textarea>
+                <details class="compass-disclosure" open>
+                  <summary>
+                    Sound compass<span id="compass-reading" class="quiet-text"
+                      >Unhurried / blended</span
+                    >
+                  </summary>
+                  <div
+                    class="compass-pad"
+                    id="compass-pad"
+                    aria-label="Sound compass: drag to choose energy and texture"
+                  >
+                    <svg viewBox="0 0 360 134" aria-hidden="true">
+                      <defs>
+                        <pattern
+                          id="compass-grid"
+                          width="24"
+                          height="22"
+                          patternUnits="userSpaceOnUse"
+                        >
+                          <circle
+                            cx="12"
+                            cy="11"
+                            r=".7"
+                            fill="#8999bc"
+                            opacity=".4"
+                          />
+                        </pattern>
+                      </defs>
+                      <rect
+                        width="360"
+                        height="134"
+                        fill="url(#compass-grid)"
+                      />
+                      <path
+                        d="M 0 103 Q 100 30 190 86 T 360 25 M 0 113 Q 100 40 190 96 T 360 35 M 0 123 Q 100 50 190 106 T 360 45"
+                        fill="none"
+                        stroke="#b8c7e8"
+                        stroke-width="1"
+                      />
+                      <circle
+                        id="compass-halo"
+                        cx="180"
+                        cy="81"
+                        r="20"
+                        fill="#3759cf"
+                        opacity=".08"
+                      />
+                      <circle
+                        id="compass-point"
+                        cx="180"
+                        cy="81"
+                        r="6"
+                        fill="#3759cf"
+                        stroke="white"
+                        stroke-width="3"
+                      />
+                    </svg>
+                    <span class="compass-north">Driving</span
+                    ><span class="compass-south">Calm</span
+                    ><span class="compass-west">Acoustic</span
+                    ><span class="compass-east">Electronic</span>
+                  </div>
+                  <div class="compass-sliders">
+                    <label for="energy"
+                      >Energy<input
+                        type="range"
+                        id="energy"
+                        min="0"
+                        max="100"
+                        value="40" /></label
+                    ><label for="texture"
+                      >Texture<input
+                        type="range"
+                        id="texture"
+                        min="0"
+                        max="100"
+                        value="50" /></label
+                    ><button
+                      type="button"
+                      id="hold-sound"
+                      class="hold-button"
+                      aria-pressed="false"
+                    >
+                      Hold sound
+                    </button>
+                  </div>
+                  <p class="control-hint">
+                    Move the point to suggest a sound. You can edit the
+                    description.
+                  </p>
+                </details>
+                <div
+                  class="preset-row"
+                  id="presets"
+                  aria-label="Saved sounds"
+                ></div>
+                <button
+                  type="button"
+                  class="text-button save-sound"
+                  id="save-sound"
+                >
+                  <span data-icon="plus"></span>Save this sound
+                </button>
+                <button
+                  type="button"
+                  id="manage-sounds"
+                  class="text-button manage-sounds"
+                >
+                  Manage sounds
+                </button>
+              </div>
+              <p
+                class="control-hint instrumental-warning"
+                id="instrumental-warning"
+              >
+                Experimental: YuE2 can include voice-like sounds even with an
+                instrumental prompt.
+              </p>
+              <div class="take-controls">
+                <div class="duration-control">
+                  <label for="duration">Length</label>
+                  <div class="number-input">
+                    <input
+                      type="number"
+                      id="duration"
+                      min="1"
+                      value="30"
+                      step="1"
+                      required
+                    /><span>sec</span>
+                  </div>
+                </div>
+                <fieldset class="quality-control">
+                  <legend>Finish</legend>
+                  <div class="segmented-control">
+                    <label
+                      ><input
+                        type="radio"
+                        name="quality"
+                        value="8"
+                        checked
+                      /><span>Preview</span></label
+                    ><label
+                      ><input type="radio" name="quality" value="16" /><span
+                        >Balanced</span
+                      ></label
+                    ><label
+                      ><input type="radio" name="quality" value="32" /><span
+                        >Detailed</span
+                      ></label
+                    >
+                  </div>
+                </fieldset>
+              </div>
+              <p class="control-hint" id="quality-hint">
+                A quick first listen. Choose extra room for the full
+                arrangement.
+              </p>
+              <details class="creative-controls">
+                <summary>
+                  More creative control<span data-icon="chevron"></span>
+                </summary>
+                <div class="advanced-grid">
+                  <div>
+                    <label for="custom-steps">Solver steps</label
+                    ><input
+                      type="number"
+                      id="custom-steps"
+                      min="1"
+                      step="1"
+                      value="8"
+                    />
+                  </div>
+                  <div>
+                    <label for="guidance">Guidance</label
+                    ><input
+                      type="number"
+                      id="guidance"
+                      min="0"
+                      max="20"
+                      step="0.01"
+                      value="1"
+                    />
+                  </div>
+                  <div>
+                    <label for="temperature">Music temperature</label
+                    ><input
+                      type="number"
+                      id="temperature"
+                      min="0"
+                      max="5"
+                      step="0.05"
+                      value="1"
+                    />
+                  </div>
+                  <div>
+                    <label for="writer-tokens">Writing token budget</label
+                    ><input
+                      type="number"
+                      id="writer-tokens"
+                      min="1"
+                      step="1"
+                      value="768"
+                    />
+                  </div>
+                </div>
+                <p class="control-hint">
+                  Shape the detail, variation, and strength of your musical
+                  direction.
+                </p>
+                <div class="advanced-grid">
+                  <div>
+                    <label for="planning">Composition</label
+                    ><select id="planning">
+                      <option value="off">Direct generation</option>
+                      <option value="melody">Plan a melody</option>
+                      <option value="full">Plan melody &amp; chords</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label for="seed"
+                      >Seed <span class="quiet-text">optional</span></label
+                    ><input
+                      type="text"
+                      inputmode="numeric"
+                      id="seed"
+                      placeholder="A new one each take"
+                      pattern="[0-9]*"
+                    />
+                  </div>
+                </div>
+                <details class="refinement-controls">
+                  <summary>Fine tuning</summary>
+                  <p class="control-hint">Leave a field empty to use the model's setting. Music tokens represent 1/25 second; melody tokens describe the score.</p>
+                  <div id="refinement-fields"></div>
+                  <button type="button" class="text-button" id="reset-refinement">Reset fine tuning</button>
+                </details>
+                <button type="button" id="score-open" class="secondary-button score-open">Open composition workspace</button>
+                <div id="abc-field" hidden>
+                  <label for="abc"
+                    >ABC score <span class="quiet-text">optional</span></label
+                  ><textarea
+                    id="abc"
+                    rows="4"
+                    spellcheck="false"
+                    placeholder="Paste a melody or chord score in ABC notation."
+                  ></textarea>
+                  <p class="control-hint">
+                    Leave blank to compose a new score.
+                  </p>
+                </div>
+                <p class="control-hint">
+                  Keep the same seed and settings to revisit a take. A new seed
+                  opens another direction.
+                </p>
+              </details>
+              <details class="study-controls">
+                <summary>Try a sound study</summary>
+                <div class="study-fields"><span id="audition-selection">Whole draft</span><button type="button" class="text-button" id="clear-audition-selection">Use whole draft</button></div>
+                <p class="control-hint">Select a passage in your lyrics to audition it. Your full draft stays open.</p>
+                <div class="advanced-grid"><div><label for="audition-length">Study length (seconds)</label><input id="audition-length" type="number" min="0.04" step="any" value="28" /></div><div><label for="audition-steps">Study solver steps</label><input id="audition-steps" type="number" min="1" step="1" value="8" /></div></div>
+                <button type="button" class="secondary-button" id="audition">Generate study</button>
+              </details>
+              <div class="recipe-actions"><label class="text-button file-action">Open recipe<input type="file" id="import-recipe" accept=".json,application/json" /></label><button type="button" class="text-button" id="export-draft">Save recipe</button></div>
+              <div id="setup-invitation" class="setup-invitation" hidden><p>Set up your music engine to start generating.</p><button type="button" class="secondary-button" id="setup-open">Set up Riff</button></div>
+              <div id="form-error" class="form-error" role="alert" hidden></div>
+              <button type="submit" class="generate-button" id="generate">
+                <span data-icon="wave"></span
+                ><span id="generate-label">Generate take</span
+                ><span id="generate-length" class="generate-length">0:30</span>
+              </button>
+              <div class="generate-footnote">
+                <span class="status-dot"></span
+                ><span id="generation-footnote"
+                  ></span
+                >
+              </div>
+            </form>
+          </section>
+
+          <aside class="listening-desk" aria-label="Listening room">
+            <button type="button" id="score-open-player" class="text-button" hidden>Open this take’s score</button>
+            <section
+              id="queue-panel"
+              class="queue-panel"
+              aria-label="Generation queue"
+              hidden
+            >
+              <div id="live-job" aria-live="polite"></div>
+              <div id="queued-jobs"></div>
+            </section>
+            <section class="listening-card">
+              <div class="listener-heading">
+                <span>On the turntable</span
+                ><span id="take-tag">Your collection</span>
+              </div>
+              <div class="cover-frame">
+                <svg
+                  id="cover-art"
+                  preserveAspectRatio="xMidYMid slice"
+                  class="cover-art"
+                  viewBox="0 0 440 340"
+                  role="img"
+                  aria-label="Flowing artwork for this recording"
+                ></svg>
+                <canvas
+                  id="sound-field"
+                  aria-label="Live audio frequency visualization"
+                  hidden
+                ></canvas>
+                <div
+                  id="sound-field-caption"
+                  class="sound-field-caption"
+                  hidden
+                >
+                  Press play to see the sound
+                </div>
+                <div class="cover-stamp">
+                  <span>riff.</span><span>Sound, taking shape</span>
+                </div>
+              </div>
+              <div
+                class="cover-switch"
+                role="group"
+                aria-label="Listening visualization"
+              >
+                <button type="button" data-visual="art" aria-pressed="true">
+                  Seed artwork</button
+                ><button type="button" data-visual="sound" aria-pressed="false">
+                  Live sound
+                </button>
+              </div>
+              <div class="now-playing-info">
+                <div>
+                  <h2 id="playing-title">Room for a first take</h2>
+                  <p id="playing-style">Generate a take to start listening.</p>
+                </div>
+                <button
+                  type="button"
+                  id="player-favorite"
+                  class="icon-button"
+                  aria-label="Favorite this recording"
+                  aria-pressed="false"
+                  disabled
+                >
+                  <span data-icon="heart"></span>
+                </button>
+              </div>
+              <div class="waveform-wrap" id="waveform-wrap">
+                <svg
+                  id="waveform"
+                  viewBox="0 0 640 54"
+                  preserveAspectRatio="none"
+                  aria-hidden="true"
+                ></svg
+                ><input
+                  type="range"
+                  id="seek"
+                  min="0"
+                  max="1"
+                  step="0.01"
+                  value="0"
+                  aria-label="Seek in recording"
+                  disabled
+                />
+              </div>
+              <div class="time-row">
+                <span id="current-time">0:00</span
+                ><span id="total-time">0:00</span>
+              </div>
+              <div class="transport">
+                <div class="volume-control">
+                  <span data-icon="volume"></span
+                  ><input
+                    type="range"
+                    id="volume"
+                    min="0"
+                    max="1"
+                    step="0.05"
+                    value="0.8"
+                    aria-label="Volume"
+                  />
+                </div>
+                <button
+                  type="button"
+                  id="play"
+                  class="play-button"
+                  aria-label="Play recording"
+                  disabled
+                >
+                  <span data-icon="play"></span>
+                </button>
+                <div class="transport-secondary">
+                  <a
+                    id="download"
+                    class="icon-button"
+                    aria-label="Download WAV"
+                    aria-disabled="true"
+                    ><span data-icon="download"></span></a
+                  ><button
+                    type="button"
+                    id="track-details"
+                    class="icon-button"
+                    aria-label="Recording details"
+                    disabled
+                  >
+                    <span data-icon="more"></span>
+                  </button>
+                </div>
+              </div>
+              <button
+                type="button"
+                id="variation"
+                class="variation-button"
+                disabled
+              >
+                <span data-icon="branch"></span>Make a variation<span
+                  class="quiet-text"
+                  >Start from this take</span
+                >
+              </button>
+            </section>
+
+            <details id="producer-panel" class="producer-panel" hidden>
+              <summary>
+                <span>Producer review</span
+                ><span id="review-count" class="quiet-text"></span>
+              </summary>
+              <div class="producer-body">
+                <div class="producer-intro">
+                  <p>Listen, revise, repeat.</p>
+                  <button
+                    type="button"
+                    class="text-button"
+                    id="producer-settings"
+                  >
+                    Settings
+                  </button>
+                </div>
+                <p id="producer-connection" class="quiet-text"></p>
+                <a id="review-parent" class="text-button review-parent" hidden
+                  >Listen to the previous take ↗</a
+                >
+                <form id="review-form">
+                  <label for="review-focus"
+                    >What would make the next take better?</label
+                  >
+                  <textarea
+                    id="review-focus"
+                    rows="3"
+                    placeholder="Bring the crowd forward. Let the bridge breathe. Find a bolder ending."
+                  ></textarea>
+                  <label class="review-check"
+                    ><input
+                      type="checkbox"
+                      id="review-keep-lyrics"
+                      checked
+                    />Keep these lyrics</label
+                  >
+                  <button
+                    type="submit"
+                    id="request-review"
+                    class="secondary-button solid"
+                  >
+                    Review & suggest a take
+                  </button>
+                  <p class="control-hint">
+                    Sends this recording, its lyrics, and direction to
+                    OpenRouter. OpenRouter usage charges apply.
+                  </p>
+                  <p
+                    id="review-error"
+                    class="form-error"
+                    role="alert"
+                    hidden
+                  ></p>
+                </form>
+                <div id="producer-notes" aria-live="polite"></div>
+              </div>
+            </details>
+
+            <section class="recent-section">
+              <div class="section-heading">
+                <h2>Recent recordings</h2>
+                <button type="button" class="text-button" data-view="library">
+                  View library
+                </button>
+              </div>
+              <div id="recent-tracks"></div>
+            </section>
+          </aside>
+        </div>
+      </section>
+
+      <section
+        id="library-view"
+        class="view library-view"
+        aria-labelledby="library-heading"
+        hidden
+      >
+        <div class="library-intro">
+          <div>
+            <h1 id="library-heading">
+              Keep what<br />
+              moves you.
+            </h1>
+            <p id="library-description">
+              Recordings, variations, and favorites.
+            </p>
+          </div>
+          <button type="button" class="secondary-button" data-view="studio">
+            <span data-icon="plus"></span>New recording
+          </button>
+        </div>
+        <div class="library-toolbar">
+          <div
+            class="library-filters"
+            role="group"
+            aria-label="Filter recordings"
+          >
+            <button
+              type="button"
+              data-filter="all"
+              class="filter-button active"
+              aria-pressed="true"
+            >
+              All recordings</button
+            ><button
+              type="button"
+              data-filter="favorites"
+              class="filter-button"
+              aria-pressed="false"
+            >
+              Favorites</button
+            ><button
+              type="button"
+              data-filter="archive"
+              class="filter-button"
+              aria-pressed="false"
+            >
+              Archive
+            </button>
+          </div>
+          <div class="library-search">
+            <span data-icon="search"></span
+            ><input
+              type="search"
+              id="search"
+              placeholder="Find a recording"
+              aria-label="Find a recording"
+            />
+          </div>
+          <label class="sr-only" for="sort">Sort recordings</label
+          ><select id="sort">
+            <option value="newest">Newest first</option>
+            <option value="oldest">Oldest first</option>
+            <option value="name">By name</option>
+          </select>
+        </div>
+        <div id="library-grid" class="library-grid"></div>
+        <div id="library-empty" class="empty-state" hidden>
+          <span class="empty-glyph" aria-hidden="true">∿</span>
+          <h2 id="empty-title">A collection starts with a sound.</h2>
+          <p id="empty-description">Make your first recording in the studio.</p>
+          <button type="button" class="secondary-button" data-view="studio">
+            Go to studio
+          </button>
+        </div>
+        <section class="activity-section">
+          <h2>Take history</h2>
+          <div id="job-history"></div>
+        </section>
+      </section>
+    </main>
+
+    <div id="mini-player" class="mini-player" hidden>
+      <button
+        type="button"
+        id="mini-play"
+        class="icon-button"
+        aria-label="Pause library playback"
+      >
+        <span data-icon="pause"></span></button
+      ><button
+        type="button"
+        id="mini-title"
+        class="text-button"
+        data-view="studio"
+      >
+        Back to the listening room</button
+      ><span id="mini-time"></span
+      ><button type="button" id="next-track" class="text-button">
+        Listen next
+      </button>
+    </div>
+    <footer class="app-footer">
+      <span
+        >riff.
+        <a class="footer-tagline" href="https://github.com/Flip-Engineering/riff" target="_blank" rel="noreferrer">Flip Engineering</a></span
+      ><button type="button" class="text-button" id="footer-about">
+        About Riff
+      </button>
+    </footer>
+    <audio id="audio" preload="metadata"></audio>
+    <div id="toast" class="toast" role="status" hidden></div>
+
+    <dialog id="track-dialog" class="detail-dialog">
+      <div class="dialog-top">
+        <span>Recording notes</span
+        ><button
+          type="button"
+          class="icon-button"
+          data-close="track-dialog"
+          aria-label="Close recording details"
+        >
+          <span data-icon="close"></span>
+        </button>
+      </div>
+      <form id="track-edit-form">
+        <label for="edit-title">Title</label
+        ><input id="edit-title" class="edit-title" required />
+        <div id="track-facts" class="track-facts"></div>
+        <label for="edit-notes">Notes</label
+        ><textarea
+          id="edit-notes"
+          rows="3"
+          placeholder="What worked? What would you change next time?"
+        ></textarea>
+        <details class="recipe-disclosure">
+          <summary>
+            Lyrics &amp; recipe<span data-icon="chevron"></span>
+          </summary>
+          <p id="detail-style"></p>
+          <pre id="detail-lyrics"></pre>
+          <p id="detail-settings" class="quiet-text"></p>
+        </details>
+        <div class="dialog-actions">
+          <button type="button" class="text-button" id="archive-track">
+            Archive recording</button
+          ><button type="submit" class="secondary-button solid">
+            Save changes
+          </button>
+        </div>
+      </form>
+      <div class="export-row">
+        <a id="export-audio" class="text-button"
+          ><span data-icon="download"></span>WAV</a
+        ><a id="export-recipe" class="text-button"
+          ><span data-icon="document"></span>Recipe</a
+        ><button type="button" id="export-art" class="text-button">
+          <span data-icon="image"></span>Artwork
+        </button>
+        <button type="button" id="copy-listening-link" class="text-button">
+          Copy listening link
+        </button>
+      </div>
+      <p id="detail-error" class="form-error" role="alert" hidden></p>
+    </dialog>
+
+    <dialog
+      id="writing-dialog"
+      class="writing-dialog"
+      aria-labelledby="writing-heading"
+    >
+      <div class="dialog-top">
+        <div>
+          <h2 id="writing-heading">The lyric sheet</h2>
+          <p id="writing-song" class="quiet-text"></p>
+        </div>
+        <button
+          type="button"
+          class="secondary-button solid"
+          data-close="writing-dialog"
+        >
+          Done
+        </button>
+      </div>
+      <label class="sr-only" for="writing-pad">Expanded writing space</label>
+      <textarea id="writing-pad" spellcheck="true"></textarea>
+      <div class="writing-foot">
+        <span id="writing-count" class="quiet-text"></span
+        ><span id="writing-status" class="quiet-text"
+          >Draft saved as you write</span
+        >
+      </div>
+    </dialog>
+
+    <dialog
+      id="review-settings-dialog"
+      class="small-dialog"
+      aria-labelledby="review-settings-heading"
+    >
+      <div class="dialog-top">
+        <h2 id="review-settings-heading">A second pair of ears</h2>
+        <button
+          type="button"
+          class="icon-button"
+          data-close="review-settings-dialog"
+          aria-label="Close review settings"
+        >
+          <span data-icon="close"></span>
+        </button>
+      </div>
+      <p class="dialog-description">
+        Connect a listening model to help shape your next take.
+      </p>
+      <form id="review-settings-form">
+        <label class="review-check"
+          ><input type="checkbox" id="reviews-enabled" />Enable OpenRouter
+          reviews</label
+        >
+        <label for="review-model">Listening model</label
+        ><input
+          id="review-model"
+          list="review-models"
+          value="google/gemini-3.8-flash"
+          required
+          autocomplete="off"
+        />
+        <datalist id="review-models"></datalist>
+        <button type="button" id="refresh-review-models" class="text-button">
+          Browse current audio models
+        </button>
+        <p id="review-model-status" class="quiet-text" role="status"></p>
+        <label for="review-api-key">OpenRouter API key</label
+        ><input
+          type="password"
+          id="review-api-key"
+          autocomplete="new-password"
+          spellcheck="false"
+          autocapitalize="off"
+          placeholder="Paste a key to save or replace it"
+        />
+        <p id="review-key-status" class="control-hint">
+          Saved in macOS Keychain.
+        </p>
+        <p
+          id="review-settings-error"
+          class="form-error"
+          role="alert"
+          hidden
+        ></p>
+        <div class="dialog-actions">
+          <button type="button" id="remove-review-key" class="text-button">
+            Remove saved key</button
+          ><button type="submit" class="secondary-button solid">
+            Save review settings
+          </button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="preset-dialog" class="small-dialog">
+      <div class="dialog-top">
+        <h2>Keep this sound</h2>
+        <button
+          type="button"
+          class="icon-button"
+          data-close="preset-dialog"
+          aria-label="Close saved sound dialog"
+        >
+          <span data-icon="close"></span>
+        </button>
+      </div>
+      <p class="dialog-description">
+        Save the sound description to use in another recording.
+      </p>
+      <form id="preset-form">
+        <label for="preset-name">Sound name</label
+        ><input
+          id="preset-name"
+          placeholder="Something to come back to"
+          required
+        />
+        <p id="preset-error" class="form-error" role="alert" hidden></p>
+        <button type="submit" class="secondary-button solid">Save sound</button>
+      </form>
+    </dialog>
+
+    <dialog id="sounds-dialog" class="sounds-dialog">
+      <div class="dialog-top">
+        <h2>Your sounds</h2>
+        <button
+          type="button"
+          class="icon-button"
+          data-close="sounds-dialog"
+          aria-label="Close sound manager"
+        >
+          <span data-icon="close"></span>
+        </button>
+      </div>
+      <p class="dialog-description">
+        Keep musical directions you want to return to.
+      </p>
+      <div class="sounds-manager">
+        <div
+          id="sound-list"
+          class="sound-list"
+          aria-label="Saved sound library"
+        ></div>
+        <form id="sound-edit-form">
+          <label for="sound-edit-name">Name</label
+          ><input id="sound-edit-name" required /><label for="sound-edit-style"
+            >Sound description</label
+          ><textarea id="sound-edit-style" rows="6" required></textarea>
+          <div class="dialog-actions">
+            <button type="button" id="remove-sound" class="text-button">
+              Remove sound</button
+            ><button type="submit" class="secondary-button solid">
+              Save sound changes
+            </button>
+          </div>
+          <button type="button" id="use-managed-sound" class="text-button">
+            Use this sound
+          </button>
+        </form>
+      </div>
+      <p id="sounds-empty" class="dialog-description" hidden>
+        Build your collection with “Save this sound” in the studio.
+      </p>
+      <p id="sounds-error" class="form-error" role="alert" hidden></p>
+    </dialog>
+
+
+    <dialog id="score-dialog" class="score-dialog">
+      <div class="dialog-top"><div><h2>Composition</h2><p class="control-hint">Shape the melody and harmony before the performance.</p></div><button type="button" class="icon-button" data-close="score-dialog" aria-label="Close composition"><span data-icon="close"></span></button></div>
+      <div class="score-compose-row"><div><label for="score-mode">Plan</label><select id="score-mode"><option value="melody">Melody</option><option value="full">Melody and chords</option></select></div><button type="button" class="secondary-button" id="compose-score">Compose a new score</button><span id="score-status" role="status"></span></div>
+      <div class="score-header-controls"><div><label for="score-tempo">Tempo</label><input type="number" id="score-tempo" min="1" step="any" placeholder="BPM" /></div><div><label for="score-meter">Meter</label><input id="score-meter" type="text" placeholder="4/4" /></div><div><label for="score-key">Key or mode</label><input id="score-key" type="text" list="score-keys" placeholder="Dm, Dphr…" /><datalist id="score-keys"><option value="C"/><option value="Dm"/><option value="Am"/><option value="Ddor"/><option value="Dphr"/></datalist></div><button type="button" class="text-button" id="apply-score-header">Apply</button></div>
+      <div class="score-paper"><p id="score-empty">Compose a score from your current sound and lyrics, import one, or start a sketch.</p><div id="score-notation" aria-label="Musical score"></div></div>
+      <div class="score-transport"><button type="button" class="secondary-button" id="audition-score" disabled>Play score</button><button type="button" class="text-button" id="stop-score" disabled>Stop</button><span class="control-hint">Simple tone preview</span><div class="transpose-controls"><button type="button" class="text-button" id="transpose-down" aria-label="Transpose down a semitone">− semitone</button><button type="button" class="text-button" id="transpose-up" aria-label="Transpose up a semitone">+ semitone</button></div></div>
+      <div id="note-editor" class="note-editor" hidden><label for="note-token" id="score-note-description">Selected note</label><input id="note-token" type="text" spellcheck="false" /><button type="button" class="secondary-button" id="apply-note">Apply note edit</button></div>
+      <details class="score-source-details"><summary>Edit ABC notation</summary><p class="control-hint">Click a note in the score to select its notation. D2 is a D held for two units; [DFA] is a chord.</p><label for="score-source" class="sr-only">ABC composition</label><textarea id="score-source" spellcheck="false" rows="10"></textarea></details>
+      <p id="score-warning" class="control-hint score-warning" role="status"></p>
+      <details class="score-source-details"><summary>Describe a musical change</summary><label for="score-change" class="sr-only">Requested score change</label><textarea id="score-change" rows="2" placeholder="Keep the melody, give the chorus darker harmony, and leave a bar of silence before it returns."></textarea><div class="score-compose-row"><button type="button" class="secondary-button" id="revise-score">Suggest an edit</button><button type="button" class="text-button" id="stop-score-edit" hidden>Stop writing</button><div><label for="score-edit-budget">Writing token budget</label><input id="score-edit-budget" type="number" min="1" step="1" value="4096" /></div></div><p class="control-hint">Sends the score, lyrics, direction and your request through the connection in Review settings. OpenRouter usage charges apply.</p><p id="score-edit-status" class="control-hint" role="status"></p><div id="score-proposal" hidden><p id="score-proposal-summary"></p><div id="score-proposal-notation" class="score-paper"></div><div class="score-file-actions"><button type="button" class="secondary-button" id="apply-score-proposal">Apply to score</button><button type="button" class="text-button" id="dismiss-score-proposal">Dismiss</button></div></div></details>
+      <div class="score-file-actions"><button type="button" class="text-button" id="new-score">Start a sketch</button><label class="text-button file-action">Import ABC<input type="file" id="import-abc" accept=".abc,.txt,text/plain" /></label><button type="button" class="text-button" id="export-abc">Export ABC</button><button type="button" class="text-button" id="export-midi" disabled>Export MIDI</button><button type="button" class="text-button" id="score-undo" disabled>Undo score edit</button></div>
+      <details class="score-history"><summary>Composed scores</summary><div id="score-history"></div></details>
+    </dialog>
+    <dialog id="system-dialog" class="system-dialog">
+      <div class="dialog-top"><h2>Studio settings</h2><button type="button" class="icon-button" data-close="system-dialog" aria-label="Close studio settings"><span data-icon="close"></span></button></div>
+      <section class="system-section"><h3>Music engine</h3>
+        <form id="engine-form"><div class="advanced-grid"><div><label for="engine-backend">Acceleration</label><select id="engine-backend"><option value="metal">Apple Metal</option><option value="cuda">NVIDIA CUDA</option><option value="cpu">CPU</option></select></div><div><label for="engine-threads">CPU threads</label><input id="engine-threads" type="number" min="1" step="1" /></div></div>
+          <details><summary>Engine paths and device</summary><div class="advanced-grid"><div><label for="engine-device">GPU device</label><input id="engine-device" type="number" min="0" step="1" /></div><div><label for="engine-binary">audio.cpp executable</label><input id="engine-binary" type="text" /></div><div><label for="engine-model-root">Model folder</label><input id="engine-model-root" type="text" /></div><div><label for="engine-model-file">Music model GGUF</label><input id="engine-model-file" type="text" /></div><div><label for="engine-vae-file">Audio decoder GGUF</label><input id="engine-vae-file" type="text" /></div></div></details>
+          <div class="system-actions"><button type="button" class="secondary-button" id="setup-engine">Download and set up</button><button type="submit" class="text-button">Use engine settings</button></div>
+        </form>
+        <p class="control-hint">Setup downloads about 2.93 GB of music weights and builds audio.cpp for your selected accelerator. Existing verified downloads are reused.</p>
+        <div id="setup-requirements" class="control-hint"></div>
+        <progress id="system-progress" aria-label="Setup progress" hidden></progress><p id="system-task" role="status"></p><a href="/api/system/log" target="_blank" class="text-button">Setup log</a>
+      </section>
+      <section class="system-section"><h3>Updates</h3><p id="system-version"></p><p id="system-update-state" role="status"></p>
+        <label class="review-check"><input id="automatic-checks" type="checkbox" />Check automatically</label>
+        <label class="review-check"><input id="automatic-downloads" type="checkbox" />Prepare updates when the studio is idle</label>
+        <div class="system-actions"><button type="button" class="secondary-button" id="check-update">Check for updates</button><button type="button" class="secondary-button" id="install-update" hidden>Prepare update</button><button type="button" class="secondary-button" id="restart-update" hidden>Restart and update</button></div>
+        <p id="managed-hint" class="control-hint">This copy runs from source. <a href="https://github.com/Flip-Engineering/riff/releases" target="_blank" rel="noreferrer">Install a release</a> to enable app updates.</p>
+      </section>
+    </dialog>
+    <dialog id="about-dialog" class="small-dialog">
+      <div class="dialog-top">
+        <h2>About Riff</h2>
+        <button
+          type="button"
+          class="icon-button"
+          data-close="about-dialog"
+          aria-label="Close about studio"
+        >
+          <span data-icon="close"></span>
+        </button>
+      </div>
+      <p class="dialog-description">
+        Start with a sound, bring your own words, or explore a new idea. Shape
+        the performance, compare your takes, and build a collection.
+      </p>
+      <div class="about-facts">
+        <div><span>Music generation</span><strong>YuE2</strong></div>
+        <div><span>Audio</span><strong>48 kHz stereo</strong></div>
+      </div>
+      <p class="dialog-description">
+        Each recording has its own flowing artwork, ready to keep alongside the
+        music.
+      </p>
+      <p class="control-hint">
+        YuE2 weights: CC BY-NC 4.0. Each take can find its own ending within the
+        chosen length.
+      </p>
+    </dialog>
+  </body>
+</html>
