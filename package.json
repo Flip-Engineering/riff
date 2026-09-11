@@ -12,7 +12,7 @@
     "test:all-browser": "node tests/all-browser.mjs"
   },
   "devDependencies": {
-    "playwright": "1.58.2"
+    "playwright": "1.63.0"
   },
   "dependencies": {
     "abcjs": "6.7.0"
