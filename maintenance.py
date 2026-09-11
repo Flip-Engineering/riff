@@ -37,7 +37,7 @@ class Maintenance:
         with self.generator.store.db() as db:
             queued = db.execute("SELECT count(*) FROM jobs WHERE status IN ('queued','running','cancelling')").fetchone()[0]
         reviews = self.reviews.snapshot() if self.reviews else []
-        return bool(queued or self.generator.writer_process or any(r["status"] in ("queued", "running", "cancelling") for r in reviews))
+        return bool(queued or self.generator.writer_gate.locked() or any(r["status"] in ("queued", "running", "cancelling") for r in reviews))
 
     def snapshot(self):
         with self.lock:

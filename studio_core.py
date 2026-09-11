@@ -336,8 +336,10 @@ class Generator:
         self.lock = threading.RLock()
         self.process = None
         self.writer_process = None
+        self.writer_job_id = None
         self.writer_cancelled = False
         self.model_gate = threading.Lock()
+        self.writer_gate = threading.Lock()
         self.live = None
         self.monitor = engine.platform_runtime.ProcessMemory()
         with store.db() as db:
@@ -360,12 +362,19 @@ class Generator:
     def inspiration(self, payload):
         if payload.get("idea_engine", "ai") == "phrases":
             return inspire(payload)
-        if not self.model_gate.acquire(blocking=False):
+        local = payload.get("idea_engine", "ai") != "openrouter"
+        if local and not self.model_gate.acquire(blocking=False):
             raise ValueError("The local model is busy. Try the writer after this take, or choose the instant phrase shuffler.")
         try:
-            return self.write_idea(payload)
+            if not self.writer_gate.acquire(blocking=False):
+                raise ValueError("A writing request is already running. Finish or stop it before starting another.")
+            try:
+                return self.write_idea(payload)
+            finally:
+                self.writer_gate.release()
         finally:
-            self.model_gate.release()
+            if local:
+                self.model_gate.release()
 
     @staticmethod
     def writer_command(output):
@@ -373,7 +382,7 @@ class Generator:
 
     def cancel_writing(self):
         with self.lock:
-            if self.live or not self.writer_process or self.writer_process.poll() is not None:
+            if self.writer_job_id or not self.writer_process or self.writer_process.poll() is not None:
                 raise ValueError("There is no standalone writing session to stop.")
             self.writer_cancelled = True
             self.writer_process.terminate()
@@ -411,6 +420,7 @@ class Generator:
                     self.live = {"id": job_id, "title": checked["title"], "stage": "Writing a new song idea",
                                  "stage_index": 0, "elapsed": 0, "footprint": 0, "peak_footprint": 0}
                 self.writer_cancelled = False
+                self.writer_job_id = job_id
                 self.writer_process = subprocess.Popen(
                     ([sys.executable, str(ROOT / "writer.py"), "--output", str(output)] if cloud else self.writer_command(output)),
                     cwd=ROOT, stdin=subprocess.PIPE, stdout=log, stderr=log)
@@ -444,6 +454,7 @@ class Generator:
                         proc.terminate()
                     proc.wait()
                     self.writer_process = None
+                    self.writer_job_id = None
 
     def submit(self, payload):
         recipe = validate_recipe(payload)
@@ -509,7 +520,8 @@ class Generator:
                 with self.store.db() as db:
                     if db.execute("SELECT status FROM jobs WHERE id=?", (job_id,)).fetchone()[0] == "cancelling":
                         return
-                idea = self.write_idea(recipe, job_id, started)
+                with self.writer_gate:
+                    idea = self.write_idea(recipe, job_id, started)
                 peak = self.live.get("peak_footprint", 0) if self.live else 0
                 recipe = validate_recipe({**recipe, "lyrics": idea["lyrics"],
                                           "title": idea["title"] if recipe.get("title_auto") else recipe["title"],

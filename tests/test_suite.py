@@ -64,6 +64,19 @@ class PlatformTests(unittest.TestCase):
 
 
 class SymbolicTests(StudioFixture):
+    def test_cloud_composer_can_write_while_the_local_music_slot_is_in_use(self):
+        generator = Generator(self.store)
+        try:
+            with generator.model_gate, patch.object(generator, "write_idea", return_value={"abc": "K:Dm\nD2"}):
+                self.assertEqual(generator.inspiration({"idea_engine": "openrouter"})["abc"], "K:Dm\nD2")
+                with self.assertRaisesRegex(ValueError, "local model is busy"):
+                    generator.inspiration({"idea_engine": "ai"})
+                with generator.writer_gate:
+                    with self.assertRaisesRegex(ValueError, "writing request is already running"):
+                        generator.inspiration({"idea_engine": "openrouter"})
+        finally:
+            generator.close()
+
     def test_plan_tokens_decode_to_actual_abc_without_reading_audio(self):
         vocabulary = self.root / "vocab"
         vocabulary.write_text(base64.b64encode(b"X:1\nK:Dm\nD2 F2").decode() + " 42\n")
