@@ -38,11 +38,16 @@ def build():
     version = (ROOT / "VERSION").read_text().strip(); version_tuple(version)
     if json.loads((ROOT / "package.json").read_text())["version"] != version:
         raise ValueError("VERSION and package.json disagree")
+    files = public_files()
+    tracked = set(subprocess.check_output(["git", "ls-files", "-z"], cwd=ROOT).decode().split("\0"))
+    unexpected = [str(path.relative_to(ROOT)) for path in files if str(path.relative_to(ROOT)) not in tracked]
+    if unexpected:
+        raise ValueError("Untracked files in release directories: " + ", ".join(unexpected))
     epoch = int(os.environ.get("SOURCE_DATE_EPOCH") or subprocess.check_output(["git", "log", "-1", "--format=%ct"], cwd=ROOT))
     destination = ROOT / "dist"; destination.mkdir(exist_ok=True)
     archive = destination / f"riff-v{version}.tar.gz"
     with archive.open("wb") as raw, gzip.GzipFile(fileobj=raw, mode="wb", filename="", mtime=epoch) as compressed, tarfile.open(fileobj=compressed, mode="w") as tar:
-        for path in public_files():
+        for path in files:
             item = tar.gettarinfo(str(path), arcname=path.relative_to(ROOT).as_posix())
             item.mtime, item.uid, item.gid, item.uname, item.gname = epoch, 0, 0, "", ""
             item.mode = 0o755 if os.access(path, os.X_OK) else 0o644

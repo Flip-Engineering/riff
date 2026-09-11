@@ -13,6 +13,7 @@ from unittest.mock import patch
 import install
 import launcher
 import writer
+from scripts import package_release
 import model_options
 import platform_support
 import run
@@ -90,6 +91,20 @@ class SymbolicTests(StudioFixture):
 
 
 class InstallerTests(unittest.TestCase):
+    def test_packaging_refuses_an_untracked_file_before_writing_an_archive(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "VERSION").write_text("0.2.0")
+            (root / "package.json").write_text('{"version":"0.2.0"}')
+            (root / "web").mkdir()
+            private = root / "web/connection.env"; private.write_text("private draft settings")
+            subprocess.run(["git", "init", "--quiet", str(root)], check=True)
+            subprocess.run(["git", "-C", str(root), "add", "VERSION", "package.json"], check=True)
+            with patch.object(package_release, "ROOT", root), patch.object(package_release, "public_files", return_value=[private]):
+                with self.assertRaisesRegex(ValueError, "Untracked"):
+                    package_release.build()
+            self.assertFalse((root / "dist").exists())
+
     def test_engine_update_applies_once_and_rollback_restores_previous_settings(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory); data = root / "workspace/data"; data.mkdir(parents=True)
