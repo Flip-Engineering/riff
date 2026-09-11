@@ -1,0 +1,55 @@
+diff --git a/model_specs/yue2.json b/model_specs/yue2.json
+index 9bf293c..72c389f 100644
+--- a/model_specs/yue2.json
++++ b/model_specs/yue2.json
+@@ -43,14 +43,14 @@
+       {
+         "name": "style",
+         "type": "string",
+-        "description": "Song style/tags.",
+-        "required": true
++        "description": "Optional song style/tags.",
++        "required": false
+       },
+       {
+         "name": "lyrics",
+         "type": "string",
+-        "description": "Lyrics text. If omitted, the CLI text input is used.",
+-        "required": true
++        "description": "Optional lyrics text. Empty lyrics leave words and structure to the model.",
++        "required": false
+       },
+       {
+         "name": "cot",
+diff --git a/src/models/yue2/request.cpp b/src/models/yue2/request.cpp
+index e6e547e..9f3f922 100644
+--- a/src/models/yue2/request.cpp
++++ b/src/models/yue2/request.cpp
+@@ -148,12 +148,8 @@ void apply_options(
+ }
+ 
+ Yue2Request normalize_request(Yue2Request out) {
+-    if (out.style.empty()) {
+-        throw std::runtime_error("Yue2 requires non-empty style");
+-    }
+-    if (out.lyrics.empty()) {
+-        throw std::runtime_error("Yue2 requires non-empty lyrics");
+-    }
++    // Text fields are optional conditioning. Keep the generation/tokenizer path
++    // unchanged and allow the model to continue an empty style/lyrics prefix.
+     return out;
+ }
+ 
+diff --git a/src/models/yue2/session.cpp b/src/models/yue2/session.cpp
+index 234fe61..6c581f0 100644
+--- a/src/models/yue2/session.cpp
++++ b/src/models/yue2/session.cpp
+@@ -156,7 +156,7 @@ const runtime::CapabilitySet & yue2_capabilities() noexcept {
+ runtime::ModelCliInterface yue2_cli_interface() {
+     runtime::ModelCliInterface out;
+     out.request_options = {
+-        {"style", "string", "Music style prompt.", true},
++        {"style", "string", "Optional music style prompt.", false},
+         {"lyrics", "string", "Lyrics to generate.", false},
+         {"abc", "string", "ABC score conditioning text.", false},
+         {"abc_file", "path", "Path to ABC score conditioning text.", false},

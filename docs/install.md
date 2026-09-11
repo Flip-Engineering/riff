@@ -1,0 +1,73 @@
+# Installation and updates
+
+## Supported hosts
+
+| Host | Engine | Requirements |
+|---|---|---|
+| Apple Silicon macOS | Metal or CPU | Python 3.9+, Apple command-line tools |
+| Linux x86-64 | NVIDIA CUDA or CPU | Python 3.9+, Git, C++ compiler, Python venv support |
+| NVIDIA acceleration | CUDA | Compatible NVIDIA driver, CUDA Toolkit and `nvcc` on PATH |
+
+The native Windows desktop is not currently supported. A Linux environment such
+as WSL2 may be used, but WSL2 has not been included in hardware validation.
+
+Download `install.py` from the [latest release](https://github.com/Flip-Engineering/riff/releases/latest)
+and run `python3 install.py`. It installs versioned app files, creates a launcher,
+and opens the browser studio. Model setup is a separate visible action in Studio
+settings. For a terminal-only install use `--no-open`; `--root PATH` chooses the
+installation directory.
+
+On macOS the default location is `~/Library/Application Support/Riff`; a
+`Riff.command` launcher is added to `~/Applications`. Linux uses
+`${XDG_DATA_HOME:-~/.local/share}/riff` and creates a desktop entry. The studio
+binds to `127.0.0.1`; it is a personal application, not a public inference server.
+
+Engine setup pins audio.cpp and its three patches through `sources.json`. It builds
+only YuE2 and the selected accelerator, then probes devices before activation.
+Weights download in bounded chunks with resume support and SHA-256 verification.
+Build concurrency defaults to half the available CPU threads and can be set with
+`python3 setup_engine.py --jobs N`. CUDA architecture selection is configurable
+with `--cuda-arch`, for example `--cuda-arch '75;86;89'`; it otherwise detects the
+build host's GPU. Existing custom engines, GGUF models and device IDs can be used
+through the advanced engine settings.
+
+## Credentials and optional writing
+
+Audio reviews need FFmpeg. On macOS install it through your package manager;
+on Ubuntu use the `ffmpeg` package. Linux credentials need `secret-tool` from
+`libsecret-tools` and an unlocked Secret Service session, such as GNOME Keyring.
+The application will not save keys to an unencrypted file when that service is
+unavailable. Basic generation works without an OpenRouter connection.
+
+The local MLX writer requires Apple Silicon and `uv`. From the current release
+folder, run `RIFF_HOME=/path/to/install/workspace ./setup-writer.sh`. Source
+checkouts can run `./setup-writer.sh` directly. OpenRouter writing uses the saved
+connection and does not require MLX.
+
+## Update behavior
+
+Riff checks the official Flip-Engineering/riff stable release. It verifies the
+archive against the SHA-256 digest supplied by GitHub's release API, checks safe
+archive paths, and runs an import preflight before activation. The trust boundary
+is the official GitHub repository and HTTPS; this is not an independent signing
+system.
+
+New code goes into a separate release folder. Changed engine sources build in a
+separate directory; changed model pins use a separate model set. Current recordings
+and the SQLite library stay in the persistent workspace. Restart activates the
+prepared release. A failing startup preflight falls back to the previous version;
+engine activation records preserve user changes between launches. Old releases
+are retained for recovery and are not automatically pruned.
+
+Automatic checks default to once a day. Preparing updates while idle is opt-in;
+restart remains a visible action. Source checkouts receive release information but
+are updated with Git. To restore an installed version manually:
+
+```sh
+python3 -c 'from pathlib import Path; import install; root=Path("/path/to/Riff"); install.activate(root, root / "releases/0.2.0")'
+```
+
+Run that command from a release folder containing `install.py`, then open the
+stable launcher. Shut down the studio before manual activation. Back up
+`workspace/data/` and `workspace/outputs/` together. Model caches can be downloaded
+again; the library and recordings cannot.

@@ -1,0 +1,98 @@
+{
+  "runtime_repo": "https://github.com/0xShug0/audio.cpp",
+  "runtime_commit": "fbe3eedbf6c504e45189e2cdcf1b257740a28863",
+  "runtime_branch": "dev",
+  "model": {
+    "repo": "audio-cpp/Yue2-3B-GGUF",
+    "revision": "9c31f1c64f73d36799693aa89295b410c76928c3",
+    "files": {
+      "yue2-3b-q4_0.gguf": {
+        "bytes": 2665632320,
+        "sha256": "97af67d7f800b362faee6e6bec806bddfcccb93f25fd3f9a1012724d95af6f4a"
+      },
+      "yue2-vae-f16.gguf": {
+        "bytes": 265218656,
+        "sha256": "d4f4a05d8f291ae820cd1e43609da3fa91b56465810091a2b08c3350b751719d"
+      },
+      "sidecars/yue2-model-config.json": {
+        "bytes": 959,
+        "sha256": "ad3477bbef890bf98ae196c1e4b44779494a6231c4ab66f32708eabadf265329"
+      },
+      "sidecars/yue2-generation-config.json": {
+        "bytes": 466,
+        "sha256": "203830cebde6e3644eb291925362990d198e66c3b6006cd11f1aaa21904bcc61"
+      },
+      "sidecars/yue2-qwen.tiktoken": {
+        "bytes": 2561218,
+        "sha256": "b2b1b8dfb5cc5f024bafc373121c6aba3f66f9a5a0269e243470a1de16a33186"
+      },
+      "sidecars/yue2-vae-config.json": {
+        "bytes": 1378,
+        "sha256": "f0191bb9694009956de44e0c361a6f1334760be4c8f848e599bde242a54a0970"
+      }
+    }
+  },
+  "cmake": "4.4.3",
+  "local_patches": {
+    "patches/optional-conditioning.patch": {
+      "bytes": 2091,
+      "sha256": "9818eee8fc877c3b7d7a980cb084895931905fcd9b7ac48728446ff2e5b1e15e"
+    },
+    "patches/render-progress.patch": {
+      "bytes": 2304,
+      "sha256": "1f907d88ed608ef30f2a44d240de1556c966941ace706f45dcf6175558e288db"
+    },
+    "patches/symbolic-plan.patch": {
+      "bytes": 4420,
+      "sha256": "8d0b3599df4d4d4b8af9e51ad16a571a100e256013d0117887605828d203d46a"
+    }
+  },
+  "writer": {
+    "repo": "Qwen/Qwen3-0.6B-MLX-4bit",
+    "revision": "173234aa840d113125e9f2271100ddbaf16c9620",
+    "license": "Apache-2.0",
+    "runtime": "mlx-lm==0.31.3",
+    "files": {
+      ".gitattributes": {
+        "bytes": 1570,
+        "sha256": "34448b82c17d60fec9b65b1f093c115ddbaadc04beb1b0140b6bfed2e012a930"
+      },
+      "LICENSE": {
+        "bytes": 11343,
+        "sha256": "832dd9e00a68dd83b3c3fb9f5588dad7dcf337a0db50f7d9483f310cd292e92e"
+      },
+      "README.md": {
+        "bytes": 12499,
+        "sha256": "f9500fee642e2381d4dde48bc074d21722594b8c4dd74dd5a8d3442637e1c7f3"
+      },
+      "config.json": {
+        "bytes": 988,
+        "sha256": "0a07b68f1699472c68859db0fe6b46415c3ea1dee4d842216aadc1d2cda2e9c7"
+      },
+      "merges.txt": {
+        "bytes": 1671853,
+        "sha256": "8831e4f1a044471340f7c0a83d7bd71306a5b867e95fd870f74d0c5308a904d5"
+      },
+      "model.safetensors": {
+        "bytes": 316825742,
+        "sha256": "36162e7f72fe3eca308471e55161269e4605ab87d2666ae1f33ef800749c97dd"
+      },
+      "model.safetensors.index.json": {
+        "bytes": 49731,
+        "sha256": "70b3eb63114d68f40936b2cad3bec174af9c4d85849a88b36f308e8e9dd05ccb"
+      },
+      "tokenizer.json": {
+        "bytes": 11422654,
+        "sha256": "aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4"
+      },
+      "tokenizer_config.json": {
+        "bytes": 9689,
+        "sha256": "a6389dfe64f259c5626a9b7e6d7e5a152bfe2973eae9b20e362bc450fea09239"
+      },
+      "vocab.json": {
+        "bytes": 2776833,
+        "sha256": "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910"
+      }
+    }
+  }
+}

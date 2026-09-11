@@ -1,0 +1,402 @@
+{
+  "checked_at": "2026-09-10",
+  "queries": {
+    "hub_search": {
+      "url": "https://huggingface.co/api/models?search=YuE2&full=true",
+      "results": [
+        {
+          "id": "m-a-p/YuE2-3B",
+          "tags": [
+            "safetensors",
+            "yue2",
+            "music-generation",
+            "symbolic-planning",
+            "agentic-editing",
+            "custom_code",
+            "text-to-audio",
+            "zh",
+            "en",
+            "arxiv:2503.08638",
+            "license:cc-by-nc-4.0",
+            "region:us"
+          ],
+          "files": [
+            "README.md",
+            "config.json",
+            "generation_config.json",
+            "yue2_generation_config.json"
+          ]
+        },
+        {
+          "id": "m-a-p/YuE2-Vae",
+          "tags": [
+            "transformers",
+            "safetensors",
+            "yue2_vae",
+            "feature-extraction",
+            "audio",
+            "autoencoder",
+            "yue2",
+            "custom_code",
+            "arxiv:2503.08638",
+            "license:cc-by-nc-4.0",
+            "region:us"
+          ],
+          "files": [
+            "README.md",
+            "config.json"
+          ]
+        },
+        {
+          "id": "audio-cpp/Yue2-3B-GGUF",
+          "tags": [
+            "audio.cpp",
+            "gguf",
+            "music-generation",
+            "yue2",
+            "base_model:m-a-p/YuE2-3B",
+            "base_model:quantized:m-a-p/YuE2-3B",
+            "license:cc-by-nc-4.0",
+            "region:us"
+          ],
+          "files": [
+            "README.md",
+            "sidecars/yue2-generation-config.json",
+            "sidecars/yue2-model-config.json",
+            "sidecars/yue2-vae-config.json"
+          ]
+        },
+        {
+          "id": "m-a-p/YuE2-Vae-legacy",
+          "tags": [
+            "transformers",
+            "safetensors",
+            "yue2_vae",
+            "feature-extraction",
+            "audio",
+            "autoencoder",
+            "yue2",
+            "custom_code",
+            "arxiv:2503.08638",
+            "license:cc-by-nc-4.0",
+            "region:us"
+          ],
+          "files": [
+            "README.md",
+            "config.json"
+          ]
+        },
+        {
+          "id": "mrfakename/YuE2-3B",
+          "tags": [
+            "safetensors",
+            "yue2",
+            "music-generation",
+            "symbolic-planning",
+            "agentic-editing",
+            "custom_code",
+            "text-to-audio",
+            "zh",
+            "en",
+            "arxiv:2503.08638",
+            "license:cc-by-nc-4.0",
+            "region:us"
+          ],
+          "files": [
+            "README.md",
+            "config.json",
+            "generation_config.json",
+            "yue2_generation_config.json"
+          ]
+        },
+        {
+          "id": "t8star/YuE2-Comfy",
+          "tags": [
+            "safetensors",
+            "audio",
+            "music-generation",
+            "comfyui",
+            "voice-conversion",
+            "yue2",
+            "zh",
+            "en",
+            "license:other",
+            "region:us"
+          ],
+          "files": [
+            "Demucs/README.md",
+            "MERT-v2-FullSong/README.md",
+            "MERT-v2-FullSong/config.json",
+            "MERT-v2-FullSong/configuration_mert2.py",
+            "MERT-v2-FullSong/preprocessor_config.json",
+            "README.md",
+            "Seed-VC/bigvgan_v2_44khz_128band_512x/README.md",
+            "Seed-VC/bigvgan_v2_44khz_128band_512x/config.json",
+            "Seed-VC/config_dit_mel_seed_uvit_whisper_base_f0_44k.yml",
+            "Seed-VC/whisper-small/config.json",
+            "Seed-VC/whisper-small/generation_config.json",
+            "Seed-VC/whisper-small/preprocessor_config.json",
+            "Seed-VC/whisper-small/tokenizer_config.json",
+            "SheetSage2/README.md",
+            "SheetSage2/config.json",
+            "SheetSage2/configuration_mert2.py",
+            "SheetSage2/configuration_sheetsage2.py",
+            "SheetSage2/processor_config.json",
+            "YuE2-3B/README.md",
+            "YuE2-3B/config.json",
+            "YuE2-3B/generation_config.json",
+            "YuE2-3B/yue2_generation_config.json",
+            "YuE2-Vae/README.md",
+            "YuE2-Vae/config.json"
+          ]
+        },
+        {
+          "id": "Comfy-Org/Yue2",
+          "tags": [
+            "region:us"
+          ],
+          "files": []
+        },
+        {
+          "id": "ngquocvinh/YuE2-3B-GGUF",
+          "tags": [
+            "audio.cpp",
+            "gguf",
+            "yue2",
+            "yue2-3b",
+            "yue2-3b-gguf",
+            "music-generation",
+            "text-to-music",
+            "audio-generation",
+            "symbolic-planning",
+            "quantized",
+            "text-to-audio",
+            "en",
+            "zh",
+            "base_model:m-a-p/YuE2-3B",
+            "base_model:quantized:m-a-p/YuE2-3B",
+            "license:cc-by-nc-4.0",
+            "region:us"
+          ],
+          "files": [
+            "README.md",
+            "examples/README.md",
+            "reference/official-python/README.md",
+            "sidecars/yue2-generation-config.json",
+            "sidecars/yue2-model-config.json",
+            "sidecars/yue2-vae-config.json"
+          ]
+        },
+        {
+          "id": "Nerva1228/yue2",
+          "tags": [
+            "diffusers",
+            "flux",
+            "lora",
+            "replicate",
+            "text-to-image",
+            "en",
+            "base_model:black-forest-labs/FLUX.1-dev",
+            "base_model:adapter:black-forest-labs/FLUX.1-dev",
+            "license:other",
+            "region:us"
+          ],
+          "files": [
+            "README.md",
+            "config.yaml",
+            "lora.safetensors"
+          ]
+        },
+        {
+          "id": "yue202501/civillawtest",
+          "tags": [
+            "transformers",
+            "gguf",
+            "qwen2",
+            "text-generation-inference",
+            "unsloth",
+            "en",
+            "license:apache-2.0",
+            "endpoints_compatible",
+            "region:us"
+          ],
+          "files": [
+            "README.md",
+            "config.json"
+          ]
+        },
+        {
+          "id": "yue2304/jingjinglora",
+          "tags": [
+            "arxiv:1910.09700",
+            "base_model:Qwen/Qwen-Image-Edit",
+            "base_model:finetune:Qwen/Qwen-Image-Edit",
+            "license:apache-2.0",
+            "region:us"
+          ],
+          "files": [
+            "README.md"
+          ]
+        },
+        {
+          "id": "Yue-2003/GRANITE",
+          "tags": [
+            "region:us"
+          ],
+          "files": []
+        },
+        {
+          "id": "Yue-2003/TotoroPlus_Communication_Simulator",
+          "tags": [
+            "region:us"
+          ],
+          "files": [
+            "TotoroPlus_Communication_Simulator/communication/README.md",
+            "TotoroPlus_Communication_Simulator/communication/config.py",
+            "TotoroPlus_Communication_Simulator/communication/configs/albert_massive_v2.json",
+            "TotoroPlus_Communication_Simulator/communication/configs/mobilevit_cifar10.json",
+            "TotoroPlus_Communication_Simulator/communication/configs/resnet18_speech_commands_v2.json",
+            "TotoroPlus_Communication_Simulator/communication/configs/shufflenet_fmnist.json",
+            "TotoroPlus_Communication_Simulator/communication/generate_config.py",
+            "exp_albert_massive_v2_20260228_091942/comdml_random/config.json",
+            "exp_albert_massive_v2_20260228_091942/comdml_totoro/config.json",
+            "exp_albert_massive_v2_20260228_091942/experiment_config.json",
+            "exp_albert_massive_v2_20260228_091942/gossipfl_coordinator/config.json",
+            "exp_albert_massive_v2_20260228_091942/gossipfl_totoro/config.json",
+            "exp_mobilevit_cifar10_20260228_091842/comdml_random/config.json",
+            "exp_mobilevit_cifar10_20260228_091842/comdml_totoro/config.json",
+            "exp_mobilevit_cifar10_20260228_091842/experiment_config.json",
+            "exp_mobilevit_cifar10_20260228_091842/gossipfl_coordinator/config.json",
+            "exp_mobilevit_cifar10_20260228_091842/gossipfl_totoro/config.json",
+            "exp_resnet18_speech_commands_v2_20260228_091744/comdml_random/config.json",
+            "exp_resnet18_speech_commands_v2_20260228_091744/comdml_totoro/config.json",
+            "exp_resnet18_speech_commands_v2_20260228_091744/experiment_config.json",
+            "exp_resnet18_speech_commands_v2_20260228_091744/gossipfl_coordinator/config.json",
+            "exp_resnet18_speech_commands_v2_20260228_091744/gossipfl_totoro/config.json",
+            "exp_shufflenet_fmnist_20260228_091459/comdml_random/config.json",
+            "exp_shufflenet_fmnist_20260228_091459/comdml_totoro/config.json",
+            "exp_shufflenet_fmnist_20260228_091459/experiment_config.json",
+            "exp_shufflenet_fmnist_20260228_091459/gossipfl_coordinator/config.json",
+            "exp_shufflenet_fmnist_20260228_091459/gossipfl_totoro/config.json"
+          ]
+        },
+        {
+          "id": "Yue-2003/diffusion",
+          "tags": [
+            "region:us"
+          ],
+          "files": []
+        },
+        {
+          "id": "Yue-2003/lab6-ddpm",
+          "tags": [
+            "region:us"
+          ],
+          "files": []
+        },
+        {
+          "id": "Yue-2003/lab6-ddpm-base96",
+          "tags": [
+            "region:us"
+          ],
+          "files": []
+        },
+        {
+          "id": "AEmotionStudio/yue2-models",
+          "tags": [
+            "transformers",
+            "safetensors",
+            "music-generation",
+            "symbolic-music",
+            "abc-notation",
+            "mirror",
+            "text-to-audio",
+            "license:cc-by-nc-4.0",
+            "endpoints_compatible",
+            "region:us"
+          ],
+          "files": [
+            "README.md",
+            "lm/config.json",
+            "lm/generation_config.json",
+            "lm/yue2_generation_config.json",
+            "mert2/config.json",
+            "mert2/configuration_mert2.py",
+            "mert2/preprocessor_config.json",
+            "sheetsage2/config.json",
+            "sheetsage2/configuration_mert2.py",
+            "sheetsage2/configuration_sheetsage2.py",
+            "sheetsage2/processor_config.json",
+            "vae/config.json",
+            "vae_legacy/config.json"
+          ]
+        }
+      ]
+    },
+    "hub_base_model": {
+      "url": "https://huggingface.co/api/models?filter=base_model%3Am-a-p%2FYuE2-3B&full=true",
+      "results": [
+        {
+          "id": "audio-cpp/Yue2-3B-GGUF",
+          "tags": [
+            "audio.cpp",
+            "gguf",
+            "music-generation",
+            "yue2",
+            "base_model:m-a-p/YuE2-3B",
+            "base_model:quantized:m-a-p/YuE2-3B",
+            "license:cc-by-nc-4.0",
+            "region:us"
+          ],
+          "files": [
+            "README.md",
+            "sidecars/yue2-generation-config.json",
+            "sidecars/yue2-model-config.json",
+            "sidecars/yue2-vae-config.json"
+          ]
+        },
+        {
+          "id": "ngquocvinh/YuE2-3B-GGUF",
+          "tags": [
+            "audio.cpp",
+            "gguf",
+            "yue2",
+            "yue2-3b",
+            "yue2-3b-gguf",
+            "music-generation",
+            "text-to-music",
+            "audio-generation",
+            "symbolic-planning",
+            "quantized",
+            "text-to-audio",
+            "en",
+            "zh",
+            "base_model:m-a-p/YuE2-3B",
+            "base_model:quantized:m-a-p/YuE2-3B",
+            "license:cc-by-nc-4.0",
+            "region:us"
+          ],
+          "files": [
+            "README.md",
+            "examples/README.md",
+            "reference/official-python/README.md",
+            "sidecars/yue2-generation-config.json",
+            "sidecars/yue2-model-config.json",
+            "sidecars/yue2-vae-config.json"
+          ]
+        }
+      ]
+    },
+    "official_tree": {
+      "url": "https://api.github.com/repos/multimodal-art-projection/YuE/git/trees/main?recursive=1",
+      "results": {
+        "count": 88,
+        "truncated": false,
+        "related_files": [
+          "README.md",
+          "examples/README.md"
+        ]
+      }
+    }
+  }
+}

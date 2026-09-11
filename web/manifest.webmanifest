@@ -1,0 +1,16 @@
+{
+  "name": "Riff music studio",
+  "short_name": "Riff",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#1c1216",
+  "theme_color": "#1c1216",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
