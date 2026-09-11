@@ -18,6 +18,7 @@ try {
  await page.locator('#lyrics').fill('[Verse]\nReeds lean low where the silver runs.\nWe carry the quiet into the sun.\nA little light, a little room.\nA song takes shape in the afternoon.');
  await page.getByRole('button',{name:'Reed room',exact:true}).click();
  await page.locator('#duration').fill('28');
+ await page.evaluate(()=>{document.activeElement.blur();scrollTo(0,0);});
  await page.screenshot({path:'docs/studio.png'});
  await page.locator('.creative-controls > summary').click();
  await page.locator('#score-open').click();
