@@ -8,12 +8,52 @@ FIELDS = ("title", "lyrics", "style", "abc", "mode", "cot", "max_seconds",
           "steps", "cfg_scale", "temperature", "seed", "refinement")
 
 
-def symbolic_context(source):
+def generation_context(source):
+    keys = (*FIELDS, "brief", "idea_engine", "writer_tokens", "lyrics_source", "energy", "texture", "theme")
+    return {key: source[key] for key in keys if key in source}
+
+
+def _native_symbolic_context(source):
     plan = source.get("symbolic_plan") or {}
+    if not isinstance(plan, dict):
+        plan = {}
     return {"supplied_abc": source.get("abc", ""),
             "generated_abc": plan.get("abc", ""),
             "generated_plan_truncated": bool(plan.get("truncated", False)),
             "generated_plan_token_count": plan.get("token_count")}
+
+
+def symbolic_context(source):
+    context = _native_symbolic_context(source)
+    arrangement = source.get("arrangement")
+    if not isinstance(arrangement, dict):
+        return context
+    recipes = arrangement.get("source_recipes") or {}
+    if isinstance(recipes, list):
+        recipes = dict(zip(arrangement.get("sources") or [], recipes))
+    if not isinstance(recipes, dict):
+        recipes = {}
+    scores = arrangement.get("source_scores") or {}
+    if not isinstance(scores, dict):
+        scores = {}
+    sources = []
+    for track_id in dict.fromkeys([*recipes, *scores]):
+        recipe = recipes.get(track_id)
+        recipe = recipe if isinstance(recipe, dict) else {}
+        symbolic = _native_symbolic_context(recipe)
+        if not (symbolic["supplied_abc"] or symbolic["generated_abc"]) and isinstance(scores.get(track_id), str):
+            symbolic["source_abc"] = scores[track_id]
+        sources.append({"track_id": track_id, "inputs": generation_context(recipe), "symbolic": symbolic})
+    # Musical edits provide listening context; internal file paths and raw
+    # processing commands are not part of the producer's generation contract.
+    clip_fields = ("track_id", "timeline_start", "start", "end", "duration", "speed", "kind",
+                   "strength", "oud_windows", "double_snare")
+    clips = arrangement.get("clips") or []
+    context["arrangement"] = {
+        "sources": sources,
+        "clips": [{key: clip[key] for key in clip_fields if key in clip}
+                  for clip in clips if isinstance(clip, dict)] if isinstance(clips, list) else []}
+    return context
 
 
 def response_schema(source, keep_lyrics):

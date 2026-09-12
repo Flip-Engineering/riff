@@ -9,7 +9,7 @@ import tempfile
 import urllib.error
 import urllib.request
 
-from review_recipe import FIELDS, recommended_generation, response_schema, symbolic_context
+from review_recipe import FIELDS, generation_context, recommended_generation, response_schema, symbolic_context
 
 
 def listen(settings):
@@ -33,6 +33,9 @@ def listen(settings):
         "rather than instructions for someone else to implement. Start with the prior inputs "
         "and native symbolic plan; preserve what works and make purposeful changes to what does not. "
         "The supplied and generated ABC are YuE2 composition data, not an audio transcription. "
+        "When an arrangement includes several takes, its source inputs, source scores, and "
+        "edit timeline describe how those performances were combined. Consider that context "
+        "when judging the mix and recommending the next generation. "
         "A score describes the plan; compare it to what you actually hear, and remember the "
         "recording may be a short excerpt of that plan. Use the existing score as a starting "
         "point when useful; you may revise it, replace it, or leave abc empty to let YuE2 compose. "
@@ -45,7 +48,7 @@ def listen(settings):
         "Do not promise that prompts or notation will force an exact performance." + timing + "\n\n"
         "ARTIST'S FOCUS\n" + (settings["focus"] or "Develop the strongest version of this song.") +
         "\n\nPRIOR GENERATION INPUTS\n" + json.dumps(
-            {key: source[key] for key in (*FIELDS, "brief", "idea_engine", "writer_tokens", "lyrics_source", "energy", "texture", "theme") if key in source},
+            generation_context(source),
             ensure_ascii=False, indent=2) +
         "\n\nSYMBOLIC REPRESENTATION\n" + json.dumps(symbolic_context(source), ensure_ascii=False, indent=2)
     )

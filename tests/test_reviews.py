@@ -183,7 +183,7 @@ class ReviewClientTests(unittest.TestCase):
                 "summary":"Carry the choir with a clearer brass pulse.",
                 "generation":{key:take[key] for key in FIELDS}}
 
-    def request(self, response_text, keep=True, finish="stop"):
+    def request(self, response_text, keep=True, finish="stop", source=None):
         from io import BytesIO
         from pathlib import Path
         captured = {}
@@ -194,7 +194,7 @@ class ReviewClientTests(unittest.TestCase):
             captured.update(json.loads(request.data))
             self.assertEqual(request.get_header("Authorization"), "Bearer test-secret")
             return BytesIO(json.dumps({"choices":[{"message":{"content":response_text}, "finish_reason":finish}], "usage":{"cost":0}}).encode())
-        settings = {"recipe":self.source(),"keep_lyrics":keep,"focus":"Make it stranger.",
+        settings = {"recipe":self.source() if source is None else source,"keep_lyrics":keep,"focus":"Make it stranger.",
                     "model":"google/gemini-3.8-flash","api_key":"test-secret","audio":"fixture.wav","duration":27.52}
         with patch("review_client.shutil.which",return_value="ffmpeg"), \
                 patch("review_client.subprocess.run", side_effect=encode), \
@@ -217,6 +217,32 @@ class ReviewClientTests(unittest.TestCase):
             self.assertIn(text,content[0]["text"])
         self.assertEqual(validate_recipe(result["generation"])["steps"],37)
         self.assertEqual(result["generation"]["lyrics"], self.source()["lyrics"])
+
+    def test_arranged_audio_sends_each_source_score_and_musical_edits(self):
+        first = {**self.source(), "lyrics": "First call", "private_setting": "private-sentinel"}
+        second = {**self.source(), "lyrics": "Second answer", "cfg_scale": 1.7,
+                  "symbolic_plan": {"abc": "X:2\nK:Gm\nG2 B2 d4|", "truncated": True, "token_count": 31}}
+        for recipes in ({"first": first, "second": second}, [first, second]):
+            with self.subTest(storage=type(recipes).__name__):
+                source = {**self.source(), "arrangement": {"sources": ["first", "second"],
+                    "source_recipes": recipes, "source_scores": {"score-only": "X:3\nK:Dm\nD4|"},
+                    "clips": [{"track_id": "second", "timeline_start": 12.5, "start": 2, "end": 9,
+                               "speed": .95, "kind": "chorus", "file": "private-file-sentinel",
+                               "filters": "private-processing-sentinel"}]}}
+                result, request = self.request(json.dumps(self.proposal()), source=source)
+                prompt = request["messages"][0]["content"][0]["text"]
+                context = json.loads(prompt.split("SYMBOLIC REPRESENTATION\n", 1)[1])["arrangement"]
+                by_id = {item["track_id"]: item for item in context["sources"]}
+                self.assertEqual(by_id["first"]["inputs"]["lyrics"], "First call")
+                self.assertEqual(by_id["second"]["inputs"]["cfg_scale"], 1.7)
+                self.assertIn("K:Gm", by_id["second"]["symbolic"]["generated_abc"])
+                self.assertTrue(by_id["second"]["symbolic"]["generated_plan_truncated"])
+                self.assertIn("K:Dm", by_id["score-only"]["symbolic"]["source_abc"])
+                self.assertEqual(context["clips"], [{"track_id": "second", "timeline_start": 12.5,
+                    "start": 2, "end": 9, "speed": .95, "kind": "chorus"}])
+                for private in ("private-sentinel", "private-file-sentinel", "private-processing-sentinel"):
+                    self.assertNotIn(private, prompt)
+                self.assertEqual(validate_recipe(result["generation"])["steps"], 37)
 
     def test_lyric_choice_is_explicit_and_custom_settings_are_retained(self):
         changed,_ = self.request(json.dumps(self.proposal(keep=False)),keep=False)
