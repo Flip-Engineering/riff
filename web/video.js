@@ -60,6 +60,7 @@ async function sendVideoFrame(operation, job, index, frame) {
         body: frame, signal: operation.controller.signal,
       });
       await checkVideoResponse(response);
+      await response.arrayBuffer();
       return;
     } catch (error) {
       if (operation.cancelled || operation.controller.signal.aborted || attempt >= 3 ||
@@ -103,8 +104,12 @@ async function createVideo(event) {
       if (operation.cancelled) return;
       const seconds = index / job.fps;
       drawSeedArtwork(context, job.width, job.height, track.recipe.seed, seconds, motionAt(motion, seconds));
-      const frame = await new Promise(resolve => canvas.toBlob(resolve, "image/png"));
-      if (!frame) throw new Error("The browser could not draw this video frame.");
+      let image = await new Promise(resolve => canvas.toBlob(resolve, "image/png"));
+      if (!image) throw new Error("The browser could not draw this video frame.");
+      // Keep the upload in ordinary byte storage and release the canvas Blob.
+      // Long exports must not accumulate request bodies in the browser's Blob store.
+      const frame = await image.arrayBuffer();
+      image = null;
       await sendVideoFrame(operation, job, index, frame);
       // Reuse the completed frame for the progress preview; no parallel audio playback.
       previewContext.setTransform(1, 0, 0, 1, 0, 0);
