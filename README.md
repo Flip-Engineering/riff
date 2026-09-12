@@ -48,7 +48,8 @@ The application license does not change the model's terms.
   Blank optional controls retain the runtime defaults.
 - **Listening and library.** Playback, seeking, a measured waveform, sculptural seed
   artwork with an immersive sound view, favorites, notes, search, reversible archiving,
-  and animated MP4, WAV, and PNG artwork exports. Restore
+  and animated MP4, WAV, and PNG artwork exports. Share a complete song or a marked
+  passage with its living artwork. Restore
   any recording's recipe and make a variation.
 - **Producer review.** Optional direct audio review through OpenRouter, informed
   by the recording's recipe and actual YuE2 score. Each review returns a complete

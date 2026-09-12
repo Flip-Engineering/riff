@@ -25,7 +25,7 @@ of this pipeline. Its low-memory default uses Q4 main weights and an F16 VAE.
 | Agent operation | Discover `/api/capabilities`; use the same library, composition, review and generation queue |
 | Decoder or quantization | Custom GGUF paths in Studio settings |
 | Compare revisions | A/B takes at the same listening position, passage loops, input differences, short studies, parent links, and runnable producer recommendations |
-| Share a recording | Animated seeded-artwork MP4 with audio, WAV, PNG artwork, and generation recipe |
+| Share a recording or passage | Animated seeded-artwork MP4 with optional in/out points and listening-loop shortcut; WAV, PNG artwork, and generation recipe |
 
 The score is conditioning for a new performance, not an audio editor. Changing
 ABC, harmony or lyrics renders another take. The native runtime does not expose
@@ -62,6 +62,14 @@ private-network access checks. Read a track or review, then submit its proposed
 recipe to `POST /api/generations`; add `parent_track_id` and `review_id` to preserve
 its ancestry, then poll the returned job ID. A `performance_source`
 is an owned library track ID, never a caller-supplied filesystem path.
+
+Video exports accept optional `start_seconds` and `end_seconds`. Both refer to the
+original recording; omitting them exports the whole song. The returned
+`source_start` and `source_end` are aligned to audio samples. Draw frame `i` using
+the shared artwork renderer and motion data at `source_start + i / fps`, upload
+the numbered PNG, then finish the export to obtain its MP4 download. The exported
+audio is the same selected passage. The complete recording stays in the library.
+These operations are also listed at `/api/capabilities`.
 
 The CLI saves performance codes automatically. To re-render them, use
 `--performance saved.codes.i32` with the source's lyrics, style, planning mode and

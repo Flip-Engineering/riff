@@ -902,6 +902,11 @@
       <canvas id="video-preview" width="440" height="340" aria-label="Animated artwork preview"></canvas>
       <h3 id="video-title"></h3>
       <form id="video-form">
+        <div class="video-selection"><label for="video-selection">Export</label><select id="video-selection"><option value="whole">Full recording</option><option value="passage">A passage</option></select></div>
+        <div id="video-passage" hidden>
+          <div class="video-times"><label for="video-start">From<input id="video-start" type="text" inputmode="decimal" value="0:00" aria-describedby="video-time-hint" /></label><label for="video-end">To<input id="video-end" type="text" inputmode="decimal" value="0:00" aria-describedby="video-time-hint" /></label></div>
+          <div class="video-passage-hint"><span id="video-time-hint" class="control-hint">Minutes:seconds, or seconds.</span><button type="button" id="video-use-passage" class="text-button">Use marked passage</button></div>
+        </div>
         <details id="video-options"><summary>Video settings</summary><div class="video-dimensions"><div><label for="video-width">Width</label><input type="number" id="video-width" min="2" step="2" value="1280" required /></div><div><label for="video-height">Height</label><input type="number" id="video-height" min="2" step="2" value="990" required /></div><div><label for="video-fps">Frames / second</label><input type="number" id="video-fps" min="0.01" step="any" value="24" required /></div></div></details>
         <progress id="video-progress" max="1" value="0" aria-label="Video export progress" hidden></progress>
         <p id="video-status" class="control-hint" role="status">MP4 · animated artwork and audio</p>

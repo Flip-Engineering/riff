@@ -1,11 +1,47 @@
 /* Render one frame at a time; FFmpeg receives the original recording separately. */
 let videoTrack = null;
 let videoExport = null;
+let videoPreviewRevision = 0;
+
+function videoTime(seconds) {
+  const ticks = Math.round(seconds * 1000), fraction = ticks % 1000;
+  return formatTime(Math.floor(ticks / 1000)) + (fraction ? "." + String(fraction).padStart(3, "0").replace(/0+$/, "") : "");
+}
+
+function parseVideoTime(text) {
+  const parts = text.trim().split(":");
+  if (parts.some(part => !/^(?:\d+(?:\.\d*)?|\.\d+)$/.test(part)) || parts.slice(1).some(part => Number(part) >= 60)) return NaN;
+  return parts.reduce((seconds, part) => seconds * 60 + Number(part), 0);
+}
+
+function videoPassage() {
+  const duration = videoTrack.audio.duration;
+  if ($("#video-selection").value === "whole") return { start_seconds: 0, end_seconds: duration };
+  const end = $("#video-end").value.trim();
+  return { start_seconds: parseVideoTime($("#video-start").value),
+    // The displayed endpoint may be rounded to milliseconds; retain the exact ending.
+    end_seconds: end === videoTime(duration) ? duration : parseVideoTime(end) };
+}
+
+async function updateVideoPassage() {
+  const revision = ++videoPreviewRevision, track = videoTrack;
+  $("#video-passage").hidden = $("#video-selection").value !== "passage";
+  $("#video-use-passage").hidden = !window.RiffCompare?.passage().valid;
+  if (!track || videoExport) return;
+  const start = videoPassage().start_seconds;
+  if (!Number.isFinite(start) || start < 0 || start >= track.audio.duration) return;
+  try {
+    const motion = await visualizationFor(track.id);
+    if (revision !== videoPreviewRevision || videoExport || videoTrack !== track) return;
+    const canvas = $("#video-preview");
+    drawSeedArtwork(canvas.getContext("2d"), canvas.width, canvas.height, track.recipe.seed, start, motionAt(motion, start), artworkAppearance());
+  } catch { /* The seed poster remains available while motion data is unavailable. */ }
+}
 
 function videoBusy(busy) {
   $("#render-video").disabled = busy;
   $("#cancel-video").hidden = !busy;
-  $$("#video-options input").forEach(input => input.disabled = busy);
+  $$("#video-form input, #video-form select, #video-use-passage").forEach(input => input.disabled = busy);
 }
 
 async function openVideoExport() {
@@ -16,9 +52,13 @@ async function openVideoExport() {
   $("#video-error").hidden = true;
   $("#save-video").hidden = true;
   $("#video-status").textContent = "MP4 · animated artwork and audio";
+  $("#video-selection").value = "whole";
+  $("#video-start").value = videoTime(0);
+  $("#video-end").value = videoTime(videoTrack.audio.duration);
   const canvas = $("#video-preview");
   drawSeedArtwork(canvas.getContext("2d"), canvas.width, canvas.height, videoTrack.recipe.seed, 0, [], artworkAppearance());
   $("#video-dialog").showModal();
+  updateVideoPassage();
 }
 
 async function cancelVideoExport() {
@@ -87,11 +127,17 @@ async function createVideo(event) {
   $("#video-status").textContent = "Preparing the artwork…";
   let complete = false;
   try {
+    const range = videoPassage();
+    if (!Number.isFinite(range.start_seconds) || !Number.isFinite(range.end_seconds) ||
+        range.start_seconds < 0 || range.start_seconds >= range.end_seconds || range.end_seconds > track.audio.duration) {
+      throw new Error("Choose a passage within this recording, with its start before its end.");
+    }
     const motion = await visualizationFor(track.id);
     if (operation.cancelled) return;
     const job = await api(`/api/tracks/${track.id}/video-exports`, "POST", {
         width: Number($("#video-width").value), height: Number($("#video-height").value),
         fps: Number($("#video-fps").value),
+        ...range,
     });
     operation.id = job.id;
     if (operation.cancelled) return;
@@ -103,7 +149,7 @@ async function createVideo(event) {
     const preview = $("#video-preview"), previewContext = preview.getContext("2d");
     for (let index = 0; index < job.frames; index++) {
       if (operation.cancelled) return;
-      const seconds = index / job.fps;
+      const seconds = job.source_start + index / job.fps;
       drawSeedArtwork(context, job.width, job.height, track.recipe.seed, seconds, motionAt(motion, seconds), appearance);
       let image = await new Promise(resolve => canvas.toBlob(resolve, "image/png"));
       if (!image) throw new Error("The browser could not draw this video frame.");
@@ -126,7 +172,8 @@ async function createVideo(event) {
     complete = true;
     const download = $("#save-video");
     download.href = result.download_url;
-    download.download = `${track.title}.mp4`;
+    const passage = job.source_start > 0 || job.source_end < track.audio.duration;
+    download.download = `${track.title}${passage ? " — passage" : ""}.mp4`;
     download.hidden = false;
     $("#video-status").textContent = "Your video is ready.";
     download.click();
@@ -153,6 +200,18 @@ async function createVideo(event) {
 document.addEventListener("DOMContentLoaded", () => {
   $("#download-video").addEventListener("click", openVideoExport);
   $("#video-form").addEventListener("submit", createVideo);
+  for (const id of ["video-selection", "video-start", "video-end"]) $("#" + id).addEventListener("input", updateVideoPassage);
+  for (const id of ["video-start", "video-end"]) $("#" + id).addEventListener("blur", event => {
+    const seconds = parseVideoTime(event.target.value);
+    if (Number.isFinite(seconds)) event.target.value = videoTime(seconds);
+  });
+  $("#video-use-passage").addEventListener("click", () => {
+    const passage = window.RiffCompare?.passage();
+    if (!passage?.valid) return;
+    $("#video-start").value = videoTime(passage.start);
+    $("#video-end").value = videoTime(Math.min(passage.end, videoTrack.audio.duration));
+    updateVideoPassage();
+  });
   $("#cancel-video").addEventListener("click", () => cancelVideoExport().catch(error => notify(error.message)));
   $("#video-dialog").addEventListener("close", () => cancelVideoExport().catch(error => notify(error.message)));
 });

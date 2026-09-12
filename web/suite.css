@@ -132,9 +132,17 @@ button:focus-visible, a:focus-visible, summary:focus-visible { outline: 2px soli
 .transport-secondary { gap: 5px; }
 .transport-secondary .audio-download { font-size: 9px; padding: 6px 3px; }
 .video-dialog { width: min(490px, calc(100vw - 32px)); }
+.video-dialog .dialog-actions { position: sticky; bottom: 0; z-index: 1; padding: 14px 0 2px; background: var(--paper); box-shadow: 0 -9px 12px var(--paper), 0 14px var(--paper); }
 #video-preview { display: block; width: 100%; height: auto; border-radius: 9px; margin-top: 16px; }
 #video-title { font-size: 16px; line-height: 1.4; overflow-wrap: anywhere; margin: 18px 0; }
 #video-options { margin: 16px 0; }
+.video-selection { display: flex; align-items: center; justify-content: space-between; gap: 16px; font-size: 12px; }
+.video-selection select { min-width: 0; max-width: 70%; }
+.video-times { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 16px 0 8px; }
+.video-times label { font-size: 11px; }
+.video-times input { display: block; width: 100%; min-width: 0; margin-top: 6px; font-variant-numeric: tabular-nums; }
+.video-passage-hint { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+.video-passage-hint .control-hint { margin: 0; }
 #video-options summary { cursor: pointer; font-size: 12px; }
 .video-dimensions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 14px 0; }
 .video-dimensions input { width: 100%; min-width: 0; }
@@ -212,6 +220,6 @@ button:focus-visible, a:focus-visible, summary:focus-visible { outline: 2px soli
 .score-overview-heading p { margin: 0; font-size: 12px; color: var(--quiet); }
 .score-voices { display: grid; gap: 4px; margin: 12px 0 6px; }
 .score-voice { display: flex; align-items: center; gap: 12px; background: transparent; border: 0; color: var(--blue); padding: 5px 0; text-align: left; }
-.score-voice span { width: 58px; flex-shrink: 0; font-size: 11px; }
+.score-voice span { width: 88px; flex-shrink: 0; font-size: 11px; overflow-wrap: anywhere; }
 .score-voice svg { height: 40px; min-width: 0; width: 100%; fill: currentColor; }
 .score-voice[aria-pressed="false"] { color: var(--muted); opacity: .55; }

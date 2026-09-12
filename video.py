@@ -116,6 +116,12 @@ class VideoExports:
                 status TEXT NOT NULL, width INTEGER NOT NULL, height INTEGER NOT NULL,
                 fps REAL NOT NULL, duration REAL NOT NULL, frames INTEGER NOT NULL,
                 received INTEGER NOT NULL DEFAULT 0, error TEXT NOT NULL DEFAULT '')""")
+            columns = {row[1] for row in db.execute("PRAGMA table_info(video_exports)")}
+            if "source_start" not in columns:
+                db.execute("ALTER TABLE video_exports ADD COLUMN source_start REAL NOT NULL DEFAULT 0")
+            if "source_end" not in columns:
+                db.execute("ALTER TABLE video_exports ADD COLUMN source_end REAL")
+            db.execute("UPDATE video_exports SET source_end=source_start+duration WHERE source_end IS NULL")
             db.execute("UPDATE video_exports SET status='interrupted' WHERE status IN ('rendering','encoding')")
         self.stop = threading.Event()
         self.cleaner = threading.Thread(target=self.cleanup, daemon=True)
@@ -156,13 +162,24 @@ class VideoExports:
         if type(fps) not in (int, float) or not math.isfinite(fps) or fps <= 0:
             raise ValueError("Choose a positive video frame rate.")
         audio = self.store.audio_path(track_id)
-        with wave.open(str(audio), "rb") as source: duration = source.getnframes() / source.getframerate()
+        with wave.open(str(audio), "rb") as source:
+            rate, total = source.getframerate(), source.getnframes()
+        start, end = options.get("start_seconds", 0), options.get("end_seconds", total / rate)
+        if any(type(value) not in (int, float) or not math.isfinite(value) for value in (start, end)):
+            raise ValueError("Choose valid start and end times for the passage.")
+        if not 0 <= start < end <= (total + .5) / rate:
+            raise ValueError("The passage must start before it ends and stay within this recording.")
+        first, last = round(start * rate), round(end * rate)
+        if not 0 <= first < last <= total:
+            raise ValueError("The passage must start before it ends and stay within this recording.")
+        start, end, duration = first / rate, last / rate, (last - first) / rate
         export_id = uuid.uuid4().hex
         log = (self.cache / (export_id + ".log")).open("w+")
         try:
             process = subprocess.Popen([
                 "ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
-                "-f", "image2pipe", "-framerate", str(fps), "-i", "pipe:0", "-i", str(audio),
+                "-f", "image2pipe", "-framerate", str(fps), "-i", "pipe:0",
+                "-ss", str(start), "-t", str(duration), "-i", str(audio),
                 "-map", "0:v:0", "-map", "1:a:0", "-c:v", "libx264", "-preset", "veryfast",
                 "-threads", "2", "-crf", "18", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k",
                 "-movflags", "+faststart", str(self.output / (export_id + ".part.mp4")),
@@ -172,8 +189,9 @@ class VideoExports:
             raise
         with self.lock, self.store.db() as db:
             self.active[export_id] = {"process": process, "log": log, "updated": time.monotonic(), "lock": threading.Lock()}
-            db.execute("INSERT INTO video_exports(id,track_id,created,status,width,height,fps,duration,frames) VALUES(?,?,?,?,?,?,?,?,?)",
-                       (export_id, track_id, time.time(), "rendering", width, height, fps, duration, math.ceil(duration * fps)))
+            db.execute("INSERT INTO video_exports(id,track_id,created,status,width,height,fps,duration,frames,source_start,source_end) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                       (export_id, track_id, time.time(), "rendering", width, height, fps, duration,
+                        math.ceil(duration * fps), start, end))
         return self.get(export_id)
 
     def frame(self, export_id, index, data):
@@ -243,7 +261,10 @@ class VideoExports:
     def download(self, export_id):
         job = self.get(export_id)
         if job["status"] != "done": raise ValueError("The video is not ready to download.")
-        return self.output / (export_id + ".mp4"), self.store.track(job["track_id"])["title"] + ".mp4"
+        track = self.store.track(job["track_id"])
+        passage = job["source_start"] > 0 or job["source_end"] < track["audio"]["duration"]
+        suffix = " — passage.mp4" if passage else ".mp4"
+        return self.output / (export_id + ".mp4"), track["title"] + suffix
 
     def cleanup(self):
         while not self.stop.wait(15):

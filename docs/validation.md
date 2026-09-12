@@ -1,6 +1,6 @@
 # Validation
 
-September 11, 2026. Claims below distinguish model inference, application behavior,
+September 12, 2026. Claims below distinguish model inference, application behavior,
 and compilation. The browser is an isolated Chromium instance; tests do not attach
 to a personal browser or use stored credentials.
 
@@ -36,6 +36,9 @@ interval. Linux process metrics exclude GPU memory.
   missing identities, loopback proxy boundaries, and preservation of other Serve routes.
 - Real FFmpeg exports test PNG frame order, same-origin requests, cancellation,
   H.264 video with AAC audio, complete recording duration, and ranged downloads.
+  Passage tests decode distinct source frequencies to verify the selected audio,
+  sample-aligned bounds and matching frame count. Existing export history keeps
+  complete-recording bounds through the database upgrade.
 - Browser workflows for playback, library CRUD, writing, saved sounds, reviews,
   composition, note selection, transposition, audition, MIDI export, theme choice,
   narrow layouts and settings persistence.
@@ -77,7 +80,19 @@ interval. Linux process metrics exclude GPU memory.
   Tailscale device reached the studio successfully. Both HTTPS addresses retain
   the account and origin checks.
 - Installation from the packaged archive in a temporary workspace, real HTTP
-  startup, and fallback from a deliberately broken candidate release.
+  startup, and fallback from a deliberately broken candidate release. Five real-Git
+  cases cover overlapping patches, idempotent prepared builds, interrupted setup,
+  checksum failure, and preservation of tracked edits, untracked files and the
+  real index. The complete source check resolves a false rejection by the older
+  updater when a later patch changed an earlier patch’s context.
+- The v0.4.2 candidate passed 85 Python tests and the complete browser workflow
+  suite. Its waveform renderer also completed a headed 240-frame measurement
+  during local music inference: 5.22 ms mean and 6.30 ms p95 at 1280×990. This
+  concurrent measurement is separate from the earlier isolated drawing benchmark.
+- Installed v0.4.1 exercised an actual Gemini 3.8 Flash saved-performance proposal
+  through the UI and native queue, preserving the open draft, source ID and review
+  ancestry. A complete 32-second MP4 exported through private HTTPS in 27.90 seconds
+  with matching audio duration and no browser or frame-delivery errors.
 
 Browser/provider fixtures validate interface behavior; they do not establish model
 quality. Musical reviews use direct audio requests to the explicitly selected

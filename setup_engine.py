@@ -9,6 +9,7 @@ import platform
 import shutil
 import subprocess
 import sys
+import tempfile
 
 from paths import ROOT, WORKSPACE, MODELS
 import platform_support
@@ -55,6 +56,45 @@ def cmake_command(source, build, backend, cuda_arch=None):
     return command
 
 
+def apply_pinned_patches(checkout, source, manifest, run):
+    """Validate complete patch states without touching the checkout's real index.
+
+    Later patches can change earlier patches' context, so reversing an individual
+    patch is not a valid test of an already prepared engine. A temporary index
+    describes each complete prefix, including the final tree. Only a matching
+    prefix may be resumed; other tracked edits are left for their owner.
+    """
+    patches = sorted((Path(source) / "patches").glob("*.patch"))
+    for patch in patches:
+        expected = manifest["local_patches"]["patches/" + patch.name]["sha256"]
+        if hashlib.sha256(patch.read_bytes()).hexdigest() != expected:
+            raise ValueError("The runtime patch checksum does not match sources.json.")
+    with tempfile.TemporaryDirectory(prefix="riff-engine-index-") as temporary:
+        env = {**os.environ, "GIT_INDEX_FILE": str(Path(temporary) / "index")}
+
+        def git(*args):
+            return subprocess.run(["git", "-C", str(checkout), *args], env=env, capture_output=True)
+
+        def matches():
+            result = git("diff", "--no-ext-diff", "--quiet")
+            if result.returncode not in (0, 1):
+                raise ValueError("The engine source could not be verified.")
+            return result.returncode == 0
+
+        git("read-tree", manifest["runtime_commit"]).check_returncode()
+        completed = 0 if matches() else None
+        for position, patch in enumerate(patches, 1):
+            git("apply", "--cached", str(patch.resolve())).check_returncode()
+            if matches():
+                completed = position
+        if completed is None:
+            raise ValueError("The managed engine has local source changes. Keep them and choose a separate engine path.")
+        for patch in patches[completed:]:
+            run(["git", "-C", str(checkout), "apply", str(patch.resolve())])
+        if not matches():
+            raise ValueError("The engine source changed during setup. Its local changes have been preserved.")
+
+
 def prepare(backend, run=None, source=ROOT, download_models=True, jobs=None, cuda_arch=None, activate=True, probe=True):
     source = Path(source)
     manifest = json.loads((source / "sources.json").read_text())
@@ -81,15 +121,7 @@ def prepare(backend, run=None, source=ROOT, download_models=True, jobs=None, cud
             raise ValueError("The managed engine checkout changed. Select a separate engine path instead of overwriting it.")
         run(["git", "-C", str(checkout), "fetch", "--depth", "1", "origin", manifest["runtime_commit"]])
         run(["git", "-C", str(checkout), "checkout", "--detach", "FETCH_HEAD"])
-    for patch in sorted((source / "patches").glob("*.patch")):
-        expected = manifest["local_patches"]["patches/" + patch.name]["sha256"]
-        if hashlib.sha256(patch.read_bytes()).hexdigest() != expected:
-            raise ValueError("The runtime patch checksum does not match sources.json.")
-        check = subprocess.run(["git", "-C", str(checkout), "apply", "--check", str(patch)], capture_output=True)
-        if check.returncode == 0:
-            run(["git", "-C", str(checkout), "apply", str(patch)])
-        elif subprocess.run(["git", "-C", str(checkout), "apply", "--reverse", "--check", str(patch)], capture_output=True).returncode:
-            raise ValueError("The engine source does not match its pinned patches.")
+    apply_pinned_patches(checkout, source, manifest, run)
     cmake = shutil.which("cmake")
     if not cmake:
         tools_env = WORKSPACE / "tools"

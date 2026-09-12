@@ -122,10 +122,59 @@ try {
   const mae = a.reduce((total, value, i) => total + Math.abs(value - b[i]), 0) / a.length;
   assert(mae < 4, `MP4 differs from Live sound renderer: pixel MAE ${mae}`);
   console.log("PASS Real H.264/AAC MP4 contains complete recording; exported frame matches Live sound; reduced-motion preference does not disable requested video");
+
+  await page.locator("[data-close=video-dialog]").click();
+  await page.locator("#take-comparison > summary").click();
+  await page.locator("#compare-a").selectOption(process.env.RIFF_TEST_TRACK);
+  await page.locator("#compare-start").fill("1.25");
+  await page.locator("#compare-end").fill("2.75");
+  const draft = await page.evaluate(() => formRecipe());
+  await page.locator("#download-video").click();
+  assert.equal(await page.locator("#video-selection").inputValue(), "whole");
+  await page.locator("#video-selection").selectOption("passage");
+  await page.locator("#video-use-passage").click();
+  assert.equal(await page.locator("#video-start").inputValue(), "0:01.25");
+  assert.equal(await page.locator("#video-end").inputValue(), "0:02.75");
+  await page.locator("#video-end").fill("0:00.5");
+  await page.locator("#render-video").click();
+  await page.waitForFunction(() => !document.querySelector("#video-error").hidden);
+  assert.equal(await page.evaluate(() => videoExport), null);
+  await page.locator("#video-end").fill("2.75");
+  const excerptReady = page.waitForEvent("download", { timeout: 90000 }); excerptReady.catch(() => {});
+  await page.locator("#render-video").click();
+  await page.waitForFunction(() => videoExport?.id);
+  const excerptId = await page.evaluate(() => videoExport.id);
+  assert(await page.locator("#video-start").isDisabled());
+  const excerptDownload = await excerptReady;
+  assert(excerptDownload.suggestedFilename().includes("passage"));
+  await excerptDownload.saveAs("test-results/passage-visualization.mp4");
+  await page.waitForFunction(() => videoExport === null);
+  const excerpt = await (await page.request.get(`${base}/api/video-exports/${excerptId}`)).json();
+  assert.equal(excerpt.source_start, 1.25); assert.equal(excerpt.source_end, 2.75); assert.equal(excerpt.duration, 1.5);
+  const excerptProbe = JSON.parse(execFileSync("ffprobe", ["-v", "error", "-show_streams", "-of", "json", "test-results/passage-visualization.mp4"]));
+  assert(Math.abs(Number(excerptProbe.streams.find(stream => stream.codec_type === "audio").duration) - 1.5) < .04);
+  const passageImage = await page.evaluate(async () => {
+    const motion = await visualizationFor(selected.id), canvas = document.createElement("canvas");
+    canvas.width = 320; canvas.height = 248;
+    drawSeedArtwork(canvas.getContext("2d"), 320, 248, selected.recipe.seed, 1.25, motionAt(motion, 1.25), artworkAppearance());
+    return canvas.toDataURL().split(",")[1];
+  });
+  writeFileSync("test-results/passage-expected.png", Buffer.from(passageImage, "base64"));
+  const c = raw("test-results/passage-expected.png"), d = raw("test-results/passage-visualization.mp4");
+  assert.equal(c.length, d.length);
+  const passageMae = c.reduce((total, value, i) => total + Math.abs(value - d[i]), 0) / c.length;
+  assert(passageMae < 4, `Passage artwork uses the wrong audio moment: pixel MAE ${passageMae}`);
+  assert.deepEqual(await page.evaluate(() => formRecipe()), draft);
+  assert.equal(await page.evaluate(() => selected.audio.duration), expectedDuration);
+  console.log("PASS Marked passage exports selected audio with artwork at its original time; invalid ranges are refused and the complete recording and draft stay intact");
   for (const width of [390, 320]) {
     await page.setViewportSize({ width, height: 844 });
     assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
     assert(await page.locator("#video-dialog").evaluate(dialog => dialog.scrollWidth <= dialog.clientWidth));
+    assert(await page.locator("#render-video").evaluate(button => {
+      const action = button.getBoundingClientRect(), dialog = button.closest("dialog").getBoundingClientRect();
+      return action.top >= dialog.top && action.bottom <= dialog.bottom;
+    }), "Keep the export action visible while the settings scroll");
     await page.screenshot({ path: `test-results/video-export-${width}.png` });
   }
   await page.setViewportSize({ width: 1365, height: 1050 });

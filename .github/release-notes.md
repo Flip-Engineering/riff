@@ -1,8 +1,8 @@
-Riff 0.4.1 adds saved-performance refinement and a more expressive listening surface.
+Riff 0.4.2 lets you export a chosen passage with its living artwork and fixes updates that reuse an already prepared engine.
 
-- Re-render a take from its native performance codes, keeping its phrasing while exploring acoustic direction, seed and solver detail. OpenRouter producers can recommend the same operation, a fresh take or a score-only composition.
-- Read compositions through voice maps, isolate parts in the tone preview and match generation duration to the written score. Agents can discover the same operations at `/api/capabilities`.
-- Live sound combines signed audio waveforms, open contours and shaded material in varied mineral hues. Surface and movement controls carry through to animated MP4 exports, with the riff wordmark in the corner.
-- Reduce native memory by releasing completed prefix graphs and sharing temporary cache-upload storage across layers. Metal uses F16 attention caches. Long-score allocation passed at 10.54 GB; that measurement does not establish full-song rendering or a speed improvement.
+- Export a complete recording or select its start and end. Bring in a marked listening passage with one action; the video follows the original audio clock and keeps the full recording in your library. Export controls remain within reach on narrow screens.
+- A clearer signed waveform crosses the sculptural sound view, with quieter traces of its recent movement. The score workspace uses the composition's own part names.
+- Engine setup verifies the complete pinned patch set, including overlapping changes, and resumes valid interrupted setup. Unrelated local source edits and the real Git index are preserved.
+- Agents can discover the visualization and passage-export operations alongside generation, composition and producer review.
 
-Install or update using the attached verified installer and checksums. Existing recordings, settings and securely stored keys are retained. Metal, CPU and CUDA builds are checked by the linked release workflow; NVIDIA inference still needs hardware validation.
+Validation includes 85 Python tests, full browser workflows, decoded passage audio and video, existing export-history migration, and real Git fixtures for overlapping patches, interruption, checksums and local edit preservation. This release workflow also checks Metal, CPU and CUDA compilation. NVIDIA inference still requires hardware validation.

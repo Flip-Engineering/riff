@@ -42,8 +42,10 @@ and downloads. Tagged devices without a user identity do not receive access.
 The account and address live in `data/network.json`, outside Git and releases.
 The Mac or Linux host must remain awake with Riff and Tailscale running.
 
-Engine setup pins audio.cpp and its three patches through `sources.json`. It builds
+Engine setup pins audio.cpp and its patches through `sources.json`. It builds
 only YuE2 and the selected accelerator, then probes devices before activation.
+Reusing a build verifies the complete patched source; a setup interrupted between
+patches can resume. The check uses a temporary Git index and preserves local edits.
 Weights download in bounded chunks with resume support and SHA-256 verification.
 Build concurrency defaults to half the available CPU threads and can be set with
 `python3 setup_engine.py --jobs N`. CUDA architecture selection is configurable
@@ -65,7 +67,8 @@ checkouts can run `./setup-writer.sh` directly. OpenRouter writing uses the save
 connection and does not require MLX.
 
 The player’s MP4 button animates the recording’s seed artwork with its audio.
-Video settings expose width, height, and frame rate; WAV remains available next
+Choose the complete recording or a passage, enter its in/out times, or use the
+marked listening passage. Video settings expose width, height, and frame rate; WAV remains available next
 to MP4. Keep the export window open until rendering finishes. Riff streams one
 frame at a time into FFmpeg and muxes the original recording as AAC; it does not
 capture browser playback or decode a second full copy of the song into browser

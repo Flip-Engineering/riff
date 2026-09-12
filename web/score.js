@@ -13,7 +13,9 @@
     if (!tunes.length) return;
     try {
       const sequence = tunes[0].setUpAudio({});
-      const parts = sequence.tracks.map((track, index) => ({ index, notes: track.filter((note) => note.cmd === "note") })).filter((part) => part.notes.length);
+      const parts = sequence.tracks.map((track, index) => ({ index,
+        name: track.find((event) => event.cmd === "text" && event.type === "name")?.text?.trim(),
+        notes: track.filter((note) => note.cmd === "note") })).filter((part) => part.notes.length);
       const end = Math.max(sequence.totalDuration || 0, ...parts.flatMap((part) => part.notes.map((note) => note.start + note.duration)));
       writtenSeconds = end * 240 / sequence.tempo;
       $("#score-fit-duration").disabled = !!formRecipe().performance_source;
@@ -22,11 +24,12 @@
       const durations = `${formatDuration(writtenSeconds)} written · ${parts.length} ${parts.length === 1 ? "voice" : "voices"}`;
       $("#score-dimensions").textContent = durations;
       for (const [position, part] of parts.entries()) {
+        const name = part.name || `Voice ${position + 1}`;
         const low = Math.min(...part.notes.map((note) => note.pitch)), high = Math.max(...part.notes.map((note) => note.pitch));
         const button = document.createElement("button"); button.type = "button"; button.className = "score-voice";
         button.setAttribute("aria-pressed", String(auditionParts.has(part.index)));
-        button.setAttribute("aria-label", `Voice ${position + 1}, ${part.notes.length} notes, toggle in tone preview`);
-        const label = document.createElement("span"); label.textContent = `Voice ${position + 1}`; button.append(label);
+        button.setAttribute("aria-label", `${name}, ${part.notes.length} notes, toggle in tone preview`);
+        const label = document.createElement("span"); label.textContent = name; button.append(label);
         const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg"); svg.setAttribute("viewBox", "0 0 800 40"); svg.setAttribute("preserveAspectRatio", "none"); svg.setAttribute("aria-hidden", "true");
         for (const note of part.notes) {
           const mark = document.createElementNS(svg.namespaceURI, "rect");

@@ -115,6 +115,7 @@
   audio.addEventListener("ended", loop);
   audio.addEventListener("play", () => { playIntent = true; });
   audio.addEventListener("pause", () => { if (!audio.ended) playIntent = false; });
-  window.RiffCompare = { render };
+  window.RiffCompare = { render, passage: () => ({ ...passage(),
+    valid: passage().valid && [slots.a, slots.b].includes(selected?.id) }) };
   render();
 })();

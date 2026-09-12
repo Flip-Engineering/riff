@@ -398,5 +398,13 @@
         ]
       }
     }
-  }
+  },
+  "follow_ups": [
+    {
+      "checked_at": "2026-09-12",
+      "source": "https://huggingface.co/m-a-p/YuE2-3B",
+      "observation": "The model tree listed WaveCut/YuE2-3B-OrbitQuant-W4A4 under finetunes.",
+      "verification": "Listing only. The model card and artifact format could not be verified. No LoRA, trained-style, runtime compatibility or download claim."
+    }
+  ]
 }

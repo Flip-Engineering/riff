@@ -1,16 +1,18 @@
+import array
 import http.client
 import json
 import math
 import shutil
 import struct
 import subprocess
+import sys
 import threading
 import unittest
 import zlib
 
 from studio import StudioServer
 from test_studio import StudioFixture, recipe
-from video import MOTION_VERSION, WAVEFORM_POINTS, motion_envelope
+from video import MOTION_VERSION, WAVEFORM_POINTS, VideoExports, motion_envelope
 
 
 def png(width, height, color):
@@ -88,6 +90,27 @@ class MotionTests(StudioFixture):
         self.assertTrue(all(math.isfinite(value) for frame in frames for value in frame))
 
 
+class VideoMigrationTests(StudioFixture):
+    def test_existing_export_history_keeps_full_audio_bounds_after_upgrade(self):
+        with self.store.db() as db:
+            db.execute("""CREATE TABLE video_exports (
+                id TEXT PRIMARY KEY, track_id TEXT NOT NULL, created REAL NOT NULL,
+                status TEXT NOT NULL, width INTEGER NOT NULL, height INTEGER NOT NULL,
+                fps REAL NOT NULL, duration REAL NOT NULL, frames INTEGER NOT NULL,
+                received INTEGER NOT NULL DEFAULT 0, error TEXT NOT NULL DEFAULT '')""")
+            db.execute("INSERT INTO video_exports VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                       ("a" * 32, "b" * 32, 1, "done", 1280, 990, 24, 31.998666, 768, 768, ""))
+        for _ in range(2):
+            exports = VideoExports(self.store)
+            try:
+                row = exports.get("a" * 32)
+                self.assertEqual((row["status"], row["source_start"], row["source_end"], row["received"]),
+                                 ("done", 0, 31.998666, 768))
+                self.assertEqual(row["download_url"], "/api/video-exports/" + "a" * 32 + "/download")
+            finally:
+                exports.close()
+
+
 @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "FFmpeg and ffprobe required")
 class VideoTests(StudioFixture):
     def setUp(self):
@@ -161,6 +184,46 @@ class VideoTests(StudioFixture):
         self.assertFalse(exports.busy())
         self.assertFalse((exports.output / (job["id"] + ".part.mp4")).exists())
         self.assertEqual(self.request("POST", base + "/frames", png(32, 24, (0, 0, 0)), headers)[0], 400)
+
+    def test_passage_exports_the_selected_audio_and_keeps_the_recording(self):
+        import hashlib
+        import wave
+        # Distinct seconds reveal a wrong seek even if the exported duration is right.
+        samples = [round(7000 * math.sin(2 * math.pi * (220 * 2 ** (i // 48000)) * i / 48000))
+                   for i in range(48000 * 4)]
+        with wave.open(str(self.audio), "wb") as output:
+            output.setparams((1, 2, 48000, 0, "NONE", ""))
+            output.writeframes(struct.pack("<" + "h" * len(samples), *samples))
+        original = hashlib.sha256(self.audio.read_bytes()).hexdigest()
+        status, job = self.request("POST", f"/api/tracks/{self.track}/video-exports",
+                                   {"width": 32, "height": 24, "fps": 12, "start_seconds": 1.25, "end_seconds": 2.75})
+        self.assertEqual(status, 201, job)
+        self.assertEqual((job["source_start"], job["source_end"], job["duration"], job["frames"]), (1.25, 2.75, 1.5, 18))
+        exports = self.server.video_exports
+        for index in range(job["frames"]): exports.frame(job["id"], index, png(32, 24, (80, 40, 90)))
+        exports.finish(job["id"])
+        path, title = exports.download(job["id"])
+        self.assertEqual(title, "A test take — passage.mp4")
+        probe = json.loads(subprocess.check_output(["ffprobe", "-v", "error", "-show_streams", "-of", "json", str(path)]))
+        streams = {stream["codec_type"]: stream for stream in probe["streams"]}
+        self.assertAlmostEqual(float(streams["audio"]["duration"]), 1.5, delta=1 / 48000)
+        self.assertEqual(int(streams["video"]["nb_frames"]), 18)
+        decoded = array.array("f", subprocess.check_output([
+            "ffmpeg", "-v", "error", "-i", str(path), "-vn", "-ac", "1", "-ar", "48000", "-f", "f32le", "pipe:1"]))
+        if sys.byteorder != "little": decoded.byteswap()
+        for start, frequency in ((.2, 440), (1.1, 880)):
+            part = decoded[round(start * 48000):round((start + .2) * 48000)]
+            crossings = sum(a <= 0 < b for a, b in zip(part, part[1:]))
+            self.assertAlmostEqual(crossings / .2, frequency, delta=10)
+        self.assertEqual(hashlib.sha256(self.audio.read_bytes()).hexdigest(), original)
+
+    def test_invalid_passages_do_not_start_an_encoder(self):
+        for start, end in ((-.01, .05), (.05, .05), (.08, .04), (0, .2), (True, .08), ("0", .08),
+                           (float("nan"), .08), (0, float("inf")), (0, 1e308), (0, 1e-9)):
+            status, _ = self.request("POST", f"/api/tracks/{self.track}/video-exports",
+                                     {"start_seconds": start, "end_seconds": end})
+            self.assertEqual(status, 400, (start, end))
+            self.assertFalse(self.server.video_exports.busy())
 
     def test_cached_motion_invalidates_when_the_recording_changes(self):
         first = self.server.video_exports.visualization(self.track)

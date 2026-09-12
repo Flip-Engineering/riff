@@ -1,11 +1,16 @@
 # YuE2 adapters and reusable conditioning
 
 Checked September 10, 2026 against the public model registry, upstream project,
-and Riff's pinned audio.cpp implementation.
+and Riff's pinned audio.cpp implementation; limited registry follow-up September 12.
 
 **No compatible published YuE2 LoRA collection was found.** This is a search result,
 not proof that no private, untagged, or future adapter exists. The raw query results
 are preserved in `adapter-research.json`.
+
+The September 12 [base-model tree](https://huggingface.co/m-a-p/YuE2-3B)
+also listed `WaveCut/YuE2-3B-OrbitQuant-W4A4` under finetunes. Its model card and
+artifact format were not verified, so this listing does not establish a trained
+style adapter or compatibility with Riff. No download or activation was added.
 
 - The [Hugging Face base-model query](https://huggingface.co/api/models?filter=base_model%3Am-a-p%2FYuE2-3B&full=true)
   returned `audio-cpp/Yue2-3B-GGUF` and `ngquocvinh/YuE2-3B-GGUF`. Both identify

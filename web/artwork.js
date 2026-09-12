@@ -225,14 +225,15 @@ const RiffArtwork = (() => {
     context.strokeStyle = gradient;
     for (let layer = 4; layer >= 0; layer--) {
       const history = motion.history?.[layer * 3] || motion, trace = history.waveform || motion.waveform;
+      const separation = (layer % 2 ? -1 : 1) * Math.ceil(layer / 2) * 3;
       const points = [];
       for (let i = 0; i < trace.length; i++) {
         const u = i / (trace.length - 1), envelope = Math.sin(Math.PI * u) ** 2;
         points.push([p[left] + (p[right] - p[left]) * u,
-          p[left + 1] + (p[right + 1] - p[left + 1]) * u + envelope * (trace[i] * 22 + (layer - 2) * 2.8)]);
+          p[left + 1] + (p[right + 1] - p[left + 1]) * u + envelope * (trace[i] * 22 + separation)]);
       }
-      context.globalAlpha = (.62 - layer * .10) * clamp(motion[0]);
-      context.lineWidth = layer ? .34 : .75;
+      context.globalAlpha = (.88 - layer * .14) * Math.sqrt(clamp(history[0]));
+      context.lineWidth = layer ? .4 : .95;
       context.beginPath(); context.moveTo(...points[0]);
       for (let i = 1; i < points.length - 1; i++) context.quadraticCurveTo(...points[i],
         (points[i][0] + points[i + 1][0]) / 2, (points[i][1] + points[i + 1][1]) / 2);

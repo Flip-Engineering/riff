@@ -47,7 +47,7 @@ writing space carry more visual weight than engine statistics.
 
 A short study uses selected lines without replacing the full draft. A/B comparison
 keeps the listening position and play state while changing takes; a passage can
-loop across both performances. Input differences remain alongside the audition,
+loop across both performances and become an MP4 passage with its original artwork timing. Input differences remain alongside the audition,
 and finishing a new take does not replace a comparison in progress. Waiting takes
 can move in the queue with keyboard controls, without altering the active take or
 creation timestamps. A recording
