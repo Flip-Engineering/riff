@@ -292,6 +292,7 @@ function formRecipe() {
 }
 function updateForm() {
   updateExploration();
+  $("#local-writer-limit").hidden = $("#idea-engine").value !== "ai";
   const lines = $("#lyrics")
     .value.split("\n")
     .filter((line) => line.trim() && !/^\[.*\]$/.test(line.trim())).length;

@@ -135,7 +135,7 @@
     $("#score-edit-status").textContent = "Writing a score revision…";
     try {
       const result = await api("/api/composition/revise", "POST", { ...formRecipe(), abc: source.value,
-        cot: $("#score-mode").value, brief: $("#score-change").value, writer_tokens: Number($("#score-edit-budget").value) });
+        cot: $("#score-mode").value, brief: $("#score-change").value });
       if (result.cancelled) { $("#score-edit-status").textContent = "Writing stopped"; return; }
       proposal = result;
       $("#score-proposal-summary").textContent = result.summary;

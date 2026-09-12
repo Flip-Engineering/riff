@@ -199,16 +199,45 @@ class ComposerTests(unittest.TestCase):
             result = writer.write(payload)
         request = send.call_args.args[0]; body = json.loads(request.data)
         self.assertEqual(body["model"], payload["model"])
-        self.assertEqual(body["max_tokens"], 8192)
+        self.assertNotIn("max_tokens", body)
+        self.assertNotIn("reasoning", body)
+        self.assertEqual(body["response_format"]["json_schema"]["schema"]["required"], ["abc", "summary"])
         self.assertEqual(json.loads(body["messages"][1]["content"])["abc"], score)
         self.assertNotIn(payload["api_key"], json.dumps(result))
         self.assertEqual(result["abc"], score)
 
-    def test_budget_exhaustion_keeps_partial_score_from_being_applied(self):
+    def test_provider_truncation_keeps_partial_score_from_being_applied(self):
         reply = {"choices": [{"finish_reason": "length", "message": {"content": "partial"}}]}
         with patch("urllib.request.urlopen", return_value=BytesIO(json.dumps(reply).encode())):
-            with self.assertRaisesRegex(ValueError, "budget"):
+            with self.assertRaisesRegex(ValueError, "provider stopped"):
                 writer.openrouter_text({"model": "selected", "api_key": "test"}, [])
+
+    def test_cloud_songwriting_ignores_legacy_local_limit_and_accepts_complete_long_draft(self):
+        lyrics = "\n\n".join(f"[Verse {n}]\nOne wave answers another.\nأرضنا لنا / 우리의 땅" for n in range(24))
+        reply = {"choices": [{"finish_reason": "stop", "message": {"content": json.dumps({
+            "title": "Across the water", "style": "Orchestral chant", "lyrics": lyrics})}}]}
+        for limit in (None, 1, 768, 4096):
+            payload = {"idea_engine": "openrouter", "seed": "7", "mode": "lyrics",
+                       "model": "google/gemini-3.8-flash", "api_key": "test-writer-credential"}
+            if limit is not None:
+                payload["writer_tokens"] = limit
+            with self.subTest(limit=limit), patch("urllib.request.urlopen", return_value=BytesIO(json.dumps(reply).encode())) as send:
+                result = writer.write(payload)
+                body = json.loads(send.call_args.args[0].data)
+                self.assertNotIn("max_tokens", body)
+                self.assertNotIn("reasoning", body)
+                self.assertEqual(body["model"], payload["model"])
+                self.assertTrue(body["provider"]["require_parameters"])
+                self.assertEqual(body["response_format"]["json_schema"]["schema"]["required"], ["title", "style", "lyrics"])
+                self.assertEqual(result["lyrics"], lyrics)
+
+    def test_cloud_provider_failure_and_empty_response_are_readable_and_redacted(self):
+        payload = {"model": "selected", "api_key": "test-secret"}
+        for reply, message in (({"error": {"message": "Invalid test-secret"}}, "Invalid \\[redacted\\]"),
+                               ({"choices": [{"message": {"content": None}}]}, "returned no draft")):
+            with self.subTest(reply=reply), patch("urllib.request.urlopen", return_value=BytesIO(json.dumps(reply).encode())):
+                with self.assertRaisesRegex(ValueError, message):
+                    writer.openrouter_text(payload, [])
 
 
 if __name__ == "__main__": unittest.main()
