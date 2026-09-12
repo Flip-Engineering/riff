@@ -57,6 +57,20 @@ try {
   await page.locator("#open-sound-view").click();
   await page.locator("#sound-view-dialog[open]").waitFor();
   assert(await page.locator("#sound-view-canvas").evaluate(canvas => canvas.width > 1000 && canvas.height > 400));
+  await page.locator(".sound-appearance > summary").click();
+  const originalSurface = await page.locator("#sound-view-canvas").evaluate(canvas => canvas.toDataURL());
+  await page.locator("#sound-surface").fill("0");
+  assert.notEqual(await page.locator("#sound-view-canvas").evaluate(canvas => canvas.toDataURL()), originalSurface);
+  await page.locator("#sound-motion").fill("0");
+  const stillShape = await page.locator("#sound-view-canvas").evaluate(canvas => canvas.toDataURL());
+  await page.locator("#sound-view-seek").fill("4");
+  await page.waitForFunction(() => Math.abs(audio.currentTime - 4) < .1);
+  assert.equal(await page.locator("#sound-view-canvas").evaluate(canvas => canvas.toDataURL()), stillShape);
+  assert.deepEqual(await page.evaluate(() => JSON.parse(localStorage.getItem("riff.soundAppearance"))), { surface: 0, motion: 0 });
+  assert.deepEqual(await page.evaluate(() => formRecipe()), draft);
+  await page.locator("#sound-surface").fill("0.72");
+  await page.locator("#sound-motion").fill("1");
+  await page.locator(".sound-appearance > summary").click();
   await page.screenshot({ path: "test-results/sound-view-desktop.png" });
   await page.locator("#sound-view-seek").fill("4");
   await page.waitForFunction(() => Math.abs(audio.currentTime - 4) < .1);
@@ -64,6 +78,7 @@ try {
   assert(await page.locator("#sound-view-dialog").isHidden());
   assert.equal(await page.evaluate(() => document.activeElement.id), "open-sound-view");
   console.log("PASS Immersive sound view shares the audio clock, seeks, closes with Escape, and restores keyboard focus");
+  console.log("PASS Surface and movement are independently adjustable, persist, and leave the musical draft unchanged");
 
   const base = { title: "Queue take", style: "test", lyrics: "Original words", mode: "lyrics", seed: "9", max_seconds: 12, steps: 8, cot: "off" };
   const active = await call("/api/generations", { ...base, title: "Active fixture", style: "queue fixture hold" });

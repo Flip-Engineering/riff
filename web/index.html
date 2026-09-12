@@ -181,6 +181,11 @@
                 placeholder="Give this feeling a name"
                 autocomplete="off"
               />
+              <div id="performance-context" class="performance-context" hidden>
+                <p id="performance-caption"></p>
+                <p class="control-hint">Keep the phrasing and length while exploring sound, seed and solver detail.</p>
+                <button type="button" id="fresh-performance" class="text-button">Create a fresh performance instead</button>
+              </div>
               <div id="words-space">
                 <div class="field-heading">
                   <label for="lyrics">The words</label
@@ -477,6 +482,10 @@
                       value="768"
                     />
                   </div>
+                  <div>
+                    <label for="render-mode">Output</label>
+                    <select id="render-mode"><option value="music">Music</option><option value="plan">Editable score</option></select>
+                  </div>
                 </div>
                 <p class="control-hint">
                   Shape the detail, variation, and strength of your musical
@@ -701,6 +710,7 @@
                   >Start from this take</span
                 >
               </button>
+              <button type="button" id="refine-performance" class="text-button refine-performance" hidden>Refine this performance<span class="quiet-text">Keep its phrasing</span></button>
             </section>
 
             <details id="producer-panel" class="producer-panel" hidden>
@@ -1122,6 +1132,7 @@
       <div class="dialog-top"><div><h2>Composition</h2><p class="control-hint">Shape the melody and harmony before the performance.</p></div><button type="button" class="icon-button" data-close="score-dialog" aria-label="Close composition"><span data-icon="close"></span></button></div>
       <div class="score-compose-row"><div><label for="score-mode">Plan</label><select id="score-mode"><option value="melody">Melody</option><option value="full">Melody and chords</option></select></div><button type="button" class="secondary-button" id="compose-score">Compose a new score</button><span id="score-status" role="status"></span></div>
       <div class="score-header-controls"><div><label for="score-tempo">Tempo</label><input type="number" id="score-tempo" min="1" step="any" placeholder="BPM" /></div><div><label for="score-meter">Meter</label><input id="score-meter" type="text" placeholder="4/4" /></div><div><label for="score-key">Key or mode</label><input id="score-key" type="text" list="score-keys" placeholder="Dm, Dphr…" /><datalist id="score-keys"><option value="C"/><option value="Dm"/><option value="Am"/><option value="Ddor"/><option value="Dphr"/></datalist></div><button type="button" class="text-button" id="apply-score-header">Apply</button></div>
+      <div id="score-overview" class="score-overview" hidden><div class="score-overview-heading"><p id="score-dimensions"></p><button type="button" class="text-button" id="score-fit-duration">Use score duration</button></div><div id="score-voices" class="score-voices" role="group" aria-label="Voices in the tone preview"></div><p class="control-hint">Toggle a voice to hear its part in the tone preview. Written timing guides the generated performance.</p></div>
       <div class="score-paper"><p id="score-empty">Compose a score from your current sound and lyrics, import one, or start a sketch.</p><div id="score-notation" aria-label="Musical score"></div></div>
       <div class="score-transport"><button type="button" class="secondary-button" id="audition-score" disabled>Play score</button><button type="button" class="text-button" id="stop-score" disabled>Stop</button><span class="control-hint">Simple tone preview</span><div class="transpose-controls"><button type="button" class="text-button" id="transpose-down" aria-label="Transpose down a semitone">− semitone</button><button type="button" class="text-button" id="transpose-up" aria-label="Transpose up a semitone">+ semitone</button></div></div>
       <div id="note-editor" class="note-editor" hidden><label for="note-token" id="score-note-description">Selected note</label><input id="note-token" type="text" spellcheck="false" /><button type="button" class="secondary-button" id="apply-note">Apply note edit</button></div>
@@ -1180,7 +1191,13 @@
     </dialog>
     <dialog id="sound-view-dialog" class="sound-view-dialog" aria-label="Immersive sound view">
       <canvas id="sound-view-canvas" aria-label="Seed artwork moving with the music"></canvas>
-      <div class="sound-view-transport"><button type="button" id="sound-view-play" class="icon-button" aria-label="Play recording"><span data-icon="play"></span></button><input type="range" id="sound-view-seek" min="0" max="1" step="0.01" value="0" aria-label="Seek in immersive sound view" /><button type="button" id="close-sound-view" class="icon-button" aria-label="Close immersive sound view"><span data-icon="close"></span></button></div>
+      <div class="sound-view-controls">
+        <details class="sound-appearance"><summary>Shape &amp; motion</summary><div class="sound-appearance-fields">
+          <label for="sound-surface">Surface <span>Lines <input type="range" id="sound-surface" min="0" max="1" step="0.01" value="0.72" /> Solid</span></label>
+          <label for="sound-motion">Movement <span>Still <input type="range" id="sound-motion" min="0" max="2" step="0.01" value="1" /> Expressive</span></label>
+        </div></details>
+        <div class="sound-view-transport"><button type="button" id="sound-view-play" class="icon-button" aria-label="Play recording"><span data-icon="play"></span></button><input type="range" id="sound-view-seek" min="0" max="1" step="0.01" value="0" aria-label="Seek in immersive sound view" /><button type="button" id="close-sound-view" class="icon-button" aria-label="Close immersive sound view"><span data-icon="close"></span></button></div>
+      </div>
     </dialog>
   </body>
 </html>

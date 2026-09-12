@@ -2,6 +2,7 @@
 import array
 from contextlib import contextmanager
 import ctypes
+import hashlib
 import json
 import math
 from pathlib import Path
@@ -117,12 +118,14 @@ def validate_recipe(payload):
     if type(tokens) is not int or tokens < 1:
         raise ValueError("Writing token budget must be a positive whole number.")
     origin = {}
-    for name in ("parent_track_id", "review_id"):
+    for name in ("parent_track_id", "review_id", "performance_source"):
         value = text(name)
         if value:
             if not re.fullmatch(r"[a-f0-9]{32}", value):
                 raise ValueError("The previous take or review reference is invalid.")
             origin[name] = value
+    if origin.get("performance_source") and render_mode == "plan":
+        raise ValueError("Choose a fresh composition to create a score, or music to render the saved performance.")
     return {"title": title, "title_auto": title_auto, "lyrics": lyrics, "style": style, "abc": abc, "mode": mode, "lyrics_source": source,
             "idea_engine": idea_engine, "brief": text("brief"), "writer_tokens": tokens,
             "cfg_scale": number("cfg_scale", 1., 0., 20.), "temperature": number("temperature", 1., 0., 5.),
@@ -130,7 +133,8 @@ def validate_recipe(payload):
             "texture": idea["texture"] if payload.get("texture") is not None else None,
             "theme": payload.get("theme", "anywhere"),
             "max_seconds": seconds, "steps": steps, "cot": cot, "seed": str(seed),
-            "refinement": model_options.validate(payload.get("refinement", {}), seconds), "render_mode": render_mode, **origin}
+            "refinement": model_options.validate(payload.get("refinement", {}), seconds), "render_mode": render_mode,
+            "performance_source": "", **origin}
 
 
 def analyze_audio(path):
@@ -236,6 +240,34 @@ class Store:
             raise KeyError("The audio file is missing from the library folder.")
         return path
 
+    def performance_path(self, track_id):
+        track = self.track(track_id)
+        saved = track["recipe"].get("performance") or {}
+        path = self.audio_path(track_id).with_suffix(".codes.i32").resolve()
+        if not path.is_relative_to(self.outputs):
+            raise ValueError("Performance data is outside the library.")
+        if not saved or not path.is_file():
+            raise ValueError("This take has no saved performance. Generate a new take to capture one.")
+        if path.stat().st_size != saved["frames"] * 4 or hashlib.sha256(path.read_bytes()).hexdigest() != saved["sha256"]:
+            raise ValueError("The saved performance has changed. Choose another take.")
+        return path
+
+    def prepare_performance(self, recipe):
+        source_id = recipe.get("performance_source")
+        if not source_id:
+            return recipe
+        self.performance_path(source_id)
+        source = self.track(source_id)["recipe"]
+        recipe = dict(recipe)
+        # A generated score must accompany reused codes. The semantic stage is
+        # skipped, so it cannot reconstruct an omitted composition this time.
+        if recipe["cot"] != "off" and not recipe["abc"]:
+            recipe["abc"] = source.get("abc") or (source.get("symbolic_plan") or {}).get("abc", "")
+            if not recipe["abc"]:
+                raise ValueError("The saved performance needs its score. Supply a score or choose Direct generation.")
+        recipe["max_seconds"] = source["performance"]["frames"] / TOKEN_RATE
+        return validate_recipe(recipe)
+
     def add_track(self, file, recipe, metrics, track_id=None):
         path = Path(file).resolve()
         relative = str(path.relative_to(self.outputs))
@@ -327,7 +359,7 @@ class Store:
             tracks.append({"id": row["id"], "title": row["title"], "created": row["created"],
                            "favorite": bool(row["favorite"]), "archived": bool(row["archived"]),
                            "style": recipe["style"], "seed": recipe["seed"], "duration": audio["duration"],
-                           "mode": recipe.get("mode", "lyrics")})
+                           "mode": recipe.get("mode", "lyrics"), "performance_available": bool(recipe.get("performance"))})
         with self.db() as db:
             plans = [{"id": row["id"], "title": row["title"], "finished": row["finished"], "recipe": json.loads(row["recipe"])}
                      for row in db.execute("SELECT id,title,finished,recipe FROM jobs WHERE status='planned' ORDER BY finished DESC")]
@@ -359,7 +391,8 @@ class Generator:
                                     threads=engine.platform_runtime.settings()["threads"], output=output, abc=recipe["abc"],
                                     mode=recipe.get("mode", "lyrics"), cfg_scale=recipe.get("cfg_scale", 1.),
                                     temperature=recipe.get("temperature", 1.), refinement=recipe.get("refinement", {}),
-                                    render_mode=recipe.get("render_mode", "music"))
+                                    render_mode=recipe.get("render_mode", "music"),
+                                    performance_file=self.store.performance_path(recipe["performance_source"]) if recipe.get("performance_source") else None)
 
     @staticmethod
     def writer_ready():
@@ -463,7 +496,7 @@ class Generator:
                     self.writer_job_id = None
 
     def submit(self, payload):
-        recipe = validate_recipe(payload)
+        recipe = self.store.prepare_performance(validate_recipe(payload))
         job_id = uuid.uuid4().hex
         with self.store.db() as db:
             db.execute("BEGIN IMMEDIATE")
@@ -565,6 +598,7 @@ class Generator:
                 recipe["writer_model"] = idea.get("writer_model", "local")
                 with self.store.db() as db:
                     db.execute("UPDATE jobs SET title=?,recipe=? WHERE id=?", (recipe["title"], json.dumps(recipe), job_id))
+            recipe = self.store.prepare_performance(recipe)
             command = self.command_builder(recipe, output)
             with log_path.open("w") as log, self.lock:
                 with self.store.db() as db:
@@ -601,13 +635,23 @@ class Generator:
                              Path(engine.platform_runtime.settings()["model_root"]) / "sidecars/yue2-qwen.tiktoken")
             if plan:
                 recipe["symbolic_plan"] = plan
-                with self.store.db() as db:
-                    db.execute("UPDATE jobs SET recipe=? WHERE id=?", (json.dumps(recipe), job_id))
+            codes = output.with_suffix(".codes.i32")
+            metadata = codes.with_suffix(codes.suffix + ".json")
+            if codes.is_file() and metadata.is_file():
+                saved = json.loads(metadata.read_text())
+                if type(saved.get("frames")) is not int or saved["frames"] < 1 or codes.stat().st_size != saved["frames"] * 4:
+                    raise ValueError("The engine returned incomplete performance data.")
+                recipe["performance"] = {"frames": saved["frames"], "truncated": bool(saved.get("truncated")),
+                                         "sha256": hashlib.sha256(codes.read_bytes()).hexdigest()}
+                if recipe.get("performance_source"):
+                    recipe["performance"]["truncated"] = bool(self.store.track(recipe["performance_source"])["recipe"]["performance"].get("truncated"))
+            with self.store.db() as db:
+                db.execute("UPDATE jobs SET recipe=? WHERE id=?", (json.dumps(recipe), job_id))
             with self.store.db() as db:
                 cancelling = db.execute("SELECT status FROM jobs WHERE id=?", (job_id,)).fetchone()[0] == "cancelling"
             if not cancelling and not self.stop.is_set():
                 if returncode:
-                    failure = "The music engine stopped before finishing. Your lyrics are saved; try a shorter preview."
+                    failure = "The music engine stopped before finishing. Your draft is saved; check the generation log for details."
                 elif recipe.get("render_mode") == "plan":
                     planned = bool(plan and plan["abc"])
                     if not planned:

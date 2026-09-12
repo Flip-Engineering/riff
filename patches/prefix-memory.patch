@@ -1,0 +1,84 @@
+--- a/src/models/yue2/ar_runtime.cpp
++++ b/src/models/yue2/ar_runtime.cpp
+@@ -172,8 +172,8 @@
+ }
+ 
+ runtime::TransformerBatchedKVState make_cfg_batched_state(
+-    const runtime::TransformerKVState & positive,
+-    const runtime::TransformerKVState & negative) {
++    runtime::TransformerKVState & positive,
++    runtime::TransformerKVState & negative) {
+     if (positive.layers.size() != negative.layers.size()) {
+         throw std::runtime_error("Yue2 CFG batched state layer count mismatch");
+     }
+@@ -190,8 +190,8 @@
+     out.valid_steps_by_batch = {positive_steps, negative_steps};
+     out.layers.resize(positive.layers.size());
+     for (size_t layer = 0; layer < positive.layers.size(); ++layer) {
+-        const auto & pos = positive.layers[layer];
+-        const auto & neg = negative.layers[layer];
++        auto & pos = positive.layers[layer];
++        auto & neg = negative.layers[layer];
+         if (pos.valid_steps != positive_steps || neg.valid_steps != negative_steps ||
+             pos.key.size() != pos.value.size() || neg.key.size() != neg.value.size()) {
+             throw std::runtime_error("Yue2 CFG batched state source shape mismatch");
+@@ -206,12 +206,14 @@
+         }
+         auto & dst = out.layers[layer];
+         dst.valid_steps = max_steps;
+-        dst.key.resize((static_cast<size_t>(positive_steps) + static_cast<size_t>(negative_steps)) * row_elems);
+-        dst.value.assign(dst.key.size(), 0.0F);
+-        std::copy(pos.key.begin(), pos.key.end(), dst.key.begin());
+-        std::copy(pos.value.begin(), pos.value.end(), dst.value.begin());
+-        std::copy(neg.key.begin(), neg.key.end(), dst.key.begin() + static_cast<std::ptrdiff_t>(pos.key.size()));
+-        std::copy(neg.value.begin(), neg.value.end(), dst.value.begin() + static_cast<std::ptrdiff_t>(pos.value.size()));
++        // Transfer each layer into the batched snapshot. Retaining both full
++        // source snapshots duplicates gigabytes for long supplied scores.
++        dst.key = std::move(pos.key);
++        dst.key.insert(dst.key.end(), neg.key.begin(), neg.key.end());
++        std::vector<float>().swap(neg.key);
++        dst.value = std::move(pos.value);
++        dst.value.insert(dst.value.end(), neg.value.begin(), neg.value.end());
++        std::vector<float>().swap(neg.value);
+     }
+     return out;
+ }
+@@ -690,6 +692,8 @@
+         engine::debug::timing_log_scalar("yue2.ar.generate.max_tokens", window.max_tokens);
+         const auto prefill_start = Clock::now();
+         auto prefill = active_runtime->prefill_tokens(prefix);
++        // All required K/V and logits have been copied out of the prefill graph.
++        active_runtime->release_runtime_graphs();
+         engine::debug::timing_log_scalar("yue2.ar.generate.prefill_ms", engine::debug::elapsed_ms(prefill_start));
+         const auto start_decode_start = Clock::now();
+         auto cache_steps_for = [](int64_t prefix_tokens, int64_t remaining_tokens) {
+@@ -698,6 +702,7 @@
+         active_runtime->start_decode_tokens(
+             prefill.state,
+             cache_steps_for(static_cast<int64_t>(prefix.size()), window.max_tokens));
++        prefill.state = {};
+         double start_decode_ms = engine::debug::elapsed_ms(start_decode_start);
+         std::vector<int32_t> emitted;
+         emitted.reserve(static_cast<size_t>(window.max_tokens));
+@@ -734,7 +739,9 @@
+                 refill_prefix.insert(refill_prefix.end(), prefix.begin(), prefix.end());
+                 refill_prefix.insert(refill_prefix.end(), emitted.begin(), emitted.end());
+                 const auto refill_prefill_start = Clock::now();
++                active_runtime->release_runtime_graphs();
+                 auto refill = active_runtime->prefill_tokens(refill_prefix);
++                active_runtime->release_runtime_graphs();
+                 refill_prefill_ms += engine::debug::elapsed_ms(refill_prefill_start);
+                 const int64_t remaining = window.max_tokens - static_cast<int64_t>(emitted.size());
+                 const auto refill_decode_start = Clock::now();
+@@ -780,9 +787,11 @@
+         engine::debug::timing_log_scalar("yue2.ar.cfg.guidance_scale", static_cast<double>(guidance_scale));
+         const auto positive_prefill_start = Clock::now();
+         auto positive = positive_runtime->prefill_tokens(positive_prefix);
++        positive_runtime->release_runtime_graphs();
+         engine::debug::timing_log_scalar("yue2.ar.cfg.prefill_positive_ms", engine::debug::elapsed_ms(positive_prefill_start));
+         const auto negative_prefill_start = Clock::now();
+         auto negative = positive_runtime->prefill_tokens(negative_prefix);
++        positive_runtime->release_runtime_graphs();
+         engine::debug::timing_log_scalar("yue2.ar.cfg.prefill_negative_ms", engine::debug::elapsed_ms(negative_prefill_start));
+         const auto start_decode_start = Clock::now();
+         const int64_t cache_steps =

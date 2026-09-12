@@ -6,6 +6,14 @@ let soundMotionTrack = null;
 let soundSnapshotPending = false;
 const quietMotion = matchMedia("(prefers-reduced-motion: reduce)");
 const motionCache = new Map();
+let soundAppearance = { ...RiffArtwork.defaults };
+try {
+  const saved = JSON.parse(localStorage.getItem("riff.soundAppearance") || "{}");
+  for (const [key, maximum] of [["surface", 1], ["motion", 2]]) {
+    if (Number.isFinite(saved[key])) soundAppearance[key] = Math.max(0, Math.min(maximum, saved[key]));
+  }
+} catch {}
+function artworkAppearance() { return { ...soundAppearance }; }
 
 async function preparePlayback() {}
 
@@ -31,7 +39,13 @@ function motionAt(data, seconds) {
     if (time < 0) return Array(8).fill(0);
     const position = time * data.fps, index = Math.floor(position), blend = position - index;
     const a = smooth(index), b = smooth(index + 1);
-    return a.map((value, band) => value + (b[band] - value) * blend);
+    const values = a.map((value, band) => value + (b[band] - value) * blend);
+    if (data.waveforms?.length) {
+      const first = data.waveforms[Math.min(index, data.waveforms.length - 1)];
+      const next = data.waveforms[Math.min(index + 1, data.waveforms.length - 1)];
+      values.waveform = first.map((value, point) => value + ((next[point] || 0) - value) * blend);
+    }
+    return values;
   };
   const motion = at(seconds);
   // A beat travels through the surface using its real, recent envelope.
@@ -66,7 +80,7 @@ function drawSoundField() {
   }
   const seed = selected?.recipe.seed ?? "reed0f_cobalt8d82";
   drawSeedArtwork(context, width, height, seed, audio.currentTime,
-    motionAt(soundMotionTrack === selected?.id ? soundMotion : null, audio.currentTime));
+    motionAt(soundMotionTrack === selected?.id ? soundMotion : null, audio.currentTime), artworkAppearance());
   if (!audio.paused && !quietMotion.matches) soundAnimation = requestAnimationFrame(drawSoundField);
 }
 
@@ -89,6 +103,15 @@ function synchronizeSoundField() {
 
 document.addEventListener("DOMContentLoaded", () => {
   const immersive = $("#sound-view-dialog");
+  for (const key of ["surface", "motion"]) {
+    const control = $("#sound-" + key);
+    control.value = soundAppearance[key];
+    control.addEventListener("input", () => {
+      soundAppearance[key] = Number(control.value);
+      try { localStorage.setItem("riff.soundAppearance", JSON.stringify(soundAppearance)); } catch {}
+      synchronizeSoundField();
+    });
+  }
   function immersivePlayback() {
     $("#sound-view-play").innerHTML = icon(audio.paused ? "play" : "pause");
     $("#sound-view-play").setAttribute("aria-label", audio.paused ? "Play recording" : "Pause recording");

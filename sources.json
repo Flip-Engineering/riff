@@ -45,6 +45,22 @@
     "patches/symbolic-plan.patch": {
       "bytes": 4420,
       "sha256": "8d0b3599df4d4d4b8af9e51ad16a571a100e256013d0117887605828d203d46a"
+    },
+    "patches/prefix-memory.patch": {
+      "bytes": 4920,
+      "sha256": "bf2394ca538f9d84c69e73dbb7b40f078f86aa97a5b1d37ace6bd22c5a8bb00c"
+    },
+    "patches/metal-kv-cache.patch": {
+      "bytes": 1003,
+      "sha256": "c7f938f8c3c101d550a653b4b06d4d46b858a9d8dd06de7143e1a39e59e6e4b7"
+    },
+    "patches/synthesis-artifacts.patch": {
+      "bytes": 3817,
+      "sha256": "96e7420c6ab77f5df977c041f12810cb958a6f8669633c42351ede9db23d8e4f"
+    },
+    "patches/cache-upload-memory.patch": {
+      "bytes": 6900,
+      "sha256": "6959d777b1907adfd02f439f69dd9ad7749dfce3dfea0e4cd19bb5a58b721cb9"
     }
   },
   "writer": {

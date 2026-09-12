@@ -52,8 +52,23 @@ interval. Linux process metrics exclude GPU memory.
   and transient attacks; silence remains still. Renderer checks cover deterministic
   seeking, independent responses, and the sole corner wordmark at multiple ratios.
   Both the WebGL2 renderer and Canvas fallback have been exercised. A local M4
-  browser measurement at 1280×990 averaged 3.2 ms per WebGL frame (3.6 ms at p95);
+  browser measurement of the contour renderer at 1280×990 averaged 1.24 ms per WebGL frame (1.4 ms at p95);
   this measures drawing, not PNG encoding, network delivery or whole-video export.
+- The motion cache includes signed filtered waveform samples with tests for
+  silence, amplitude and opposite-phase stereo. Surface and movement settings
+  persist without changing the generation draft and remain fixed during export.
+- Native saved-code reuse reproduced a 32-second source WAV byte for byte with
+  identical inputs. Removing per-layer cache upload scratch buffers also preserved
+  both music codes and the waveform exactly. A long-score allocation probe with
+  9,476/7,937-token guided prefixes and a 10,500-token music capacity peaked at
+  10.54 GB after these lifetime changes and F16 Metal caches; the earlier run
+  exceeded 21 GB. This is allocation evidence, not a completed long-song render
+  or a speed claim. F16 cache sampling can differ from the older F32 cache.
+- Performance reuse checks reject missing, changed and out-of-library artifacts
+  before queue submission. Producer proposals can re-render the supplied saved
+  performance or compose a score through normal queue validation, preserving
+  the draft and ancestry. Browser checks cover written score duration and
+  individual voice audition.
 - A real 28-second recording was played, sought, and exported through private
   Tailscale HTTPS at 1280×990 and 24 fps. The MP4 contains H.264 video and the
   complete AAC-encoded recording; the artwork includes only the riff wordmark.

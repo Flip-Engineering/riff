@@ -11,7 +11,8 @@ import time
 import uuid
 import wave
 
-MOTION_VERSION = 2
+MOTION_VERSION = 3
+WAVEFORM_POINTS = 64  # Half the contour's 128 vertices; detail remains legible at cover size.
 
 
 def lowpass_coefficients(frequency, sample_rate):
@@ -23,7 +24,7 @@ def lowpass_coefficients(frequency, sample_rate):
 
 def motion_envelope(path, fps=24):
     """Stream energy, stereo image and transients; retain no decoded audio."""
-    result = []
+    result, waveforms = [], []
     with wave.open(str(path), "rb") as source:
         rate, channels, width, total = source.getframerate(), source.getnchannels(), source.getsampwidth(), source.getnframes()
         if width not in (1, 2, 3, 4) or not rate or not channels:
@@ -32,7 +33,10 @@ def motion_envelope(path, fps=24):
         sample_rate = rate / stride
         bass_filter = lowpass_coefficients(min(180, sample_rate * .08), sample_rate)
         mid_filter = lowpass_coefficients(min(1800, sample_rate * .3), sample_rate)
+        # Band-limit before reducing each visual frame to its contour samples.
+        trace_filter = lowpass_coefficients(min(WAVEFORM_POINTS * fps * .4, sample_rate * .3), sample_rate)
         low, middle = [[0.0, 0.0] for _ in range(channels)], [[0.0, 0.0] for _ in range(channels)]
+        trace_states = [[0.0, 0.0] for _ in range(channels)]
         position, previous_level, transient = 0, 0.0, 0.0
         release = math.exp(-1 / (fps * .18))
         for frame in range(math.ceil(total / rate * fps)):
@@ -48,6 +52,7 @@ def motion_envelope(path, fps=24):
                 samples = [int.from_bytes(raw[i:i + 3], "little", signed=True) for i in range(0, len(raw), 3)]
             sums, count = [0.0] * 4, 0
             channel_energy, cross, peak = [0.0] * channels, 0.0, 0.0
+            traces = [[] for _ in range(channels)]
             normalization = 2 ** (width * 8 - 1)
             for i in range(0, len(samples), channels * stride):
                 if channels >= 2:
@@ -57,12 +62,13 @@ def motion_envelope(path, fps=24):
                     channel_energy[channel] += sample * sample
                     peak = max(peak, abs(sample))
                     values = []
-                    for coefficients, states in ((bass_filter, low), (mid_filter, middle)):
+                    for coefficients, states in ((bass_filter, low), (mid_filter, middle), (trace_filter, trace_states)):
                         b0, b1, b2, a1, a2 = coefficients
                         value = b0 * sample + states[channel][0]
                         states[channel][0] = b1 * sample - a1 * value + states[channel][1]
                         states[channel][1] = b2 * sample - a2 * value
                         values.append(value)
+                    traces[channel].append(values[2])
                     for band, value in enumerate((sample, values[0], values[1] - values[0], sample - values[1])):
                         sums[band] += value * value
                     count += 1
@@ -80,8 +86,19 @@ def motion_envelope(path, fps=24):
             crest = min(1, max(0, (peak / rms - 1) / 4)) if rms else 0.0
             result.append([round(value, 5) for value in
                            [*energy, balance * energy[0], spread * energy[0], transient, crest * energy[3]]])
+            # Use the more audible channel so opposite-phase stereo cannot erase
+            # the trace. Keep absolute dynamics instead of normalizing silence.
+            trace = traces[max(range(channels), key=lambda channel: channel_energy[channel])]
+            waveform = []
+            for point in range(WAVEFORM_POINTS):
+                at = point * max(0, len(trace) - 1) / (WAVEFORM_POINTS - 1)
+                before, blend = int(at), at % 1
+                value = (trace[before] * (1 - blend) + trace[min(before + 1, len(trace) - 1)] * blend) if trace else 0
+                waveform.append(round(math.tanh(value * 4), 4))
+            waveforms.append(waveform)
     return {"version": MOTION_VERSION, "fps": fps, "duration": total / rate,
-            "features": ["level", "bass", "middle", "air", "balance", "spread", "attack", "crest"], "frames": result}
+            "features": ["level", "bass", "middle", "air", "balance", "spread", "attack", "crest"],
+            "frames": result, "waveforms": waveforms}
 
 
 class VideoExports:

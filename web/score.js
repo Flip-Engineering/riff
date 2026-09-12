@@ -4,6 +4,45 @@
   let tunes = [], selectedNote = null, audioContext = null, voices = [], finishTimer = null;
   let pendingPlan = null, planInput = "", knownPlans = "", undo = [];
   let proposal = null;
+  let writtenSeconds = 0, auditionParts = new Set(), partSignature = "";
+
+  function overview() {
+    const host = $("#score-overview"), rows = $("#score-voices");
+    rows.replaceChildren(); host.hidden = !tunes.length;
+    writtenSeconds = 0;
+    if (!tunes.length) return;
+    try {
+      const sequence = tunes[0].setUpAudio({});
+      const parts = sequence.tracks.map((track, index) => ({ index, notes: track.filter((note) => note.cmd === "note") })).filter((part) => part.notes.length);
+      const end = Math.max(sequence.totalDuration || 0, ...parts.flatMap((part) => part.notes.map((note) => note.start + note.duration)));
+      writtenSeconds = end * 240 / sequence.tempo;
+      $("#score-fit-duration").disabled = !!formRecipe().performance_source;
+      const signature = parts.map((part) => part.index).join(",");
+      if (signature !== partSignature) { auditionParts = new Set(parts.map((part) => part.index)); partSignature = signature; }
+      const durations = `${formatDuration(writtenSeconds)} written · ${parts.length} ${parts.length === 1 ? "voice" : "voices"}`;
+      $("#score-dimensions").textContent = durations;
+      for (const [position, part] of parts.entries()) {
+        const low = Math.min(...part.notes.map((note) => note.pitch)), high = Math.max(...part.notes.map((note) => note.pitch));
+        const button = document.createElement("button"); button.type = "button"; button.className = "score-voice";
+        button.setAttribute("aria-pressed", String(auditionParts.has(part.index)));
+        button.setAttribute("aria-label", `Voice ${position + 1}, ${part.notes.length} notes, toggle in tone preview`);
+        const label = document.createElement("span"); label.textContent = `Voice ${position + 1}`; button.append(label);
+        const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg"); svg.setAttribute("viewBox", "0 0 800 40"); svg.setAttribute("preserveAspectRatio", "none"); svg.setAttribute("aria-hidden", "true");
+        for (const note of part.notes) {
+          const mark = document.createElementNS(svg.namespaceURI, "rect");
+          mark.setAttribute("x", String(note.start / end * 800)); mark.setAttribute("width", String(Math.max(1, note.duration / end * 800)));
+          mark.setAttribute("y", String(3 + (high - note.pitch) / Math.max(1, high - low) * 30)); mark.setAttribute("height", "3"); mark.setAttribute("rx", "1.5"); svg.append(mark);
+        }
+        button.append(svg);
+        button.addEventListener("click", () => {
+          stop();
+          if (auditionParts.has(part.index)) auditionParts.delete(part.index); else auditionParts.add(part.index);
+          button.setAttribute("aria-pressed", String(auditionParts.has(part.index)));
+        });
+        rows.append(button);
+      }
+    } catch { host.hidden = true; }
+  }
 
   function header(name, fallback = "") {
     return source.value.match(new RegExp("^" + name + ":\\s*(.*)$", "m"))?.[1] || fallback;
@@ -48,6 +87,7 @@
     } catch (error) { $("#score-warning").textContent = error.message; tunes = []; }
     $("#audition-score").disabled = !tunes.length;
     $("#export-midi").disabled = !tunes.length;
+    overview();
   }
   function replace(value, remember = true) {
     if (remember && source.value !== value) undo.push(source.value);
@@ -96,6 +136,12 @@
     catch (error) { $("#score-warning").textContent = error.message; }
   });
   $("#score-undo").addEventListener("click", () => { if (undo.length) replace(undo.pop(), false); });
+  $("#score-fit-duration").addEventListener("click", () => {
+    if (writtenSeconds > 0) {
+      $("#duration").value = Math.ceil(writtenSeconds);
+      saveDraft(); $("#score-status").textContent = "Generation duration follows the written score.";
+    }
+  });
   $("#new-score").addEventListener("click", () => replace("X:1\nT:" + ($("#title").value.trim() || "Untitled") + "\nM:4/4\nL:1/8\nQ:1/4=108\nK:Dm\nD2 F2 A2 G2 | F2 E2 D4 |\n"));
 
   function stop() {
@@ -115,7 +161,8 @@
       await audioContext.resume();
       const output = audioContext.createGain(); output.gain.value = .13 / Math.sqrt(Math.max(1, sequence.tracks.length)); output.connect(audioContext.destination);
       let duration = 0;
-      for (const track of sequence.tracks) for (const note of track) {
+      for (const [part, track] of sequence.tracks.entries()) for (const note of track) {
+        if (!auditionParts.has(part)) continue;
         if (note.cmd !== "note") continue;
         const start = audioContext.currentTime + .04 + note.start * secondsPerWhole;
         const length = Math.max(.01, (note.duration - (note.gap || 0)) * secondsPerWhole);
@@ -167,7 +214,7 @@
   });
   $("#compose-score").addEventListener("click", async () => {
     try {
-      const recipe = { ...formRecipe(), cot: $("#score-mode").value, abc: "" };
+      const recipe = { ...formRecipe(), cot: $("#score-mode").value, abc: "", performance_source: "", render_mode: "plan" };
       const job = await api("/api/plans", "POST", recipe);
       pendingPlan = job.id; planInput = source.value;
       $("#score-status").textContent = "Composing a score…";

@@ -12,7 +12,7 @@ const fixture = await new Promise((resolve, reject) => {
 });
 try {
   const selected = process.argv.slice(2);
-  for (const file of selected.length ? selected : ["browser", "exploration", "reviews", "suite", "studio-flow", "video"]) {
+  for (const file of selected.length ? selected : ["browser", "exploration", "reviews", "suite", "studio-flow", "performance", "video"]) {
     const child = spawn(process.execPath, [`tests/${file}.mjs`], { stdio: "inherit",
       env: { ...process.env, RIFF_URL: fixture.url, RIFF_TEST_TRACK: fixture.track_id } });
     const [code] = await once(child, "exit");

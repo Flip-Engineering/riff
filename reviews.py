@@ -129,10 +129,14 @@ class Reviews:
             raise ValueError("Add a review focus and choose whether to keep the lyrics.")
         track = self.store.track(track_id)
         self.store.audio_path(track_id)
+        source = dict(track["recipe"])
+        if source.get("performance"):
+            self.store.performance_path(track_id)
+            source["performance_track_id"] = track_id
         review_id = uuid.uuid4().hex
         with self.store.db() as db:
             db.execute("INSERT INTO reviews(id,track_id,created,status,model,focus,keep_lyrics,source_recipe) VALUES(?,?,?,?,?,?,?,?)",
-                       (review_id, track_id, time.time(), "queued", settings["model"], focus.strip(), int(keep), json.dumps(track["recipe"])))
+                       (review_id, track_id, time.time(), "queued", settings["model"], focus.strip(), int(keep), json.dumps(source)))
         self.wake.set()
         return self.get(review_id)
 

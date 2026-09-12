@@ -20,6 +20,9 @@ of this pipeline. Its low-memory default uses Q4 main weights and an F16 VAE.
 | Performance length | Duration and minimum semantic tokens |
 | Semantic guidance | Guidance |
 | Acoustic rendering | Solver steps |
+| Retain phrasing during acoustic refinement | Refine this performance; saved native codes, original score, revised sound, seed and solver steps |
+| Understand a written composition | Voice maps, individual tone-preview voices, written duration and duration matching |
+| Agent operation | Discover `/api/capabilities`; use the same library, composition, review and generation queue |
 | Decoder or quantization | Custom GGUF paths in Studio settings |
 | Compare revisions | A/B takes at the same listening position, passage loops, input differences, short studies, parent links, and runnable producer recommendations |
 | Share a recording | Animated seeded-artwork MP4 with audio, WAV, PNG artwork, and generation recipe |
@@ -32,10 +35,38 @@ quantizations as those features. Cover-style work accepts a supplied score and
 lyrics; there is no transcription pipeline.
 
 The composition workspace captures the actual ABC planning tokens from audio.cpp.
-A small pinned patch adds score export and a score-only exit before semantic and
-acoustic generation. A second patch permits empty conditioning, and a third reports
-acoustic progress. These patches do not change checkpoint weights. MIDI export and
+Pinned patches add score export, score-only composition, performance-code capture,
+optional conditioning and acoustic progress. They also release completed prefix
+graphs and share temporary cache-upload storage across layers. Metal uses an F16
+static attention cache, as CUDA already does; this may change sampling compared
+with the former F32 Metal cache. Checkpoint weights remain unchanged. MIDI export and
 tone audition are derived from ABC through abcjs, not from the generated WAV.
+
+New music takes save native `.codes.i32` performance data beside their audio.
+Re-rendering bypasses semantic sampling and runs acoustic synthesis and decoding.
+Riff resolves the source through its library ID, checks the artifact hash, carries
+forward the actual score and uses the saved performance's duration. The code stream
+retains musical phrasing; acoustic conditioning, seed and solver steps remain
+editable. New words or structural changes generally need a fresh performance.
+This is not a stem separator or a guarantee that an unwanted musical event can be
+removed at the acoustic stage. Older takes without saved codes remain available
+for ordinary variation and score reuse.
+
+The optional OpenRouter producer receives this capability and its available source
+ID alongside the audio, previous inputs and score. Its structured proposal can
+request new music, a re-render, or an editable score. Each uses the same validation
+and queue as the UI. Proposals remain inspectable and editable before execution.
+`GET /api/capabilities` describes the operations and recipe schema for other agents.
+Mutations use JSON and `X-Riff-Request: 1`, with the studio's existing origin and
+private-network access checks. Read a track or review, then submit its proposed
+recipe to `POST /api/generations`; add `parent_track_id` and `review_id` to preserve
+its ancestry, then poll the returned job ID. A `performance_source`
+is an owned library track ID, never a caller-supplied filesystem path.
+
+The CLI saves performance codes automatically. To re-render them, use
+`--performance saved.codes.i32` with the source's lyrics, style, planning mode and
+ABC. `--performance-only` saves the code stream before acoustic synthesis. These
+options operate on the model's own output; they do not infer notation from audio.
 
 All optional numeric controls validate the runtime's physical or mathematical
 limits. Duration determines the semantic token budget using the model's 25 Hz rate;

@@ -5,11 +5,12 @@ import model_options
 from studio_core import validate_recipe
 
 FIELDS = ("title", "lyrics", "style", "abc", "mode", "cot", "max_seconds",
-          "steps", "cfg_scale", "temperature", "seed", "refinement")
+          "steps", "cfg_scale", "temperature", "seed", "refinement", "performance_source", "render_mode")
 
 
 def generation_context(source):
-    keys = (*FIELDS, "brief", "idea_engine", "writer_tokens", "lyrics_source", "energy", "texture", "theme")
+    keys = (*FIELDS, "brief", "idea_engine", "writer_tokens", "lyrics_source", "energy", "texture", "theme",
+            "performance", "performance_track_id")
     return {key: source[key] for key in keys if key in source}
 
 
@@ -83,6 +84,10 @@ def response_schema(source, keep_lyrics):
                  "description": "Integer seed from 0 through 9223372036854775807, or empty for a new seed."},
         "refinement": {"type": "object", "properties": refinement, "additionalProperties": False,
                        "description": "YuE2 sampling overrides. Omitted controls use runtime defaults."},
+        "performance_source": {"type": "string", "enum": [""] + ([source["performance_track_id"]] if source.get("performance_track_id") else []),
+                               "description": "Empty for a fresh performance. Use the supplied track ID to re-synthesize its saved performance codes with revised acoustic conditioning, solver steps or seed. Retains phrasing and length; not suitable for new words or a new composition."},
+        "render_mode": {"type": "string", "enum": ["music", "plan"],
+                        "description": "music renders a take; plan composes an editable score without audio and requires cot melody or full and empty performance_source."},
     }
     if keep_lyrics:
         properties["lyrics"]["description"] = "Riff preserves the source lyrics. This field may be empty when Keep lyrics is enabled."
@@ -96,9 +101,12 @@ def response_schema(source, keep_lyrics):
 
 
 def recommended_generation(value, source, keep_lyrics):
+    if isinstance(value, dict):
+        # Recommendations made by earlier installed producers remain runnable.
+        value = {"performance_source": "", "render_mode": "music", **value}
     if not isinstance(value, dict) or set(value) != set(FIELDS):
         raise ValueError("The review did not return a complete generation recipe. Review again to retry.")
-    for key in ("title", "lyrics", "style", "abc", "mode", "cot", "seed"):
+    for key in ("title", "lyrics", "style", "abc", "mode", "cot", "seed", "performance_source", "render_mode"):
         if not isinstance(value[key], str):
             raise ValueError(f"The recommended {key} must be text.")
     for key in ("max_seconds", "cfg_scale", "temperature"):
@@ -107,10 +115,12 @@ def recommended_generation(value, source, keep_lyrics):
     if type(value["steps"]) is not int:
         raise ValueError("The recommended solver steps must be a whole number.")
     lyrics = source.get("lyrics", "") if keep_lyrics else value["lyrics"]
+    if value["performance_source"] and value["performance_source"] != source.get("performance_track_id"):
+        raise ValueError("The producer selected a performance that was not supplied for this review.")
     # These are the same validation and defaults used by POST /api/generations.
     # Origin links come from the studio, never from the model.
     result = validate_recipe({**source, **value, "lyrics": lyrics, "title_auto": False,
-                              "parent_track_id": "", "review_id": "", "render_mode": "music",
+                              "parent_track_id": "", "review_id": "",
                               "lyrics_source": "review" if lyrics else "none"})
     for key in ("parent_track_id", "review_id"):
         result.pop(key, None)

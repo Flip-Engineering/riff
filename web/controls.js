@@ -116,6 +116,8 @@
   $("#clear-audition-selection").addEventListener("click", () => { selection = ""; $("#audition-selection").textContent = "Whole draft"; });
   $("#audition").addEventListener("click", async () => {
     const recipe = formRecipe();
+    recipe.performance_source = "";
+    recipe.render_mode = "music";
     if (selection) { recipe.lyrics = selection; recipe.mode = "lyrics"; }
     recipe.title = (recipe.title || "Untitled") + " — study";
     recipe.max_seconds = Number($("#audition-length").value);

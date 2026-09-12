@@ -1,0 +1,79 @@
+import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
+import { once } from "node:events";
+import { chromium } from "playwright";
+
+const server = spawn(process.env.RIFF_PYTHON || "python3", ["-u", "tests/review_browser_server.py"], {
+  env: { ...process.env, RIFF_PERFORMANCE_FIXTURE: "1" },
+});
+let diagnostics = ""; server.stderr.on("data", data => diagnostics += data);
+const fixture = await new Promise((resolve, reject) => {
+  let output = "";
+  server.stdout.on("data", data => { output += data; if (output.includes("\n")) resolve(JSON.parse(output.split("\n")[0])); });
+  server.once("exit", code => reject(new Error(`Fixture exited ${code}: ${diagnostics}`)));
+});
+const browser = await chromium.launch({ executablePath: process.env.RIFF_BROWSER_EXECUTABLE });
+const page = await browser.newPage({ viewport: { width: 1280, height: 1000 } });
+const errors = []; page.on("pageerror", error => errors.push(error.message));
+const call = (path, body) => page.evaluate(({ path, body }) => api(path, body ? "POST" : "GET", body), { path, body });
+try {
+  await page.goto(fixture.url);
+  await page.locator("#refine-performance").waitFor();
+  await page.locator("#refine-performance").click();
+  assert.equal(await page.evaluate(() => formRecipe().performance_source), fixture.track_id);
+  assert.equal(await page.locator("#duration").inputValue(), "12");
+  assert(await page.locator("#duration").evaluate(input => input.readOnly));
+  await page.locator(".creative-controls > summary").click();
+  await page.locator("#custom-steps").fill("48");
+  await page.reload();
+  await page.locator("#performance-context").waitFor();
+  assert.equal(await page.locator("#custom-steps").inputValue(), "48");
+  await page.locator("#fresh-performance").click();
+  assert(!(await page.locator("#duration").evaluate(input => input.readOnly)));
+  await page.locator(".creative-controls > summary").click();
+  await page.locator("#render-mode").selectOption("plan");
+  assert.equal(await page.locator("#planning").inputValue(), "full");
+  await page.locator("#score-open").click();
+  await page.locator("#new-score").click();
+  await page.locator("#score-overview").waitFor();
+  assert.match(await page.locator("#score-dimensions").innerText(), /written.*voice/);
+  await page.locator("#score-fit-duration").click();
+  assert.equal(await page.locator("#duration").inputValue(), "5");
+  await page.locator(".score-voice").first().click();
+  assert.equal(await page.locator(".score-voice").first().getAttribute("aria-pressed"), "false");
+  await page.locator(".score-voice").first().click();
+  await page.locator("#audition-score").click();
+  await page.locator("#stop-score").click();
+  await page.locator('[data-close="score-dialog"]').click();
+  console.log("PASS Saved performance selection persists, fresh composition stays available, and score duration and voice audition follow notation");
+
+  const capabilities = await call("/api/capabilities");
+  assert.equal(capabilities.operations.generate.path, "/api/generations");
+  await call("/api/review/settings", { enabled: true, api_key: "fixture-key", model: "fixture/listener" });
+  await page.locator("#producer-panel > summary").click();
+  const before = await page.evaluate(() => formRecipe());
+  const review = await call(`/api/tracks/${fixture.track_id}/reviews`, { focus: "reuse" });
+  const generate = page.locator(`[data-generate-review="${review.id}"]`);
+  await generate.waitFor(); assert.equal(await generate.innerText(), "Render this performance");
+  await generate.click();
+  await page.waitForFunction(id => state.jobs.some(job => job.track_id && job.id !== id), fixture.track_id);
+  assert.deepEqual(await page.evaluate(() => formRecipe()), before);
+  const job = await page.evaluate(() => state.jobs.find(job => job.track_id));
+  const result = await call(`/api/jobs/${job.id}`);
+  assert.equal(result.recipe.performance_source, fixture.track_id);
+  assert.equal(result.recipe.max_seconds, 12);
+  assert.equal(result.recipe.steps, 37);
+  assert.equal(result.recipe.review_id, review.id);
+  const plan = await call(`/api/tracks/${fixture.track_id}/reviews`, { focus: "compose" });
+  const compose = page.locator(`[data-generate-review="${plan.id}"]`);
+  await compose.waitFor(); assert.equal(await compose.innerText(), "Compose this score");
+  await compose.click();
+  await page.waitForFunction(() => state.plans.length > 0);
+  assert.deepEqual(await page.evaluate(() => formRecipe()), before);
+  await page.setViewportSize({ width: 390, height: 844 });
+  assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+  assert.deepEqual(errors, []);
+  console.log("PASS Producer re-render and score proposals enter the ordinary queue with exact inputs, duration and ancestry, without changing the draft");
+} finally {
+  await browser.close(); const stopped = once(server, "exit"); server.kill("SIGTERM"); await stopped;
+}

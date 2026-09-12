@@ -175,6 +175,7 @@ let draftRefinement = {};
 function formRecipe() {
   return {
     ...draftOrigin,
+    render_mode: $("#render-mode").value,
     title: $("#title").value.trim(),
     lyrics: ["free", "instrumental"].includes(creationMode())
       ? ""
@@ -204,6 +205,10 @@ function formRecipe() {
 function updateForm() {
   updateExploration();
   $("#local-writer-limit").hidden = $("#idea-engine").value !== "ai";
+  $("#performance-context").hidden = !draftOrigin.performance_source;
+  $("#performance-caption").textContent = draftOrigin.performance_source
+    ? `Performance from ${state.tracks.find((track) => track.id === draftOrigin.performance_source)?.title || "a saved take"}` : "";
+  $("#duration").readOnly = !!draftOrigin.performance_source;
   const lines = $("#lyrics")
     .value.split("\n")
     .filter((line) => line.trim() && !/^\[.*\]$/.test(line.trim())).length;
@@ -278,7 +283,7 @@ function listeningLink(id) {
 }
 function fillRecipe(recipe, variation = false) {
   draftOrigin = {};
-  for (const name of ["parent_track_id", "review_id"]) {
+  for (const name of ["parent_track_id", "review_id", "performance_source"]) {
     if (recipe[name]) draftOrigin[name] = recipe[name];
   }
   const mode = ["free", "instrumental", "lyrics", "surprise"].includes(
@@ -292,6 +297,7 @@ function fillRecipe(recipe, variation = false) {
   $("#idea-engine").value = ["phrases", "openrouter"].includes(recipe.idea_engine) ? recipe.idea_engine : "ai";
   $("#writer-tokens").value = recipe.writer_tokens || 768;
   $("#custom-steps").value = recipe.steps || 8;
+  $("#render-mode").value = recipe.render_mode || "music";
   $("#guidance").value = recipe.cfg_scale ?? 1;
   $("#temperature").value = recipe.temperature ?? 1;
   $("#idea-theme").value = [
@@ -330,6 +336,15 @@ $("#generation-form").addEventListener("input", (event) => {
   saveDraft();
 });
 $("#generation-form").addEventListener("change", saveDraft);
+$("#render-mode").addEventListener("change", () => {
+  if ($("#render-mode").value === "plan" && $("#planning").value === "off") $("#planning").value = "full";
+  if ($("#render-mode").value === "plan") delete draftOrigin.performance_source;
+  saveDraft(); renderQueue();
+});
+$("#fresh-performance").addEventListener("click", () => {
+  delete draftOrigin.performance_source;
+  saveDraft(); $("#style").focus();
+});
 $$("[data-section]").forEach((button) =>
   button.addEventListener("click", () => {
     const input = $("#lyrics"),
@@ -393,6 +408,7 @@ $("#preset-form").addEventListener("submit", async (event) => {
 
 function renderPlayerInfo() {
   const has = !!selected;
+  $("#refine-performance").hidden = !selected?.recipe?.performance;
   $("#playing-title").textContent = selected?.title || "Room for a first take";
   $("#playing-style").textContent = selected
     ? selected.recipe.style || "Original recording"
@@ -571,6 +587,8 @@ $("#variation").addEventListener("click", () => {
       title: selected.title,
       parent_track_id: selected.id,
       review_id: "",
+      performance_source: "",
+      render_mode: "music",
     },
     true,
   );
@@ -578,6 +596,15 @@ $("#variation").addEventListener("click", () => {
   showView("studio");
   $("#title").focus();
   notify("A new take, starting from the same feeling.");
+});
+$("#refine-performance").addEventListener("click", () => {
+  if (!selected?.recipe?.performance) return;
+  fillRecipe({ ...selected.recipe, title: selected.title,
+    abc: selected.recipe.abc || selected.recipe.symbolic_plan?.abc || "",
+    max_seconds: selected.recipe.performance.frames / 25,
+    parent_track_id: selected.id, performance_source: selected.id, review_id: "", render_mode: "music" }, true);
+  saveDraft(); showView("studio"); $("#style").focus();
+  notify("The performance is kept. Explore its sound.");
 });
 
 function renderRecent() {
@@ -749,7 +776,7 @@ $("#export-art").addEventListener("click", async () => {
   if (!detailTrack) return;
   const track = detailTrack, canvas = document.createElement("canvas");
   canvas.width = 1760; canvas.height = 1360;
-  drawSeedArtwork(canvas.getContext("2d"), canvas.width, canvas.height, track.recipe.seed);
+  drawSeedArtwork(canvas.getContext("2d"), canvas.width, canvas.height, track.recipe.seed, 0, [], artworkAppearance());
   const blob = await new Promise(resolve => canvas.toBlob(resolve, "image/png"));
   if (!blob) { notify("The artwork could not be exported."); return; }
   const url = URL.createObjectURL(blob), link = document.createElement("a");
@@ -818,7 +845,7 @@ function renderQueue() {
     ? "Adding your take…"
     : active.length
       ? "Add to queue"
-      : "Generate take";
+      : $("#render-mode").value === "plan" ? "Compose score" : draftOrigin.performance_source ? "Render performance" : "Generate take";
   $("#generate").disabled = busySubmit || !connected || !state.engine.ready;
   $("#engine-label").textContent = !connected
     ? "Reconnecting…"

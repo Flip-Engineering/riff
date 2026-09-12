@@ -53,6 +53,8 @@ else:
    'mode':'lyrics', 'steps':37, 'max_seconds':26, 'seed':'1729', 'cfg_scale':1.6,
    'temperature':0.85, 'cot':'full', 'abc':'X:1\\nM:4/4\\nL:1/8\\nQ:1/4=108\\nK:Dm\\nD2 F2 A2 G2|F2 E2 D4|',
    'refinement':{'semantic_top_p':0.82,'abc_temperature':0.65}})
+ if s['focus']=='reuse': take['performance_source']=s['recipe']['performance_track_id']
+ if s['focus']=='compose': take['render_mode']='plan'
  result={'notes':'0:00 Strong entrance. '+s['api_key'], 'summary':'Bring the crowd forward.',
          'generation':{key:take[key] for key in FIELDS},'usage':{'cost':.01}}
 Path(sys.argv[1]).write_text(json.dumps(result))

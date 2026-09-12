@@ -1,5 +1,6 @@
 """Isolated browser fixture: fake credentials, fake provider, short fixture audio."""
 import json
+import hashlib
 import array
 import base64
 import math
@@ -48,6 +49,12 @@ with tempfile.TemporaryDirectory(prefix="riff-review-browser-") as folder:
     track_id = store.add_track(audio, recipe(title="Reedlight", steps=19, max_seconds=420, seed="15961",
         style=next(p[2] for p in PRESETS if p[0] == "reed-room"),
         lyrics="[Verse]\nReeds lean low where the silver runs.\nWe carry the quiet into the sun.\nA little light, a little room.\nA song takes shape in the afternoon."), {})
+    if os.environ.get("RIFF_PERFORMANCE_FIXTURE"):
+        codes = audio.with_suffix(".codes.i32"); codes.write_bytes(bytes([7, 0, 0, 0]) * 300)
+        saved = store.track(track_id)["recipe"]
+        saved["performance"] = {"frames": 300, "sha256": hashlib.sha256(codes.read_bytes()).hexdigest(), "truncated": False}
+        with store.db() as db:
+            db.execute("UPDATE tracks SET recipe=? WHERE id=?", (json.dumps(saved), track_id))
     score = "X:1\nT:A small motif\nM:4/4\nL:1/8\nQ:1/4=108\nK:Dm\nD2 F2 A2 G2|F2 E2 D4|\n"
     vocabulary = MODELS / "sidecars/yue2-qwen.tiktoken"
     vocabulary.parent.mkdir(parents=True)

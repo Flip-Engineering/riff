@@ -10,7 +10,7 @@ import zlib
 
 from studio import StudioServer
 from test_studio import StudioFixture, recipe
-from video import motion_envelope
+from video import MOTION_VERSION, WAVEFORM_POINTS, motion_envelope
 
 
 def png(width, height, color):
@@ -28,11 +28,28 @@ class MotionTests(StudioFixture):
         self.assertEqual(len(data["frames"]), 3)
         self.assertTrue(all(frame[0] > 0 for frame in data["frames"]))
         self.assertTrue(all(frame[5] > 0 for frame in data["frames"]))
+        self.assertTrue(any(abs(point) > .01 for frame in data["waveforms"] for point in frame))
         import wave
         with wave.open(str(self.audio), "wb") as output:
             output.setparams((2, 2, 48000, 0, "NONE", ""))
             output.writeframes(bytes(4800 * 4))
         self.assertEqual(motion_envelope(self.audio)["frames"], [[0.0] * 8] * 3)
+        self.assertEqual(motion_envelope(self.audio)["waveforms"], [[0.0] * WAVEFORM_POINTS] * 3)
+
+    def test_waveform_retains_signed_signal_and_relative_dynamics(self):
+        import wave
+        def trace(amplitude):
+            samples = [round(amplitude * math.sin(2 * math.pi * 96 * sample / 48000)) for sample in range(4800)]
+            with wave.open(str(self.audio), "wb") as output:
+                output.setparams((1, 2, 48000, 0, "NONE", ""))
+                output.writeframes(struct.pack('<' + 'h' * len(samples), *samples))
+            return motion_envelope(self.audio)["waveforms"][-1]
+        quiet, loud = trace(1000), trace(8000)
+        self.assertEqual(len(loud), WAVEFORM_POINTS)
+        self.assertLess(min(loud), -.5)
+        self.assertGreater(max(loud), .5)
+        self.assertGreater(max(loud), max(quiet) * 4)
+        self.assertTrue(all(-1 <= value <= 1 for value in loud))
 
     def test_frequency_and_stereo_changes_have_distinct_motion(self):
         import wave
@@ -159,6 +176,6 @@ class VideoTests(StudioFixture):
         target = self.server.video_exports.cache / (self.track + ".json")
         target.write_text(json.dumps({"source": first["source"], "fps": 24, "frames": [[0] * 4]}))
         updated = self.server.video_exports.visualization(self.track)
-        self.assertEqual(updated["version"], 2)
+        self.assertEqual(updated["version"], MOTION_VERSION)
         self.assertEqual(updated["features"][4], "balance")
         self.assertEqual(len(updated["frames"][0]), 8)

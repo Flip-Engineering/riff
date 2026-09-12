@@ -1,0 +1,72 @@
+--- a/include/engine/models/yue2/types.h
++++ b/include/engine/models/yue2/types.h
+@@ -78,6 +78,8 @@
+     std::string abc;
+     std::vector<int32_t> semantic_codes;
+     std::string score_tokens_out;
++    std::string semantic_codes_out;
++    bool semantic_only = false;
+     bool plan_only = false;
+     std::vector<float> nar_noise;
+     uint64_t seed = 831001;
+--- a/src/models/yue2/request.cpp
++++ b/src/models/yue2/request.cpp
+@@ -60,6 +60,18 @@
+     }
+     if (const auto value = runtime::find_option(options, {"score_tokens_out"})) {
+         out.score_tokens_out = *value;
++    }
++    if (const auto value = runtime::find_option(options, {"semantic_codes_out"})) {
++        out.semantic_codes_out = *value;
++    }
++    if (const auto value = runtime::find_option(options, {"semantic_only"})) {
++        if (*value != "true" && *value != "false") {
++            throw std::runtime_error("Yue2 semantic_only must be true or false");
++        }
++        out.semantic_only = *value == "true";
++        if (out.semantic_only && out.semantic_codes_out.empty()) {
++            throw std::runtime_error("Yue2 semantic_only requires semantic_codes_out");
++        }
+     }
+     if (const auto value = runtime::find_option(options, {"plan_only"})) {
+         if (*value != "true" && *value != "false") {
+--- a/src/models/yue2/pipeline.cpp
++++ b/src/models/yue2/pipeline.cpp
+@@ -332,6 +332,26 @@
+         auto semantic = generate_semantic(request, std::move(planned));
+         engine::debug::timing_log_scalar("yue2.semantic_ms", engine::debug::elapsed_ms(semantic_start, Clock::now()));
+         if (request.plan_only) return {};
++        if (!request.semantic_codes_out.empty()) {
++            const auto codes = codec_from_semantic_tokens(semantic.tokens);
++            if (codes.empty()) throw std::runtime_error("No performance codes were generated");
++            std::ofstream output(request.semantic_codes_out, std::ios::binary | std::ios::trunc);
++            if (!output) throw std::runtime_error("Could not open the requested performance output");
++            for (const int32_t code : codes) {
++                const uint32_t value = static_cast<uint32_t>(code);
++                const char bytes[4] = {static_cast<char>(value & 255U), static_cast<char>((value >> 8U) & 255U),
++                                       static_cast<char>((value >> 16U) & 255U), static_cast<char>((value >> 24U) & 255U)};
++                output.write(bytes, 4);
++            }
++            output.flush();
++            if (!output) throw std::runtime_error("Could not save the performance codes");
++            std::ofstream metadata(request.semantic_codes_out + ".json", std::ios::trunc);
++            metadata << "{\"frames\":" << codes.size() << ",\"truncated\":"
++                     << (semantic.truncated ? "true" : "false") << "}\n";
++            metadata.flush();
++            if (!metadata) throw std::runtime_error("Could not save performance metadata");
++        }
++        if (request.semantic_only) return {};
+         const auto nar_start = Clock::now();
+         auto latents = synthesize_latents(semantic, request.generation, request.nar_noise, request.seed);
+         engine::debug::timing_log_scalar("yue2.nar_ms", engine::debug::elapsed_ms(nar_start, Clock::now()));
+--- a/src/models/yue2/session.cpp
++++ b/src/models/yue2/session.cpp
+@@ -234,7 +234,7 @@
+     const auto parsed = parse_yue2_request(request, assets_->config.generation);
+     runtime::TaskResult result;
+     auto audio = pipeline_->run(parsed);
+-    if (!parsed.plan_only) result.audio_output = std::move(audio);
++    if (!parsed.plan_only && !parsed.semantic_only) result.audio_output = std::move(audio);
+     engine::debug::timing_log_scalar("session.wall_ms", engine::debug::elapsed_ms(wall_start, Clock::now()));
+     return result;
+ }

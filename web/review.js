@@ -155,11 +155,12 @@
     const planning = { off: "Direct", melody: "Melody", full: "Melody + harmony" }[take.cot];
     return `<section class="review-take"><p class="review-take-label">Recommended take</p><h3>${esc(take.title)}</h3>
       <div class="review-take-settings"><span>${esc(take.max_seconds)} seconds</span><span>${esc(take.steps)} steps</span><span>${esc(planning)}</span><span>Guidance ${esc(take.cfg_scale)}</span></div>
+      ${take.performance_source ? '<p class="control-hint">Reuses this take’s saved performance and phrasing.</p>' : take.render_mode === "plan" ? '<p class="control-hint">Composes an editable score.</p>' : ""}
       <p class="review-take-direction">${esc(take.style)}</p>
       ${take.lyrics ? `<details><summary>Lyrics${review.keep_lyrics ? " · kept" : ""}</summary><pre dir="auto">${esc(take.lyrics)}</pre></details>` : ""}
       ${take.abc ? `<details data-review-score="${review.id}"><summary>Score</summary><div class="review-score-preview" aria-label="Recommended score"></div></details>` : ""}
       <details><summary>Generation recipe</summary><pre class="review-recipe-json">${esc(JSON.stringify(take, null, 2))}</pre><button type="button" class="text-button" data-export-review="${review.id}">Download recipe</button></details>
-      <div class="review-take-actions"><button type="button" class="secondary-button solid" data-generate-review="${review.id}">Generate this take</button><button type="button" class="text-button" data-use-review="${review.id}">Edit in studio</button></div></section>`;
+      <div class="review-take-actions"><button type="button" class="secondary-button solid" data-generate-review="${review.id}">${take.render_mode === "plan" ? "Compose this score" : take.performance_source ? "Render this performance" : "Generate this take"}</button><button type="button" class="text-button" data-use-review="${review.id}">Edit in studio</button></div></section>`;
   }
 
   function takeRecipe(review) {

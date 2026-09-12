@@ -184,9 +184,34 @@ button:focus-visible, a:focus-visible, summary:focus-visible { outline: 2px soli
 #sound-view-canvas { display: block; width: 100%; height: 100%; min-height: 0; }
 .sound-view-transport { display: flex; align-items: center; gap: 22px; padding: 13px 20px; background: var(--paper); }
 .sound-view-transport input { flex: 1; min-width: 0; accent-color: var(--ink); }
+.sound-view-controls { background: var(--paper); }
+.sound-appearance { padding: 0 20px; color: var(--quiet); font-size: 11px; }
+.sound-appearance summary { cursor: pointer; padding-top: 10px; width: fit-content; }
+.sound-appearance-fields { display: flex; flex-wrap: wrap; gap: 16px 40px; padding-top: 15px; }
+.sound-appearance-fields label { flex: 1 1 210px; max-width: 360px; font-size: 11px; color: var(--ink); }
+.sound-appearance-fields label span { display: flex; align-items: center; gap: 12px; margin-top: 8px; color: var(--quiet); font-size: 10px; }
+.sound-appearance-fields input { flex: 1; min-width: 0; accent-color: var(--ink); }
 @media (max-width: 420px) {
   .comparison-passage { flex-wrap: wrap; gap: 8px; }
   .comparison-passage .text-button { flex-basis: 100%; text-align: left; }
   .sound-view-dialog { width: 100vw; max-width: 100vw; height: 100dvh; max-height: 100dvh; border-radius: 0; margin: 0; }
   .sound-view-transport { padding-bottom: max(13px, env(safe-area-inset-bottom)); }
 }
+.performance-context {
+  margin: 10px 0 22px;
+  padding: 14px 16px;
+  border-inline-start: 2px solid var(--blue);
+  background: var(--paper);
+}
+.performance-context p { margin: 0 0 7px; }
+.performance-context .control-hint { max-width: 45ch; }
+.refine-performance { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 5px 16px; width: 100%; padding: 12px 0 0; }
+.refine-performance[hidden], .performance-context[hidden] { display: none; }
+.score-overview { margin: 14px 0; padding: 12px 15px; border: 1px solid var(--line); border-radius: 8px; }
+.score-overview-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.score-overview-heading p { margin: 0; font-size: 12px; color: var(--quiet); }
+.score-voices { display: grid; gap: 4px; margin: 12px 0 6px; }
+.score-voice { display: flex; align-items: center; gap: 12px; background: transparent; border: 0; color: var(--blue); padding: 5px 0; text-align: left; }
+.score-voice span { width: 58px; flex-shrink: 0; font-size: 11px; }
+.score-voice svg { height: 40px; min-width: 0; width: 100%; fill: currentColor; }
+.score-voice[aria-pressed="false"] { color: var(--muted); opacity: .55; }

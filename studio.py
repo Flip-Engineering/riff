@@ -145,6 +145,9 @@ class Handler(BaseHTTPRequestHandler):
                 self.json_response(200, state)
             elif path == "/api/health":
                 self.json_response(200, {"app": "Riff", "status": "ready"})
+            elif path == "/api/capabilities":
+                from capabilities import describe
+                self.json_response(200, describe())
             elif path == "/api/system" and self.server.maintenance:
                 self.json_response(200, self.server.maintenance.snapshot())
             elif path == "/api/system/log" and self.server.maintenance:
@@ -305,7 +308,7 @@ class Handler(BaseHTTPRequestHandler):
                         raise ValueError("Open Studio settings to finish setting up the music engine.")
                     if self.server.maintenance and self.server.maintenance.task["status"] == "running" and self.server.maintenance.task.get("action") != "check":
                         raise ValueError("Setup is still running. Your draft is saved.")
-                    result = self.server.generator.submit({**payload, "render_mode": "plan" if path == "/api/plans" else "music"})
+                    result = self.server.generator.submit({**payload, "render_mode": "plan" if path == "/api/plans" else payload.get("render_mode", "music")})
                 self.json_response(201, result)
             elif path == "/api/system/setup" and method == "POST" and self.server.maintenance:
                 self.json_response(202, self.server.maintenance.start("setup", payload))

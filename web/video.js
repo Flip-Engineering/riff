@@ -17,7 +17,7 @@ async function openVideoExport() {
   $("#save-video").hidden = true;
   $("#video-status").textContent = "MP4 · animated artwork and audio";
   const canvas = $("#video-preview");
-  drawSeedArtwork(canvas.getContext("2d"), canvas.width, canvas.height, videoTrack.recipe.seed);
+  drawSeedArtwork(canvas.getContext("2d"), canvas.width, canvas.height, videoTrack.recipe.seed, 0, [], artworkAppearance());
   $("#video-dialog").showModal();
 }
 
@@ -76,6 +76,7 @@ async function createVideo(event) {
   event.preventDefault();
   if (videoExport || !videoTrack) return;
   const track = videoTrack;
+  const appearance = artworkAppearance();
   const operation = { controller: new AbortController(), cancelled: false, id: null };
   videoExport = operation;
   videoBusy(true);
@@ -103,7 +104,7 @@ async function createVideo(event) {
     for (let index = 0; index < job.frames; index++) {
       if (operation.cancelled) return;
       const seconds = index / job.fps;
-      drawSeedArtwork(context, job.width, job.height, track.recipe.seed, seconds, motionAt(motion, seconds));
+      drawSeedArtwork(context, job.width, job.height, track.recipe.seed, seconds, motionAt(motion, seconds), appearance);
       let image = await new Promise(resolve => canvas.toBlob(resolve, "image/png"));
       if (!image) throw new Error("The browser could not draw this video frame.");
       // Keep the upload in ordinary byte storage and release the canvas Blob.

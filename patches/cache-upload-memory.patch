@@ -1,0 +1,137 @@
+--- a/src/framework/runtime/kv_cache.cpp
++++ b/src/framework/runtime/kv_cache.cpp
+@@ -85,7 +85,6 @@
+     if (keys.size() != values.size()) {
+         throw std::runtime_error("TransformerKVCache key/value layer counts must match");
+     }
+-    const size_t cache_elems = static_cast<size_t>(cache_steps_ * step_elems_);
+     layers_.reserve(keys.size());
+     for (size_t layer = 0; layer < keys.size(); ++layer) {
+         validate_cache_tensor(keys[layer], options_);
+@@ -93,8 +92,6 @@
+         layers_.push_back(LayerCache{
+             std::move(keys[layer]),
+             std::move(values[layer]),
+-            std::vector<float>(cache_elems, 0.0F),
+-            std::vector<float>(cache_elems, 0.0F),
+         });
+     }
+ }
+@@ -113,6 +110,11 @@
+         throw std::runtime_error("TransformerKVCache state valid_steps exceeds cache capacity");
+     }
+     valid_steps_ = state_steps;
++    // Upload staging is shared across layers and dies after import. Keeping
++    // one full-capacity copy per layer duplicates the entire device cache.
++    const size_t cache_elems = static_cast<size_t>(cache_steps_ * step_elems_);
++    std::vector<float> import_key_scratch(cache_elems, 0.0F);
++    std::vector<float> import_value_scratch(cache_elems, 0.0F);
+     for (size_t layer = 0; layer < layers_.size(); ++layer) {
+         auto & cache = layers_[layer];
+         const auto & source = state.layers[layer];
+@@ -127,14 +129,14 @@
+             throw std::runtime_error("TransformerKVCache source tensors do not match valid_steps * step_elems");
+         }
+         if (cache_steps_ > 0) {
+-            std::fill(cache.import_key_scratch.begin(), cache.import_key_scratch.end(), 0.0F);
+-            std::fill(cache.import_value_scratch.begin(), cache.import_value_scratch.end(), 0.0F);
++            std::fill(import_key_scratch.begin(), import_key_scratch.end(), 0.0F);
++            std::fill(import_value_scratch.begin(), import_value_scratch.end(), 0.0F);
+             if (keep_elems > 0) {
+-                std::copy(source.key.begin(), source.key.end(), cache.import_key_scratch.begin());
+-                std::copy(source.value.begin(), source.value.end(), cache.import_value_scratch.begin());
+-            }
+-            write_cache_tensor(cache.key_tensor, cache.import_key_scratch, options_);
+-            write_cache_tensor(cache.value_tensor, cache.import_value_scratch, options_);
++                std::copy(source.key.begin(), source.key.end(), import_key_scratch.begin());
++                std::copy(source.value.begin(), source.value.end(), import_value_scratch.begin());
++            }
++            write_cache_tensor(cache.key_tensor, import_key_scratch, options_);
++            write_cache_tensor(cache.value_tensor, import_value_scratch, options_);
+         }
+     }
+ }
+@@ -241,7 +243,6 @@
+     if (keys.size() != values.size()) {
+         throw std::runtime_error("TransformerBatchedKVCache key/value layer counts must match");
+     }
+-    const size_t cache_elems = static_cast<size_t>(batch_size_ * cache_steps_ * row_elems_);
+     layers_.reserve(keys.size());
+     for (size_t layer = 0; layer < keys.size(); ++layer) {
+         validate_cache_tensor(keys[layer], options_);
+@@ -249,8 +250,6 @@
+         layers_.push_back(LayerCache{
+             std::move(keys[layer]),
+             std::move(values[layer]),
+-            std::vector<float>(cache_elems, 0.0F),
+-            std::vector<float>(cache_elems, 0.0F),
+         });
+     }
+ }
+@@ -286,14 +285,19 @@
+         throw std::runtime_error("TransformerBatchedKVCache state valid_steps exceeds cache capacity");
+     }
+     valid_steps_ = state_steps;
++    // Upload staging is shared across layers and dies after import. Keeping
++    // one full-capacity copy per layer duplicates the entire device cache.
++    const size_t cache_elems = static_cast<size_t>(batch_size_ * cache_steps_ * row_elems_);
++    std::vector<float> import_key_scratch(cache_elems, 0.0F);
++    std::vector<float> import_value_scratch(cache_elems, 0.0F);
+     for (size_t layer = 0; layer < layers_.size(); ++layer) {
+         auto & cache = layers_[layer];
+         const auto & source = state.layers[layer];
+         if (valid_steps_by_batch_.empty() && source.valid_steps != state_steps) {
+             throw std::runtime_error("TransformerBatchedKVCache requires consistent valid_steps across all layers");
+         }
+-        std::fill(cache.import_key_scratch.begin(), cache.import_key_scratch.end(), 0.0F);
+-        std::fill(cache.import_value_scratch.begin(), cache.import_value_scratch.end(), 0.0F);
++        std::fill(import_key_scratch.begin(), import_key_scratch.end(), 0.0F);
++        std::fill(import_value_scratch.begin(), import_value_scratch.end(), 0.0F);
+         const bool variable_rows = !valid_steps_by_batch_.empty();
+         size_t src_offset = 0;
+         if (!variable_rows) {
+@@ -320,11 +324,11 @@
+             std::copy(
+                 source.key.begin() + static_cast<std::ptrdiff_t>(src_offset),
+                 source.key.begin() + static_cast<std::ptrdiff_t>(src_offset + copy_elems),
+-                cache.import_key_scratch.begin() + static_cast<std::ptrdiff_t>(dst_offset));
++                import_key_scratch.begin() + static_cast<std::ptrdiff_t>(dst_offset));
+             std::copy(
+                 source.value.begin() + static_cast<std::ptrdiff_t>(src_offset),
+                 source.value.begin() + static_cast<std::ptrdiff_t>(src_offset + copy_elems),
+-                cache.import_value_scratch.begin() + static_cast<std::ptrdiff_t>(dst_offset));
++                import_value_scratch.begin() + static_cast<std::ptrdiff_t>(dst_offset));
+             if (variable_rows) {
+                 src_offset += copy_elems;
+             }
+@@ -332,8 +336,8 @@
+         if (variable_rows && src_offset != source.key.size()) {
+             throw std::runtime_error("TransformerBatchedKVCache compact source tensor has trailing values");
+         }
+-        write_cache_tensor(cache.key_tensor, cache.import_key_scratch, options_);
+-        write_cache_tensor(cache.value_tensor, cache.import_value_scratch, options_);
++        write_cache_tensor(cache.key_tensor, import_key_scratch, options_);
++        write_cache_tensor(cache.value_tensor, import_value_scratch, options_);
+     }
+ }
+ 
+--- a/include/engine/framework/runtime/kv_cache.h
++++ b/include/engine/framework/runtime/kv_cache.h
+@@ -58,8 +58,6 @@
+     struct LayerCache {
+         core::TensorValue key_tensor;
+         core::TensorValue value_tensor;
+-        std::vector<float> import_key_scratch;
+-        std::vector<float> import_value_scratch;
+     };
+ 
+     int64_t cache_steps_ = 0;
+@@ -117,8 +115,6 @@
+     struct LayerCache {
+         core::TensorValue key_tensor;
+         core::TensorValue value_tensor;
+-        std::vector<float> import_key_scratch;
+-        std::vector<float> import_value_scratch;
+     };
+ 
+     int64_t cache_steps_ = 0;

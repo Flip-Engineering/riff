@@ -20,7 +20,11 @@ related app icon. See [branding](docs/branding.md) for exact tokens and provenan
 
 The large artwork begins with a deterministic shape from the recording's seed.
 Live sound folds those same contours into a sculptural surface with depth, lighting,
-and fine ridges. Bass, middle and high frequencies shape its body; transient attacks
+and fine ridges. A signed, filtered PCM trace runs through the open contours,
+connecting the sculpture to recognizable waveform lines. Seed palettes use mineral
+hues: slate, violet, sage and muted clay. Surface and movement controls range from
+open lines to solid material, and from stillness to expressive motion; an export
+captures these choices at its start. Bass, middle and high frequencies shape its body; transient attacks
 travel through the folds, while stereo balance and width shift its perspective.
 The only mark inside the artwork is riff in the bottom-left corner.
 An immersive view keeps transport controls outside the image. MP4 exports use the same renderer and audio clock, with the original audio
@@ -33,7 +37,9 @@ writing space carry more visual weight than engine statistics.
 1. **A musical intention:** optional lyrics and free-form direction, idea writing,
    holds, undo, duration and quality choices.
 2. **A composition:** an optional score workspace with tempo, meter, key, voices,
-   transposition, note selection and tone audition. Plain-language score revision
+   transposition, note selection and tone audition. Voice maps reveal phrase density
+   and register; voices can be isolated in the preview. Written duration can set the
+   next take's duration. Plain-language score revision
    makes harmony and arrangement changes accessible without requiring ABC knowledge.
 3. **A precise experiment:** source notation, planning/performance sampling,
    guidance, token budgets, seeds and custom solver steps. Expose real runtime
@@ -45,7 +51,9 @@ loop across both performances. Input differences remain alongside the audition,
 and finishing a new take does not replace a comparison in progress. Waiting takes
 can move in the queue with keyboard controls, without altering the active take or
 creation timestamps. A recording
-retains its recipe and captured symbolic plan. Variations link back to their source;
+retains its recipe, captured symbolic plan and native performance codes. Refine this
+performance revisits acoustic rendering while retaining phrasing; a fresh variation
+opens the composition again. Variations link back to their source;
 producer notes link to moments in the audio. Each proposed AI score is previewed
 before application, and editing has undo. Score generation is a real native YuE2
 planning pass; notation is not reconstructed from a finished recording.
