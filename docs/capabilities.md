@@ -18,7 +18,8 @@ of this pipeline. Its low-memory default uses Q4 main weights and an F16 VAE.
 | Sampling and repeatability | Temperature, top-p/top-k, penalties, windows, seed |
 | Planning length | Minimum/maximum ABC tokens |
 | Performance length | Duration and minimum semantic tokens |
-| Acoustic rendering | Solver steps and text guidance |
+| Semantic guidance | Guidance |
+| Acoustic rendering | Solver steps |
 | Decoder or quantization | Custom GGUF paths in Studio settings |
 | Compare revisions | Short studies, parent links, recipe restoration, audio-and-score reviews with runnable generation recommendations |
 | Share a recording | Animated seeded-artwork MP4 with audio, WAV, SVG, and generation recipe |
