@@ -85,7 +85,7 @@ def response_schema(source, keep_lyrics):
                        "description": "YuE2 sampling overrides. Omitted controls use runtime defaults."},
     }
     if keep_lyrics:
-        properties["lyrics"]["const"] = source.get("lyrics", "")
+        properties["lyrics"]["description"] = "Riff preserves the source lyrics. This field may be empty when Keep lyrics is enabled."
     return {"type": "object", "additionalProperties": False,
             "required": ["notes", "summary", "generation"],
             "properties": {
@@ -106,13 +106,12 @@ def recommended_generation(value, source, keep_lyrics):
             raise ValueError(f"The recommended {key} must be a finite number.")
     if type(value["steps"]) is not int:
         raise ValueError("The recommended solver steps must be a whole number.")
-    if keep_lyrics and value["lyrics"] != source.get("lyrics", ""):
-        raise ValueError("The recommendation changed lyrics you chose to keep. Review again to retry.")
+    lyrics = source.get("lyrics", "") if keep_lyrics else value["lyrics"]
     # These are the same validation and defaults used by POST /api/generations.
     # Origin links come from the studio, never from the model.
-    result = validate_recipe({**source, **value, "title_auto": False,
+    result = validate_recipe({**source, **value, "lyrics": lyrics, "title_auto": False,
                               "parent_track_id": "", "review_id": "", "render_mode": "music",
-                              "lyrics_source": "review" if value["lyrics"] else "none"})
+                              "lyrics_source": "review" if lyrics else "none"})
     for key in ("parent_track_id", "review_id"):
         result.pop(key, None)
     return result

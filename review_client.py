@@ -14,7 +14,7 @@ from review_recipe import FIELDS, generation_context, recommended_generation, re
 
 def listen(settings):
     source = settings["recipe"]
-    policy = "Copy the supplied lyrics exactly into generation.lyrics." if settings["keep_lyrics"] else "The lyrics may be revised or translated when it serves the artist's request. Put the actual new words in generation.lyrics."
+    policy = "Riff keeps the artist's supplied lyrics in the recommended generation. Focus your changes on the music; generation.lyrics may be empty because Riff restores the original words." if settings["keep_lyrics"] else "The lyrics may be revised or translated when it serves the artist's request. Put the actual new words in generation.lyrics."
     timing = (f"\n\nRECORDING DURATION\n{settings['duration']:.2f} seconds. "
               "Use timestamps relative to the start of this supplied recording."
               if settings.get("duration") else "")

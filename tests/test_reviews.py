@@ -250,8 +250,22 @@ class ReviewClientTests(unittest.TestCase):
         value=self.proposal();value["generation"]["steps"]=999
         accepted,_=self.request(json.dumps(value))
         self.assertEqual(accepted["generation"]["steps"],999)
-        with self.assertRaisesRegex(ValueError,"changed lyrics"):
-            self.request(json.dumps(self.proposal(keep=False)))
+        kept,_ = self.request(json.dumps(self.proposal(keep=False)))
+        self.assertEqual(kept["generation"]["lyrics"], self.source()["lyrics"])
+
+    def test_lyric_lock_keeps_bilingual_words_and_notes_across_both_validation_steps(self):
+        source = {**self.source(), "lyrics": "\n[Caller]\nمَنْ شَادَ الْمَوَانِئَ؟\n[Choir]\n우리가 세웠다!\n"}
+        for returned_lyrics in ("", "Unrequested replacement", source["lyrics"].strip()):
+            with self.subTest(returned_lyrics=returned_lyrics):
+                proposal = self.proposal()
+                proposal["generation"]["lyrics"] = returned_lyrics
+                result, request = self.request(json.dumps(proposal), source=source)
+                final = recommended_generation(result["generation"], source, True)
+                self.assertEqual(final["lyrics"], source["lyrics"].strip())
+                self.assertEqual(result["notes"], proposal["notes"])
+                self.assertEqual(final["steps"], 37)
+                schema = request["response_format"]["json_schema"]["schema"]["properties"]["generation"]
+                self.assertNotIn("const", schema["properties"]["lyrics"])
 
     def test_incomplete_or_invalid_recommendations_cannot_become_takes(self):
         invalid=["Try more brass.", '```json\n{}\n```', json.dumps({"notes":"A note","summary":"An idea"})]
