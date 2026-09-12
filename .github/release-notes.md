@@ -1,8 +1,7 @@
-Riff 0.4.2 lets you export a chosen passage with its living artwork and fixes updates that reuse an already prepared engine.
+Riff 0.4.3 brings the waveform into the sound sculpture itself. Audio bends its contours and folds, leaving the opening clear.
 
-- Export a complete recording or select its start and end. Bring in a marked listening passage with one action; the video follows the original audio clock and keeps the full recording in your library. Export controls remain within reach on narrow screens.
-- A clearer signed waveform crosses the sculptural sound view, with quieter traces of its recent movement. The score workspace uses the composition's own part names.
-- Engine setup verifies the complete pinned patch set, including overlapping changes, and resumes valid interrupted setup. Unrelated local source edits and the real Git index are preserved.
-- Agents can discover the visualization and passage-export operations alongside generation, composition and producer review.
+- Signed waveform history flows through neighboring contours with continuous spacing and depth. Circular smoothing softens the folds without amplifying quiet audio.
+- Surface and Movement still shape the artwork from fine lines to solid material. Mineral hues vary by seed, with the riff wordmark in the corner.
+- Live playback and complete or selected-passage MP4 exports share the same geometry and audio clock.
 
-Validation includes 85 Python tests, full browser workflows, decoded passage audio and video, existing export-history migration, and real Git fixtures for overlapping patches, interruption, checksums and local edit preservation. This release workflow also checks Metal, CPU and CUDA compilation. NVIDIA inference still requires hardware validation.
+Browser validation covers waveform deformation of the actual mesh, silence and DC behavior, a clear aperture, deterministic seeking, appearance controls, mobile layouts and decoded MP4 frames. The release workflow also runs the application tests, packaged installation checks and Metal, CPU and CUDA compilation. NVIDIA inference remains unverified.

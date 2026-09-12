@@ -20,8 +20,9 @@ related app icon. See [branding](docs/branding.md) for exact tokens and provenan
 
 The large artwork begins with a deterministic shape from the recording's seed.
 Live sound folds those same contours into a sculptural surface with depth, lighting,
-and fine ridges. A signed, filtered PCM trace runs through the open contours,
-connecting the sculpture to recognizable waveform lines. Seed palettes use mineral
+and fine ridges. The signed waveform bends the contours themselves: its recent
+history moves through their spacing and depth, joining sound and material in one
+continuous surface. The opening stays clear. Seed palettes use mineral
 hues: slate, violet, sage and muted clay. Surface and movement controls range from
 open lines to solid material, and from stillness to expressive motion; an export
 captures these choices at its start. Bass, middle and high frequencies shape its body; transient attacks

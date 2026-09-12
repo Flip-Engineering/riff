@@ -54,6 +54,33 @@ try {
     assert(label.x < label.width * .12 && label.y > label.height * .85);
   }
   console.log("PASS Bass, voice, air, stereo and attacks shape distinct frames; silence stays still; deterministic seeking and corner branding work in every aspect ratio");
+  const integrated = await page.evaluate(() => {
+    const quiet = Array(8).fill(0);
+    const waveform = Array.from({ length: 64 }, (_, i) => .5 * Math.cos(i / 64 * Math.PI * 8));
+    const motion = values => Object.assign([...quiet], { waveform: values });
+    const mesh = value => Array.from(RiffArtwork.scene("1", 2, value).vertices);
+    const rest = mesh(quiet), positive = mesh(motion(waveform));
+    const negative = mesh(motion(waveform.map(value => -value)));
+    const dc = mesh(motion(Array(64).fill(.5)));
+    const history = mesh(Object.assign(motion(Array(64).fill(0)), { history: [quiet, motion(waveform)] }));
+    const canvas = document.createElement("canvas"); canvas.width = 440; canvas.height = 340;
+    const context = canvas.getContext("2d"), sounding = motion(waveform); sounding[0] = .4;
+    drawSeedArtwork(context, 440, 340, "1", 2, sounding);
+    const g = RiffArtwork.scene("1", 2, sounding), p = g.projected;
+    const center = [(p[0] + p[128]) / 2, (p[1] + p[129]) / 2];
+    const aperture = context.getImageData(Math.round(center[0] - 12), Math.round(center[1] - 12), 24, 24).data;
+    const paper = [1, 3, 5].map(i => parseInt(g.palette.paper.slice(i, i + 2), 16));
+    return {
+      waveformBendsMesh: positive.some((value, i) => value !== rest[i]),
+      signMatters: positive.some((value, i) => value !== negative[i]),
+      historyBendsMesh: history.some((value, i) => value !== rest[i]),
+      dcAtRest: dc.every((value, i) => value === rest[i]),
+      finite: [...positive, ...negative, ...history, ...dc].every(Number.isFinite),
+      apertureClear: aperture.every((value, i) => i % 4 === 3 ? value === 255 : value === paper[i % 4]),
+    };
+  });
+  for (const [property, passed] of Object.entries(integrated)) assert(passed, property);
+  console.log("PASS Signed waveform and its history bend the mesh itself, DC stays at rest, and the aperture contains no separate trace");
   await page.locator("[data-visual=sound]").click();
   await page.waitForFunction(() => soundMotion?.frames.length);
   await page.emulateMedia({ reducedMotion: "no-preference" });

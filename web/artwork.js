@@ -51,6 +51,7 @@ const RiffArtwork = (() => {
 
   function scene(seed, seconds = 0, motion = []) {
     const g = geometry(seed), { vertices: v, projected: p, phase } = g;
+    const fields = new Map();
     const level = clamp(motion[0]), bass = clamp(motion[1]), middle = clamp(motion[2]), air = clamp(motion[3]);
     const balance = clamp(motion[4], -1, 1), spread = clamp(motion[5]), attack = clamp(motion[6]), crest = clamp(motion[7]);
     const time = Number.isFinite(seconds) ? seconds : 0;
@@ -61,25 +62,34 @@ const RiffArtwork = (() => {
     const cz = Math.cos(turn), sz = Math.sin(turn);
     for (let ring = 0; ring < rings; ring++) {
       const f = ring / (rings - 1), fold = Math.sin(Math.PI * f);
-      const history = motion.history?.[Math.round(f * (motion.history.length - 1))] || motion;
-      const arrival = clamp(history[6]), resonance = clamp(history[1]) - bass;
-      const trace = history.waveform || motion.waveform;
+      const historyAt = f * Math.max(0, (motion.history?.length || 1) - 1);
+      const historyIndex = Math.floor(historyAt), blend = historyAt - historyIndex;
+      const before = motion.history?.[historyIndex] || motion;
+      const after = motion.history?.[historyIndex + 1] || before;
+      const arrival = clamp(before[6]) * (1 - blend) + clamp(after[6]) * blend;
+      const resonance = clamp(before[1]) * (1 - blend) + clamp(after[1]) * blend - bass;
+      const fieldAt = frame => {
+        const trace = frame.waveform;
+        if (trace && !fields.has(trace)) fields.set(trace, bendingField(trace));
+        return fields.get(trace);
+      };
+      const first = fieldAt(before), next = fieldAt(after);
       for (let point = 0; point < steps; point++) {
         const t = point / steps * Math.PI * 2;
-        const location = point / (steps - 1) * ((trace?.length || 1) - 1), sample = Math.floor(location);
-        const signal = trace?.length ? (trace[sample] || 0) + ((trace[Math.min(sample + 1, trace.length - 1)] || 0)
-          - (trace[sample] || 0)) * (location - sample) : 0;
+        const position = (point / steps + phase / (Math.PI * 2)) % 1;
+        const signal = fieldSample(first, position) * (1 - blend) + fieldSample(next, position) * blend;
         // The original seed contour is the plan view of this acoustic shell.
         const strain = middle * 6 * Math.sin(3 * t - time * 1.4 + phase)
-          + arrival * 7 * Math.sin(2 * t + phase + f * 4) + resonance * 12;
+          + arrival * 7 * Math.sin(2 * t + phase + f * 4) + resonance * 12 + signal * (5 + 7 * fold);
         const radius = (100 + f * 60.75 + 12 * Math.sin(3 * t + phase) * f) * (1 + bass * .095) + strain;
         const x = Math.cos(t) * radius;
-        const y = (Math.sin(t) * (68 + f * 35.1) + 30 * Math.sin(2 * t + phase) * f) * (1 + bass * .065);
+        const y = (Math.sin(t) * (68 + f * 35.1) + 30 * Math.sin(2 * t + phase) * f) * (1 + bass * .065)
+          + Math.sin(t) * signal * 6 * fold;
         const wave = middle * 4 * Math.sin(3 * t + phase - time * 1.2 + f * 2)
           + air * 1.2 * Math.sin(15 * t - time * 5.5 + f * 8)
           + attack * 4 * Math.sin(6 * t - time * 3.8 + f * 13)
           + crest * .7 * Math.sin(27 * t - time * 6 + f * 15)
-          + signal * 15 * Math.sin(t / 2) ** 2;
+          + signal * (8 + 14 * fold);
         const z = -22 + f * 40 + fold * (22 + 22 * Math.sin(2 * t + phase))
           + 10 * Math.sin(3 * t + phase) * f + (.28 + fold * .72) * wave + arrival * 7 * fold;
         const ry = y * ct - z * st, rz = y * st + z * ct;
@@ -214,32 +224,24 @@ const RiffArtwork = (() => {
     return surfaceRenderer?.(context, g, scale) || false;
   }
 
-  function drawThreads(context, g, motion) {
-    if (!motion.waveform?.length) return;
-    const p = g.projected, left = steps / 2 * 2, right = 0;
-    context.save();
-    const gradient = context.createLinearGradient(p[left], p[left + 1], p[right], p[right + 1]);
-    gradient.addColorStop(0, g.palette.ink + "00");
-    gradient.addColorStop(.16, g.palette.ink); gradient.addColorStop(.84, g.palette.ink);
-    gradient.addColorStop(1, g.palette.ink + "00");
-    context.strokeStyle = gradient;
-    for (let layer = 4; layer >= 0; layer--) {
-      const history = motion.history?.[layer * 3] || motion, trace = history.waveform || motion.waveform;
-      const separation = (layer % 2 ? -1 : 1) * Math.ceil(layer / 2) * 3;
-      const points = [];
-      for (let i = 0; i < trace.length; i++) {
-        const u = i / (trace.length - 1), envelope = Math.sin(Math.PI * u) ** 2;
-        points.push([p[left] + (p[right] - p[left]) * u,
-          p[left + 1] + (p[right + 1] - p[left + 1]) * u + envelope * (trace[i] * 22 + separation)]);
-      }
-      context.globalAlpha = (.88 - layer * .14) * Math.sqrt(clamp(history[0]));
-      context.lineWidth = layer ? .4 : .95;
-      context.beginPath(); context.moveTo(...points[0]);
-      for (let i = 1; i < points.length - 1; i++) context.quadraticCurveTo(...points[i],
-        (points[i][0] + points[i + 1][0]) / 2, (points[i][1] + points[i + 1][1]) / 2);
-      context.lineTo(...points[points.length - 1]); context.stroke();
+  function bendingField(trace) {
+    // Broader curvature joins signed audio motion to the material. Circular
+    // smoothing keeps the contour seam continuous, without amplifying silence.
+    if (!trace.length) return [];
+    const mean = trace.reduce((sum, value) => sum + value, 0) / trace.length;
+    let field = trace.map(value => value - mean);
+    for (let pass = 0; pass < 3; pass++) {
+      const prior = field, n = prior.length;
+      field = prior.map((value, i) => (prior[(i + n - 2) % n] + 4 * prior[(i + n - 1) % n]
+        + 6 * value + 4 * prior[(i + 1) % n] + prior[(i + 2) % n]) / 16);
     }
-    context.restore();
+    return field;
+  }
+
+  function fieldSample(field, position) {
+    if (!field?.length) return 0;
+    const location = position * field.length, sample = Math.floor(location);
+    return field[sample] + (field[(sample + 1) % field.length] - field[sample]) * (location - sample);
   }
 
   function draw(context, width, height, seed, seconds = 0, motion = [], appearance = defaults) {
@@ -264,7 +266,6 @@ const RiffArtwork = (() => {
     shadow.addColorStop(0, c.ink + "38"); shadow.addColorStop(.48, c.ink + "1a"); shadow.addColorStop(1, c.ink + "00");
     context.fillStyle = shadow; context.fillRect(-152, -152, 304, 304); context.restore();
     context.lineJoin = "round";
-    drawThreads(context, g, motion);
     if (!drawSurface(context, g, scale)) for (const face of g.faces) {
       const a = face.a * 2, b = face.b * 2, cc = face.c * 2, d = face.d * 2;
       context.beginPath(); context.moveTo(p[a], p[a + 1]); context.lineTo(p[b], p[b + 1]);

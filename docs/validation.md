@@ -89,6 +89,12 @@ interval. Linux process metrics exclude GPU memory.
   suite. Its waveform renderer also completed a headed 240-frame measurement
   during local music inference: 5.22 ms mean and 6.30 ms p95 at 1280×990. This
   concurrent measurement is separate from the earlier isolated drawing benchmark.
+- The v0.4.3 refinement moves signed-waveform history into the surface geometry.
+  Checks distinguish waveform polarity and history in the mesh itself, verify
+  silence and constant-offset behavior, and keep the aperture clear. Real playback
+  frames were inspected across four mineral palettes and the Surface range. A
+  headed 240-frame drawing measurement averaged 1.25 ms, with 1.40 ms at p95, at
+  1280×990; no model inference was running during this measurement.
 - Installed v0.4.1 exercised an actual Gemini 3.8 Flash saved-performance proposal
   through the UI and native queue, preserving the open draft, source ID and review
   ancestry. A complete 32-second MP4 exported through private HTTPS in 27.90 seconds
