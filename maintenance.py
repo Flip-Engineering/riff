@@ -16,6 +16,7 @@ import setup_engine
 class Maintenance:
     def __init__(self, generator, reviews):
         self.generator, self.reviews = generator, reviews
+        self.video_exports = None
         self.lock = threading.RLock()
         self.task = {"status": "idle", "message": ""}
         self.thread, self.process = None, None
@@ -37,7 +38,7 @@ class Maintenance:
         with self.generator.store.db() as db:
             queued = db.execute("SELECT count(*) FROM jobs WHERE status IN ('queued','running','cancelling')").fetchone()[0]
         reviews = self.reviews.snapshot() if self.reviews else []
-        return bool(queued or self.generator.writer_gate.locked() or any(r["status"] in ("queued", "running", "cancelling") for r in reviews))
+        return bool(queued or self.generator.writer_gate.locked() or (self.video_exports and self.video_exports.busy()) or any(r["status"] in ("queued", "running", "cancelling") for r in reviews))
 
     def snapshot(self):
         with self.lock:

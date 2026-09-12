@@ -15,12 +15,14 @@ cover drawings, while the name and palette now belong to Flip Engineering.
 Use Flip-Default's dark wine surfaces, warm type, coral primary accent and blue
 secondary accent, with its corresponding warm light theme. Georgia supplies the
 musical titles; system sans-serif type keeps controls quiet and familiar. The Flip
-character appears only as a tiny detail over the i in the Riff wordmark, with a
+character appears only as a tiny detail at the base of the r in the Riff wordmark, with a
 related app icon. See [branding](docs/branding.md) for exact tokens and provenance.
 
-The large artwork is deliberately generative decoration. Waveforms and spectrum
-views use the recording's actual audio data. Animation rests when playback stops,
-the view is hidden, or reduced motion is requested. Descriptive titles and ample
+The large artwork begins with a deterministic shape from the recording's seed.
+Live sound moves those same contours with measured bass, middle, and upper-band
+energy. MP4 exports use the same renderer and audio clock, with the original audio
+muxed separately. Animation rests when playback stops, the view is hidden, or
+reduced motion is requested; deliberately exported videos still animate. Descriptive titles and ample
 writing space carry more visual weight than engine statistics.
 
 ## Three depths of control
@@ -39,6 +41,12 @@ retains its recipe and captured symbolic plan. Variations link back to their sou
 producer notes link to moments in the audio. Each proposed AI score is previewed
 before application, and editing has undo. Score generation is a real native YuE2
 planning pass; notation is not reconstructed from a finished recording.
+
+Producer review sends the prior generation controls, supplied and generated score,
+and audio to the selected multimodal model. Its structured recommendation uses the
+same generation contract as the studio. A recommended take can run directly without
+overwriting the open draft; editing it in the studio preserves undo and ancestry.
+Listening observations remain available beside the proposed performance.
 
 ## Interaction and copy
 

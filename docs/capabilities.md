@@ -20,7 +20,8 @@ of this pipeline. Its low-memory default uses Q4 main weights and an F16 VAE.
 | Performance length | Duration and minimum semantic tokens |
 | Acoustic rendering | Solver steps and text guidance |
 | Decoder or quantization | Custom GGUF paths in Studio settings |
-| Compare revisions | Short studies, parent links, recipe restoration, review notes |
+| Compare revisions | Short studies, parent links, recipe restoration, audio-and-score reviews with runnable generation recommendations |
+| Share a recording | Animated seeded-artwork MP4 with audio, WAV, SVG, and generation recipe |
 
 The score is conditioning for a new performance, not an audio editor. Changing
 ABC, harmony or lyrics renders another take. The native runtime does not expose

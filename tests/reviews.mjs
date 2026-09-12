@@ -157,11 +157,15 @@ try {
   );
   check("Saved musical notes, playable timestamps, credential redaction");
 
-  await page.getByRole("button", { name: "Use revision", exact: true }).click();
+  await page.getByRole("button", { name: "Edit in studio", exact: true }).click();
   assert.equal(await page.locator("#title").inputValue(), "Another take");
-  assert.equal(await page.locator("#custom-steps").inputValue(), "19");
-  assert.equal(await page.locator("#duration").inputValue(), "420");
-  assert.equal(await page.locator("#seed").inputValue(), "");
+  assert.equal(await page.locator("#custom-steps").inputValue(), "37");
+  assert.equal(await page.locator("#duration").inputValue(), "26");
+  assert.equal(await page.locator("#seed").inputValue(), "1729");
+  assert.equal(await page.locator("#guidance").inputValue(), "1.6");
+  assert.equal(await page.locator("#planning").inputValue(), "full");
+  assert((await page.locator("#abc").inputValue()).includes("K:Dm"));
+  assert.equal(await page.locator("#control-semantic_top_p").inputValue(), "0.82");
   assert(
     (await page.locator("#lyrics").inputValue()).includes("A little light"),
   );
@@ -169,6 +173,13 @@ try {
     await page.locator("#style").inputValue(),
     "Congas and a whispered chorus",
   );
+  await page.locator(".creative-controls > summary").click();
+  await page.locator("#temperature").fill("0.92321");
+  await page.locator("#guidance").fill("1.61234");
+  await page.locator("#duration").fill("26.04");
+  assert(await page.locator("#generation-form").evaluate(form => form.checkValidity()),
+    "Continuous model settings must remain valid after editing a recommendation");
+  await page.locator(".creative-controls > summary").click();
   await page
     .getByRole("button", { name: "Undo revision", exact: true })
     .click();
@@ -177,7 +188,7 @@ try {
     "My unfinished draft",
   );
   check(
-    "Editable revision preserves lyrics and source generation settings; undo restores the draft",
+    "Complete proposed take carries score, seed, duration, sampling controls and kept lyrics; undo restores the draft",
   );
 
   await page.locator("#review-keep-lyrics").uncheck();
@@ -193,16 +204,28 @@ try {
     (r) =>
       r.url().endsWith("/api/generations") && r.request().method() === "POST",
   );
-  await page.getByRole("button", { name: /Generate take/ }).click();
+  await page.locator("#title").fill("A draft to keep while generating");
+  await page.locator("[data-review-score]").first().locator("summary").click();
+  await page.locator(".review-score-preview svg").first().waitFor();
+  await page.locator("[data-generate-review]").first().click();
   const generation = await (await pending).json();
+  assert.equal(generation.recipe.steps,37);
+  assert.equal(generation.recipe.seed,"1729");
+  assert.equal(generation.recipe.cfg_scale,1.6);
+  assert.equal(generation.recipe.refinement.semantic_top_p,.82);
+  assert(generation.recipe.abc.includes("K:Dm"));
+  assert.equal(await page.locator("#title").inputValue(),"A draft to keep while generating");
   assert.equal(generation.recipe.parent_track_id, fixture.track_id);
   assert(generation.recipe.review_id);
+  await page.waitForFunction(id => state.tracks.some(track => track.id === id), generation.id);
+  assert.equal(await page.evaluate(() => selected.id), fixture.track_id);
+  await page.goto(`${fixture.url}/?recording=${generation.id}#studio`);
   await page.waitForFunction(
     (id) => document.querySelector("#review-parent")?.href.includes(id),
     fixture.track_id,
   );
   check(
-    "Lyrics can be revised; the next generated take keeps its review and previous-take link",
+    "Rendered score and one-click generation preserve the draft and current review, with ancestry on the new take",
   );
 
   await page.goto(`${fixture.url}/?recording=${fixture.track_id}#studio`);
@@ -231,11 +254,15 @@ try {
   await page.getByRole("button", { name: /Generate take/ }).click();
   const free = await (await freePending).json();
   assert.equal(free.recipe.lyrics, "");
+  await page.waitForFunction(id => state.tracks.some(track => track.id === id), free.id);
+  await page.goto(`${fixture.url}/?recording=${free.id}#studio`);
   await page.waitForFunction(
     (id) =>
       document.querySelector("#download")?.getAttribute("href")?.includes(id),
     free.id,
   );
+  if (!await page.locator("#producer-panel").evaluate(panel => panel.open))
+    await page.locator("#producer-panel > summary").click();
   assert(!(await page.locator("#review-keep-lyrics").isVisible()));
   await page.locator("#request-review").click();
   await doneReviews(1);

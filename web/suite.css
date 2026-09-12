@@ -127,4 +127,28 @@ button:focus-visible, a:focus-visible, summary:focus-visible { outline: 2px soli
   .system-dialog { padding: 20px; }
 }
 
-.cover-stamp { color: #382630; }
+.video-download { display: inline-flex; align-items: center; gap: 5px; border: 0; border-radius: 7px; padding: 8px; background: var(--wash); color: var(--ink); font: inherit; font-size: 10px; cursor: pointer; }
+.video-download:disabled { opacity: .4; cursor: default; }
+.transport-secondary { gap: 5px; }
+.transport-secondary .audio-download { font-size: 9px; padding: 6px 3px; }
+.video-dialog { width: min(490px, calc(100vw - 32px)); }
+#video-preview { display: block; width: 100%; height: auto; border-radius: 9px; margin-top: 16px; }
+#video-title { font-size: 16px; line-height: 1.4; overflow-wrap: anywhere; margin: 18px 0; }
+#video-options { margin: 16px 0; }
+#video-options summary { cursor: pointer; font-size: 12px; }
+.video-dimensions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 14px 0; }
+.video-dimensions input { width: 100%; min-width: 0; }
+.video-dimensions label { font-size: 10px; }
+#video-progress { width: 100%; accent-color: var(--blue); }
+.review-take { margin: 18px 0; padding: 18px 0; border-block: 1px solid var(--line); }
+.review-take-label { color: var(--blue); font-size: 11px; margin: 0 0 7px; }
+.review-take h3 { margin: 0 0 13px; font: 24px/1.3 Georgia, serif; overflow-wrap: anywhere; }
+.review-take-settings { display: flex; gap: 6px 14px; flex-wrap: wrap; color: var(--quiet); font-size: 11px; }
+.review-take-direction { font-size: 13px; line-height: 1.8; white-space: pre-wrap; overflow-wrap: anywhere; }
+.review-take details { margin: 14px 0; min-width: 0; }
+.review-take summary { cursor: pointer; font-size: 12px; color: var(--quiet); }
+.review-take pre { font-family: inherit; font-size: 13px; line-height: 1.8; white-space: pre-wrap; overflow-wrap: anywhere; unicode-bidi: plaintext; }
+.review-take .review-recipe-json { font: 11px/1.65 ui-monospace, monospace; }
+.review-score-preview { overflow-x: auto; margin-top: 10px; color: var(--ink); }
+.review-score-preview svg { fill: currentColor; }
+.review-take-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 18px; }

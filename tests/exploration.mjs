@@ -330,7 +330,7 @@ try {
   await page.locator("[data-visual=sound]").click();
   await page.locator("#play").click();
   await page.waitForFunction(
-    () => soundSamples?.some((value) => value > 0) && audio.currentTime > 0.2,
+    () => soundMotion?.frames.some(frame => frame[0] > 0) && audio.currentTime > 0.2,
   );
   await snap("live-sound");
   await page.getByRole("navigation").locator("[data-view=library]").click();
@@ -343,15 +343,15 @@ try {
     oldTitle,
   );
   await page.waitForFunction(
-    () => !audio.paused && soundContext.state === "running",
+    () => !audio.paused,
   );
   await page.locator("#mini-play").click();
   await page.waitForFunction(
-    () => audio.paused && soundContext.state === "suspended",
+    () => audio.paused,
   );
   await page.locator("#mini-play").click();
   await page.waitForFunction(
-    () => !audio.paused && soundContext.state === "running",
+    () => !audio.paused,
   );
   await snap("exploration-library");
   await page.locator("#mini-title").click();
@@ -359,9 +359,9 @@ try {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.waitForFunction(() => soundAnimation === null);
   await page.locator("#play").click();
-  await page.waitForFunction(() => soundContext.state === "suspended");
+  await page.waitForFunction(() => audio.paused && soundAnimation === null);
   check(
-    "Real spectrum, continuous library listening, next track, pause/resume, and reduced motion",
+    "Seeded audio animation, continuous library listening, next track, pause/resume, and reduced motion",
   );
   await page.locator("[data-visual=art]").click();
   await page.setViewportSize({ width: 390, height: 844 });

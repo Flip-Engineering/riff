@@ -149,6 +149,38 @@
           : stamp;
       });
   }
+  function recommendedTake(review) {
+    const take = review.generation;
+    if (!take?.mode) return "";
+    const planning = { off: "Direct", melody: "Melody", full: "Melody + harmony" }[take.cot];
+    return `<section class="review-take"><p class="review-take-label">Recommended take</p><h3>${esc(take.title)}</h3>
+      <div class="review-take-settings"><span>${esc(take.max_seconds)} seconds</span><span>${esc(take.steps)} steps</span><span>${esc(planning)}</span><span>Guidance ${esc(take.cfg_scale)}</span></div>
+      <p class="review-take-direction">${esc(take.style)}</p>
+      ${take.lyrics ? `<details><summary>Lyrics${review.keep_lyrics ? " · kept" : ""}</summary><pre dir="auto">${esc(take.lyrics)}</pre></details>` : ""}
+      ${take.abc ? `<details data-review-score="${review.id}"><summary>Score</summary><div class="review-score-preview" aria-label="Recommended score"></div></details>` : ""}
+      <details><summary>Generation recipe</summary><pre class="review-recipe-json">${esc(JSON.stringify(take, null, 2))}</pre><button type="button" class="text-button" data-export-review="${review.id}">Download recipe</button></details>
+      <div class="review-take-actions"><button type="button" class="secondary-button solid" data-generate-review="${review.id}">Generate this take</button><button type="button" class="text-button" data-use-review="${review.id}">Edit in studio</button></div></section>`;
+  }
+
+  function takeRecipe(review) {
+    if (review.generation?.mode) return {
+      ...review.generation, parent_track_id: review.track_id, review_id: review.id,
+    };
+    // Earlier reviews remain editable; they predate complete take recommendations.
+    const recipe = {
+      ...review.source_recipe, ...review.revision,
+      title: review.revision.title || `${currentTrack.title} — revision`,
+      seed: "", parent_track_id: review.track_id, review_id: review.id,
+    };
+    if (review.keep_lyrics) recipe.lyrics = review.source_recipe.lyrics;
+    else if (typeof review.revision.lyrics === "string") {
+      recipe.lyrics_source = "review";
+      if (recipe.lyrics.trim()) recipe.mode = "lyrics";
+    }
+    if (recipe.abc && recipe.cot === "off") recipe.cot = "full";
+    return recipe;
+  }
+
   function drawNotes() {
     const names = {
       queued: "Waiting to listen",
@@ -166,16 +198,33 @@
             );
             return `<article class="producer-note"><div class="producer-note-meta"><span>${esc(review.model)}</span><span>${esc(formatDate(review.created))}</span></div>${
               review.status === "done"
-                ? ` ${review.summary ? `<p class="review-summary">${esc(review.summary)}</p>` : ""}<button type="button" class="secondary-button" data-use-review="${review.id}">${icon("branch")}${Object.keys(review.revision).length ? "Use revision" : "Start another take"}</button><details class="review-listening-notes"><summary>Listening notes<span aria-hidden="true">＋</span></summary><div class="review-note-text">${withCues(review.notes)}</div>${review.focus ? `<p class="review-focus-label">Review focus: ${esc(review.focus)}</p>` : ""}</details>`
+                ? ` ${review.summary ? `<p class="review-summary">${esc(review.summary)}</p>` : ""}${recommendedTake(review) || `<button type="button" class="secondary-button" data-use-review="${review.id}">${icon("branch")}${Object.keys(review.revision).length ? "Use revision" : "Start another take"}</button>`}<details class="review-listening-notes"><summary>Listening notes<span aria-hidden="true">＋</span></summary><div class="review-note-text">${withCues(review.notes)}</div>${review.focus ? `<p class="review-focus-label">Review focus: ${esc(review.focus)}</p>` : ""}</details>`
                 : `<p class="review-state">${active ? '<span class="spinner" aria-hidden="true"></span>' : ""}${names[review.status] || esc(review.status)}</p>${review.error ? `<p class="form-error">${esc(review.error)}</p>` : ""}${active ? `<button type="button" class="text-button" data-cancel-review="${review.id}" ${review.status === "cancelling" ? "disabled" : ""}>Cancel review</button>` : ""}`
             }</article>`;
           })
           .join("")
       : '<p class="review-empty">A fresh perspective on this take. Give the listener a focus, or invite an open review.</p>';
+    $$("[data-review-score]", panel).forEach((details) => details.addEventListener("toggle", () => {
+      if (!details.open || !window.ABCJS) return;
+      const review = requests.find((item) => item.id === details.dataset.reviewScore);
+      if (review?.generation?.abc) {
+        const notation = $(".review-score-preview", details);
+        try {
+          ABCJS.renderAbc(notation, review.generation.abc, {
+            responsive: "resize", staffwidth: Math.max(240, notation.clientWidth - 25),
+            paddingtop: 12, paddingbottom: 12, add_classes: true,
+          });
+        } catch {
+          notation.textContent = review.generation.abc;
+        }
+      }
+    }));
   }
   panel.addEventListener("click", async (event) => {
     const cancel = event.target.closest("[data-cancel-review]");
     const use = event.target.closest("[data-use-review]");
+    const generate = event.target.closest("[data-generate-review]");
+    const download = event.target.closest("[data-export-review]");
     const cue = event.target.closest("[data-review-time]");
     try {
       if (cancel) {
@@ -198,31 +247,32 @@
           (item) => item.id === use.dataset.useReview,
         );
         if (!review) return;
-        const recipe = {
-          ...review.source_recipe,
-          ...review.revision,
-          title: review.revision.title || `${currentTrack.title} — revision`,
-          seed: "",
-          parent_track_id: currentTrack.id,
-          review_id: review.id,
-        };
-        if (review.keep_lyrics) recipe.lyrics = review.source_recipe.lyrics;
-        else if (typeof review.revision.lyrics === "string") {
-          recipe.lyrics_source = "review";
-          if (recipe.lyrics.trim()) recipe.mode = "lyrics";
-        }
-        if (recipe.abc && recipe.cot === "off") recipe.cot = "full";
+        const recipe = takeRecipe(review);
         revisionUndo = formRecipe();
         fillRecipe(recipe);
         saveDraft();
         showView("studio");
         $("#revision-undo").hidden = false;
         $("#title").focus();
-        notify(
-          Object.keys(review.revision).length
-            ? "Revision on the writing desk. Shape it, then generate your next take."
-            : "The original take is on the writing desk. Shape your next version.",
-        );
+        notify("The proposed take is on your writing desk.");
+      }
+      if (generate) {
+        const review = requests.find((item) => item.id === generate.dataset.generateReview);
+        if (!review?.generation?.mode || generate.disabled) return;
+        generate.disabled = true;
+        try {
+          const job = await api("/api/generations", "POST", takeRecipe(review));
+          notify(`“${job.recipe.title}” is on its way.`);
+          await refresh();
+        } finally { generate.disabled = false; }
+      }
+      if (download) {
+        const review = requests.find((item) => item.id === download.dataset.exportReview);
+        if (!review?.generation?.mode) return;
+        const url = URL.createObjectURL(new Blob([JSON.stringify(takeRecipe(review), null, 2) + "\n"], { type: "application/json" }));
+        const link = document.createElement("a");
+        link.href = url; link.download = "riff-recommended-take.json"; link.click();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
       }
     } catch (error) {
       errorMessage("#review-error", error.message);

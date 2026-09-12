@@ -24,7 +24,7 @@ audio decoder, and tokenizer files. Missing prerequisites are shown in the app.
 On macOS, install Apple's command-line tools with `xcode-select --install`.
 On Ubuntu, install `python3-venv`, `git`, and `build-essential`; NVIDIA acceleration
 also needs a compatible driver and CUDA Toolkit with `nvcc` on PATH. FFmpeg is
-needed for optional audio reviews. See [installation and updates](docs/install.md).
+needed for optional audio reviews and MP4 exports. See [installation and updates](docs/install.md).
 
 **Model terms:** Riff's application code is MIT licensed. The separately downloaded
 [YuE2 weights use CC BY-NC 4.0](https://huggingface.co/m-a-p/YuE2-3B).
@@ -44,11 +44,14 @@ The application license does not change the model's terms.
 - **Granular control.** Melody/chord planning, supplied ABC, guidance, seeds,
   semantic and planning sampling, repetition controls, and acoustic solver steps.
   Blank optional controls retain the runtime defaults.
-- **Listening and library.** Playback, seeking, a measured waveform, live spectrum,
-  favorites, notes, search, reversible archiving, artwork and WAV exports. Restore
+- **Listening and library.** Playback, seeking, a measured waveform, seed artwork
+  that moves with the music, favorites, notes, search, reversible archiving, and
+  animated MP4, WAV, and artwork exports. Restore
   any recording's recipe and make a variation.
-- **Producer review.** Optional direct audio review through OpenRouter, with
-  timestamped notes and editable next-take suggestions. The default model is
+- **Producer review.** Optional direct audio review through OpenRouter, informed
+  by the recording's recipe and actual YuE2 score. Each review returns a complete
+  recommended take: lyrics, direction, score, duration, seed, and sampling settings.
+  Generate it directly, edit it in the studio, or export the recipe. The default model is
   `google/gemini-3.8-flash`; the studio never silently substitutes a model.
 - **Saved sounds.** Browse, create, edit, and remove reusable sound prompts.
   [Adapter research](docs/adapters.md) distinguishes these from learned LoRAs.

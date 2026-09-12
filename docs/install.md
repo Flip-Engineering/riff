@@ -22,6 +22,21 @@ On macOS the default location is `~/Library/Application Support/Riff`; a
 `${XDG_DATA_HOME:-~/.local/share}/riff` and creates a desktop entry. The studio
 binds to `127.0.0.1`; it is a personal application, not a public inference server.
 
+### Your other devices
+
+Connect Tailscale on the studio host and your other devices. From the Riff source
+or installed release folder, run `python3 network_access.py`, then restart Riff.
+For an installed release, set `RIFF_HOME` to its persistent `workspace` directory
+when running the helper. It configures a background HTTPS Tailscale Serve proxy
+and prints the private address. If that HTTPS port already serves another app,
+choose another with `--https-port 8443`; existing routes are preserved.
+
+The backend remains bound to loopback. Remote requests require the host's
+Tailscale user identity and the configured HTTPS origin, including generation
+and downloads. Tagged devices without a user identity do not receive access.
+The account and address live in `data/network.json`, outside Git and releases.
+The Mac or Linux host must remain awake with Riff and Tailscale running.
+
 Engine setup pins audio.cpp and its three patches through `sources.json`. It builds
 only YuE2 and the selected accelerator, then probes devices before activation.
 Weights download in bounded chunks with resume support and SHA-256 verification.
@@ -33,7 +48,7 @@ through the advanced engine settings.
 
 ## Credentials and optional writing
 
-Audio reviews need FFmpeg. On macOS install it through your package manager;
+Audio reviews and animated MP4 exports need FFmpeg with H.264 encoding. On macOS install it through your package manager;
 on Ubuntu use the `ffmpeg` package. Linux credentials need `secret-tool` from
 `libsecret-tools` and an unlocked Secret Service session, such as GNOME Keyring.
 The application will not save keys to an unencrypted file when that service is
@@ -43,6 +58,13 @@ The local MLX writer requires Apple Silicon and `uv`. From the current release
 folder, run `RIFF_HOME=/path/to/install/workspace ./setup-writer.sh`. Source
 checkouts can run `./setup-writer.sh` directly. OpenRouter writing uses the saved
 connection and does not require MLX.
+
+The player’s MP4 button animates the recording’s seed artwork with its audio.
+Video settings expose width, height, and frame rate; WAV remains available next
+to MP4. Keep the export window open until rendering finishes. Riff streams one
+frame at a time into FFmpeg and muxes the original recording as AAC; it does not
+capture browser playback or decode a second full copy of the song into browser
+memory. Cancellation stops the encoder and removes the incomplete video.
 
 ## Update behavior
 

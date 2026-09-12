@@ -65,14 +65,17 @@ const colors = [
   { paper: "#e1e7e1", ink: "#6a8a7e", shadow: "#adbfba", warm: "#d2c1a0" },
   { paper: "#e8e4dc", ink: "#9a865e", shadow: "#cebf9d", warm: "#acb7c6" },
 ];
-function artContent(seed) {
+const artworkCache = new Map();
+function artGeometry(seed) {
+  const key = String(seed);
+  if (artworkCache.has(key)) return artworkCache.get(key);
   const h = hash(seed),
     c = colors[h % colors.length],
     phase = (h % 1000) / 159,
     twist = 0.28 + (h % 37) / 110;
-  let paths = "";
+  const rings = [];
   for (let ring = 0; ring < 28; ring++) {
-    let d = "";
+    const points = [];
     for (let point = 0; point <= 160; point++) {
       const t = (point / 160) * Math.PI * 2,
         f = ring / 27;
@@ -81,11 +84,68 @@ function artContent(seed) {
         y = Math.sin(t) * (68 + ring * 1.3) + 30 * Math.sin(t * 2 + phase) * f;
       const rx = x * Math.cos(twist) - y * Math.sin(twist),
         ry = x * Math.sin(twist) + y * Math.cos(twist);
-      d += `${point ? "L" : "M"}${(220 + rx).toFixed(1)},${(149 + ry).toFixed(1)}`;
+      points.push([rx, ry, t]);
     }
-    paths += `<path d="${d}Z" fill="none" stroke="${ring % 6 === 0 ? c.warm : c.ink}" stroke-width="${ring % 6 === 0 ? 1.3 : 0.85}" opacity="${(0.25 + ring / 85).toFixed(2)}"/>`;
+    rings.push(points);
   }
-  return `<rect width="440" height="340" fill="${c.paper}"/><circle cx="220" cy="149" r="48" fill="${c.shadow}" opacity=".12"/>${paths}<circle cx="220" cy="149" r="4" fill="${c.ink}" opacity=".7"/>`;
+  const geometry = { c, phase, rings };
+  if (artworkCache.size >= 24) artworkCache.delete(artworkCache.keys().next().value);
+  artworkCache.set(key, geometry);
+  return geometry;
+}
+function artContent(seed) {
+  const { c, rings } = artGeometry(seed);
+  const paths = rings.map((points, ring) => {
+    const d = points.map(([x, y], point) => `${point ? "L" : "M"}${(220 + x).toFixed(1)},${(149 + y).toFixed(1)}`).join("");
+    return `<path d="${d}Z" fill="none" stroke="${ring % 6 === 0 ? c.warm : c.ink}" stroke-width="${ring % 6 === 0 ? 1.3 : 0.85}" opacity="${(0.25 + ring / 85).toFixed(2)}"/>`;
+  }).join("");
+  return `<rect width="440" height="340" fill="${c.paper}"/><circle cx="220" cy="149" r="48" fill="${c.shadow}" opacity=".12"/>${paths}<circle cx="220" cy="149" r="4" fill="${c.ink}" opacity=".7"/><text x="23" y="318" font-family="Arial, sans-serif" font-size="22" font-weight="600" fill="${c.ink}" opacity=".65">riff.</text>`;
+}
+
+// Live playback and video export share this exact renderer and audio timebase.
+function drawSeedArtwork(context, width, height, seed, seconds = 0, motion = [0, 0, 0, 0]) {
+  const { c, phase, rings } = artGeometry(seed);
+  const [level, bass, middle, air] = motion;
+  const scale = Math.min(width / 440, height / 340);
+  context.setTransform(1, 0, 0, 1, 0, 0);
+  context.globalAlpha = 1;
+  context.fillStyle = c.paper;
+  context.fillRect(0, 0, width, height);
+  context.translate((width - 440 * scale) / 2, (height - 340 * scale) / 2);
+  context.scale(scale, scale);
+  context.translate(220, 149);
+  context.rotate(level * .012 * Math.sin(seconds * .7));
+  context.fillStyle = c.shadow;
+  context.globalAlpha = .12 + bass * .08;
+  context.beginPath();
+  context.arc(0, 0, 48 + bass * 10, 0, Math.PI * 2);
+  context.fill();
+  rings.forEach((points, ring) => {
+    const f = ring / 27;
+    context.beginPath();
+    points.forEach(([x, y, t], point) => {
+      const ripple = Math.sin(3 * t - seconds * 1.3 + phase);
+      const rx = x * (1 + bass * .075 + middle * .018 * ripple * f);
+      const ry = y * (1 + bass * .06) + middle * 4 * f * Math.sin(3 * t + seconds * 1.8 + phase)
+        + air * 1.5 * f * Math.sin(7 * t - seconds * 2);
+      if (point) context.lineTo(rx, ry); else context.moveTo(rx, ry);
+    });
+    context.closePath();
+    context.strokeStyle = ring % 6 === 0 ? c.warm : c.ink;
+    context.lineWidth = (ring % 6 === 0 ? 1.3 : .85) + air * .18;
+    context.globalAlpha = Math.min(1, Number((.25 + ring / 85).toFixed(2)) + air * .12);
+    context.stroke();
+  });
+  context.fillStyle = c.ink;
+  context.globalAlpha = .7;
+  context.beginPath();
+  context.arc(0, 0, 4 + middle * 1.5, 0, Math.PI * 2);
+  context.fill();
+  context.setTransform(scale, 0, 0, scale, (width - 440 * scale) / 2, (height - 340 * scale) / 2);
+  context.globalAlpha = .65;
+  context.font = "600 22px Arial";
+  context.fillText("riff.", 23, 318);
+  context.globalAlpha = 1;
 }
 function artSVG(seed) {
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 440 340" preserveAspectRatio="xMidYMid slice" aria-hidden="true">${artContent(seed)}</svg>`;
@@ -435,6 +495,7 @@ function renderPlayerInfo() {
     "#player-favorite",
     "#variation",
     "#track-details",
+    "#download-video",
   ])
     $(id).disabled = !has;
   $("#player-favorite").setAttribute(
@@ -479,6 +540,7 @@ async function selectTrack(id, autoplay = false) {
       );
       renderPlayerInfo();
       renderWaveform();
+      synchronizeSoundField();
       try {
         localStorage.setItem("riff.selected", id);
       } catch {}
@@ -965,7 +1027,8 @@ async function refresh() {
     firstLoad = false;
   } else if (added.length) {
     notify(`“${added[0].title}” is ready to listen.`);
-    if (audio.paused) await selectTrack(added[0].id);
+    if (audio.paused && !$("#producer-panel").open && !$("dialog[open]"))
+      await selectTrack(added[0].id);
   }
   next.jobs
     .filter(

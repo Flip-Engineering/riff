@@ -13,6 +13,7 @@ import uuid
 
 from keychain import Keychain
 from studio_core import ROOT
+from review_recipe import recommended_generation
 
 
 class Reviews:
@@ -34,6 +35,8 @@ class Reviews:
                     usage TEXT DEFAULT '{}', error TEXT DEFAULT '');
                 CREATE INDEX IF NOT EXISTS reviews_track ON reviews(track_id,created);
             """)
+            if "generation" not in {row["name"] for row in db.execute("PRAGMA table_info(reviews)")}:
+                db.execute("ALTER TABLE reviews ADD COLUMN generation TEXT NOT NULL DEFAULT '{}'")
             db.execute("UPDATE reviews SET status='interrupted',error='The studio closed during this review.',finished=? WHERE status IN ('running','cancelling')", (time.time(),))
         self.worker = threading.Thread(target=self.work, daemon=True)
         self.worker.start()
@@ -89,7 +92,7 @@ class Reviews:
     @staticmethod
     def unpack(row):
         item = dict(row)
-        for name in ("source_recipe", "revision", "usage"):
+        for name in ("source_recipe", "revision", "generation", "usage"):
             item[name] = json.loads(item[name])
         item["keep_lyrics"] = bool(item["keep_lyrics"])
         return item
@@ -190,11 +193,12 @@ class Reviews:
                 elif process.returncode:
                     error = "The listening request stopped before finishing. Try the review again."
                 else:
-                    error = "The listening request finished without notes. Try another model."
+                    error = "The listening request finished without a recommendation. Review again to retry."
                 if result and not error and not isinstance(result.get("notes"), str):
                     error = "The model returned notes the studio could not read. Try the review again."
-                if result and not isinstance(result.get("revision"), dict):
-                    result["revision"] = {}
+                if result and not error:
+                    result["generation"] = recommended_generation(
+                        result.get("generation"), review["source_recipe"], review["keep_lyrics"])
         except Exception as exc:
             error = str(exc).replace(secret, "[redacted]") if secret else str(exc)
         finally:
@@ -207,13 +211,15 @@ class Reviews:
                     status = db.execute("SELECT status FROM reviews WHERE id=?", (review["id"],)).fetchone()[0]
                     status = "interrupted" if self.stop.is_set() else "cancelled" if status == "cancelling" else "failed" if error or not result else "done"
                     if status == "done":
-                        revision = {key: value for key, value in result.get("revision", {}).items()
-                                    if key in ("title", "style", "lyrics", "abc") and isinstance(value, str)}
+                        generation = result["generation"]
+                        # Retain the old text suggestion for installations that roll back.
+                        revision = {key: generation[key] for key in ("title", "style", "lyrics", "abc")
+                                    if generation[key] != review["source_recipe"].get(key, "")}
                         if review["keep_lyrics"]:
                             revision.pop("lyrics", None)
-                        db.execute("UPDATE reviews SET status=?,finished=?,notes=?,summary=?,revision=?,usage=? WHERE id=?",
+                        db.execute("UPDATE reviews SET status=?,finished=?,notes=?,summary=?,revision=?,generation=?,usage=? WHERE id=?",
                                    (status, time.time(), result["notes"], str(result.get("summary", "")),
-                                    json.dumps(revision), json.dumps(result.get("usage", {})), review["id"]))
+                                    json.dumps(revision), json.dumps(generation), json.dumps(result.get("usage", {})), review["id"]))
                     else:
                         db.execute("UPDATE reviews SET status=?,finished=?,error=? WHERE id=?",
                                    (status, time.time(), error if status == "failed" else "", review["id"]))

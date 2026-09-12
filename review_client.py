@@ -9,10 +9,12 @@ import tempfile
 import urllib.error
 import urllib.request
 
+from review_recipe import FIELDS, recommended_generation, response_schema, symbolic_context
+
 
 def listen(settings):
     source = settings["recipe"]
-    policy = "Keep every supplied lyric unchanged." if settings["keep_lyrics"] else "The lyrics may be revised when it serves the artist's request."
+    policy = "Copy the supplied lyrics exactly into generation.lyrics." if settings["keep_lyrics"] else "The lyrics may be revised or translated when it serves the artist's request. Put the actual new words in generation.lyrics."
     timing = (f"\n\nRECORDING DURATION\n{settings['duration']:.2f} seconds. "
               "Use timestamps relative to the start of this supplied recording."
               if settings.get("duration") else "")
@@ -25,14 +27,27 @@ def listen(settings):
         "requested, and be candid about uncertainty. Treat tempo and key in the brief as "
         "targets, not measurements; avoid unsupported numeric estimates. This is a musical "
         "review, not a transcription. "
-        + policy + " Offer an editable musical direction for another take. Preserve the artist's "
-        "creative intent; structure and genre are theirs to choose. Return a JSON object with "
-        "notes (plain-text production notes), summary (the revision's musical intent), and "
-        "revision (an object with suggested style and, when appropriate, title, lyrics or abc)." + timing + "\n\n"
+        + policy + " Return one complete recommended generation, using the response schema: "
+        "notes, summary, and generation. The generation object goes directly into Riff's "
+        "music generator. Supply actual musical direction, words, ABC notation, and settings, "
+        "rather than instructions for someone else to implement. Start with the prior inputs "
+        "and native symbolic plan; preserve what works and make purposeful changes to what does not. "
+        "The supplied and generated ABC are YuE2 composition data, not an audio transcription. "
+        "A score describes the plan; compare it to what you actually hear, and remember the "
+        "recording may be a short excerpt of that plan. Use the existing score as a starting "
+        "point when useful; you may revise it, replace it, or leave abc empty to let YuE2 compose. "
+        "ABC conditioning requires cot=melody or full. Preserve the artist's creative intent; "
+        "language, genre, structure, and instruments remain open to their direction. Carry over "
+        "generation settings unless a change serves this iteration, and keep a short study "
+        "within the requested preview scope. Preserve any useful sampling overrides. "
+        "YuE2's native context is 24576 tokens and "
+        "music uses 25 tokens per second, with the text and score also needing context space. "
+        "Do not promise that prompts or notation will force an exact performance." + timing + "\n\n"
         "ARTIST'S FOCUS\n" + (settings["focus"] or "Develop the strongest version of this song.") +
-        "\n\nMUSICAL DIRECTION\n" + source.get("style", "") +
-        "\n\nLYRIC SHEET\n" + source.get("lyrics", "") +
-        "\n\nSUPPLIED SCORE\n" + source.get("abc", "")
+        "\n\nPRIOR GENERATION INPUTS\n" + json.dumps(
+            {key: source[key] for key in (*FIELDS, "brief", "idea_engine", "writer_tokens", "lyrics_source", "energy", "texture", "theme") if key in source},
+            ensure_ascii=False, indent=2) +
+        "\n\nSYMBOLIC REPRESENTATION\n" + json.dumps(symbolic_context(source), ensure_ascii=False, indent=2)
     )
     if not shutil.which("ffmpeg"):
         raise ValueError("Install FFmpeg with brew install ffmpeg to prepare recordings for review.")
@@ -42,7 +57,12 @@ def listen(settings):
                         "-vn", "-c:a", "libmp3lame", "-b:a", "192k", str(encoded)],
                        check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
         audio = base64.b64encode(encoded.read_bytes()).decode()
-    payload = {"model": settings["model"], "messages": [{"role": "user", "content": [
+    payload = {"model": settings["model"],
+               "provider": {"require_parameters": True},
+               "response_format": {"type": "json_schema", "json_schema": {
+                   "name": "riff_recommended_take", "strict": True,
+                   "schema": response_schema(source, settings["keep_lyrics"])}},
+               "messages": [{"role": "user", "content": [
         {"type": "text", "text": prompt},
         {"type": "input_audio", "input_audio": {"data": audio, "format": "mp3"}},
     ]}]}
@@ -61,28 +81,21 @@ def listen(settings):
         raise ValueError(f"OpenRouter returned HTTP {error.code}. {message}") from None
     if result.get("error"):
         raise ValueError(result["error"].get("message", "OpenRouter could not finish this review."))
-    text = result["choices"][0]["message"].get("content") or ""
+    choice = result["choices"][0]
+    if choice.get("finish_reason") == "length":
+        raise ValueError("The recommendation was cut off before its recipe was complete. Review again to retry.")
+    text = choice["message"].get("content") or ""
     if not text:
-        raise ValueError("The model returned an empty review. Try again or choose another model.")
-    parsed = None
-    decoder = json.JSONDecoder()
-    for position, char in enumerate(text):
-        if char == "{":
-            try:
-                candidate, _ = decoder.raw_decode(text[position:])
-                if isinstance(candidate, dict) and isinstance(candidate.get("notes"), str):
-                    parsed = candidate
-                    break
-            except ValueError:
-                pass
-    parsed = parsed or {"notes": text, "summary": "", "revision": {}}
-    revision = parsed.get("revision") if isinstance(parsed.get("revision"), dict) else {}
-    revision = {key: value for key, value in revision.items()
-                if key in ("title", "style", "lyrics", "abc") and isinstance(value, str)}
-    if settings["keep_lyrics"]:
-        revision.pop("lyrics", None)
-    return {"notes": parsed["notes"], "summary": str(parsed.get("summary", "")),
-            "revision": revision, "usage": result.get("usage", {}),
+        raise ValueError("The model returned an empty review. Review again to retry.")
+    try:
+        parsed = json.loads(text)
+    except (ValueError, TypeError):
+        raise ValueError("The review did not return a structured generation recipe. Review again to retry.") from None
+    if not isinstance(parsed, dict) or not isinstance(parsed.get("notes"), str) or not isinstance(parsed.get("summary"), str):
+        raise ValueError("The review returned an incomplete recommendation. Review again to retry.")
+    generation = recommended_generation(parsed.get("generation"), source, settings["keep_lyrics"])
+    return {"notes": parsed["notes"], "summary": parsed["summary"],
+            "generation": {key: generation[key] for key in FIELDS}, "usage": result.get("usage", {}),
             "model": result.get("model", settings["model"]), "response_id": result.get("id", "")}
 
 

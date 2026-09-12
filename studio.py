@@ -21,10 +21,13 @@ from reviews import Reviews
 from paths import DATA, OUTPUTS
 from model_options import schema
 from maintenance import Maintenance
+from video import VideoExports
+from network_access import read_access, request_origin
 import platform_support
 
 WEB = ROOT / "web"
-TRACK_ROUTE = re.compile(r"/api/tracks/([a-f0-9]{32})(?:/(audio|recipe))?")
+TRACK_ROUTE = re.compile(r"/api/tracks/([a-f0-9]{32})(?:/(audio|recipe|visualization|video-exports))?")
+VIDEO_ROUTE = re.compile(r"/api/video-exports/([a-f0-9]{32})(?:/(frames|finish|cancel|download))?")
 JOB_ROUTE = re.compile(r"/api/jobs/([a-f0-9]{32})(?:/(cancel|retry))?")
 PRESET_ROUTE = re.compile(r"/api/presets/([a-z0-9-]+)")
 TRACK_REVIEWS_ROUTE = re.compile(r"/api/tracks/([a-f0-9]{32})/reviews")
@@ -58,7 +61,16 @@ class StudioServer(ThreadingHTTPServer):
         self.reviews = reviews
         self.maintenance = maintenance
         self.restart_requested = False
+        self.network_access = read_access(store.data_root)
         super().__init__(address, Handler)
+        self.video_exports = VideoExports(store)
+        if maintenance:
+            maintenance.video_exports = self.video_exports
+
+    def server_close(self):
+        if hasattr(self, "video_exports"):
+            self.video_exports.close()
+        super().server_close()
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -74,17 +86,13 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self' blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
         super().end_headers()
 
-    def safe_request(self, mutation=False):
-        port = self.server.server_port
-        allowed_hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
-        if self.headers.get("Host") not in allowed_hosts:
-            self.json_response(403, {"error": "Open Riff at its localhost address."})
+    def safe_request(self, mutation=False, content_type="application/json"):
+        try:
+            request_origin(self.headers, self.client_address[0], self.server.server_port, self.server.network_access)
+        except ValueError as error:
+            self.json_response(403, {"error": str(error)})
             return False
-        origin = self.headers.get("Origin")
-        if origin and origin not in {f"http://{host}" for host in allowed_hosts}:
-            self.json_response(403, {"error": "This request did not come from the local studio."})
-            return False
-        if mutation and (self.headers.get("X-Riff-Request", self.headers.get("X-Rill-Request")) != "1" or self.headers.get("Content-Type", "").split(";")[0] != "application/json"):
+        if mutation and (self.headers.get("X-Riff-Request", self.headers.get("X-Rill-Request")) != "1" or self.headers.get("Content-Type", "").split(";")[0] != content_type):
             self.json_response(403, {"error": "Use the studio to make this change."})
             return False
         return True
@@ -151,12 +159,24 @@ class Handler(BaseHTTPRequestHandler):
                 self.json_response(200, self.server.reviews.get(match[1]))
             elif (match := PRESET_ROUTE.fullmatch(path)):
                 self.json_response(200, self.server.store.preset(match[1]))
+            elif (match := VIDEO_ROUTE.fullmatch(path)):
+                if match[2] == "download":
+                    file, title = self.server.video_exports.download(match[1])
+                    self.send_file(file, "video/mp4", title, ranged=True)
+                elif not match[2]:
+                    self.json_response(200, self.server.video_exports.get(match[1]))
+                else:
+                    raise KeyError("Action not found.")
             elif (match := TRACK_ROUTE.fullmatch(path)):
                 track_id, action = match.groups()
                 track = self.server.store.track(track_id)
                 if action == "audio":
                     self.send_file(self.server.store.audio_path(track_id), "audio/wav",
                                    track["title"] + ".wav" if "download" in parsed.query else None, ranged=True)
+                elif action == "visualization":
+                    self.json_response(200, self.server.video_exports.visualization(track_id))
+                elif action == "video-exports":
+                    raise KeyError("Action not found.")
                 elif action == "recipe":
                     recipe = dict(track["recipe"], title=track["title"], notes=track["notes"])
                     body = json.dumps(recipe, ensure_ascii=False, indent=2).encode("utf-8")
@@ -180,7 +200,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.json_response(200, job)
             else:
                 files = {"/": "index.html", "/app.js": "app.js", "/explore.js": "explore.js", "/review.js": "review.js",
-                         "/visualizer.js": "visualizer.js", "/style.css": "style.css",
+                         "/visualizer.js": "visualizer.js", "/video.js": "video.js", "/style.css": "style.css",
                          "/theme.js": "theme.js", "/suite.css": "suite.css", "/controls.js": "controls.js",
                          "/flip-face.svg": "flip-face.svg", "/score.js": "score.js",
                          "/vendor/abcjs-basic-min.js": "vendor/abcjs-basic-min.js",
@@ -233,7 +253,32 @@ class Handler(BaseHTTPRequestHandler):
                 remaining -= len(block)
 
     def do_POST(self):
+        match = VIDEO_ROUTE.fullmatch(unquote(urlsplit(self.path).path))
+        if match and match[2] == "frames":
+            self.receive_video_frame(match[1])
+            return
         self.mutate("POST")
+
+    def receive_video_frame(self, export_id):
+        if not self.safe_request(mutation=True, content_type="image/png"):
+            return
+        try:
+            job = self.server.video_exports.get(export_id)
+            size = int(self.headers.get("Content-Length", "0"))
+            index = int(self.headers.get("X-Riff-Frame", "-1"))
+            # A single RGBA frame plus PNG overhead, independent of the music text budget.
+            if size <= 0 or size > job["width"] * job["height"] * 4 + 1024 * 1024:
+                raise ValueError("Send one complete visualization frame.")
+            frame = self.rfile.read(size)
+            if len(frame) != size:
+                raise ValueError("The visualization frame was interrupted.")
+            self.json_response(200, self.server.video_exports.frame(export_id, index, frame))
+        except KeyError as exc:
+            self.json_response(404, {"error": str(exc.args[0])})
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+        except (ValueError, OSError) as exc:
+            self.json_response(400, {"error": str(exc)})
 
     def do_PATCH(self):
         self.mutate("PATCH")
@@ -289,6 +334,14 @@ class Handler(BaseHTTPRequestHandler):
                 self.json_response(200, self.server.reviews.remove_key())
             elif (match := TRACK_REVIEWS_ROUTE.fullmatch(path)) and method == "POST" and self.server.reviews:
                 self.json_response(201, self.server.reviews.submit(match[1], payload))
+            elif (match := TRACK_ROUTE.fullmatch(path)) and match[2] == "video-exports" and method == "POST":
+                with self.server.maintenance.lock if self.server.maintenance else nullcontext():
+                    if self.server.restart_requested:
+                        raise ValueError("Riff is restarting. Export again when the studio opens.")
+                    self.json_response(201, self.server.video_exports.start(match[1], payload))
+            elif (match := VIDEO_ROUTE.fullmatch(path)) and method == "POST" and match[2] in ("finish", "cancel"):
+                result = getattr(self.server.video_exports, match[2])(match[1])
+                self.json_response(200, result)
             elif (match := REVIEW_ROUTE.fullmatch(path)) and match[2] == "cancel" and method == "POST" and self.server.reviews:
                 self.json_response(200, self.server.reviews.cancel(match[1]))
             elif (match := PRESET_ROUTE.fullmatch(path)) and method in ("PATCH", "DELETE"):

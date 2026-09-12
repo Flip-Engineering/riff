@@ -11,7 +11,8 @@ const fixture = await new Promise((resolve, reject) => {
   server.once("exit", (code) => reject(new Error(`Fixture exited ${code}: ${diagnostics}`)));
 });
 try {
-  for (const file of ["browser", "exploration", "reviews", "suite"]) {
+  const selected = process.argv.slice(2);
+  for (const file of selected.length ? selected : ["browser", "exploration", "reviews", "suite", "video"]) {
     const child = spawn(process.execPath, [`tests/${file}.mjs`], { stdio: "inherit",
       env: { ...process.env, RIFF_URL: fixture.url, RIFF_TEST_TRACK: fixture.track_id } });
     const [code] = await once(child, "exit");

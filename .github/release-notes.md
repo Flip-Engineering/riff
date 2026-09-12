@@ -1,16 +1,25 @@
-The Riff mark now places the original Flip character at the base of the **r**,
-with the normal dot restored on the **i**. The studio, website, and app icon
-share the same wide, rounded mascot artwork.
+Producer review now turns a recording into a complete recommended generation.
+The selected multimodal model receives the audio, prior generation controls,
+and supplied/generated YuE2 score. Its recommendation includes lyrics, direction,
+score, seed, duration, and sampling settings. Generate it directly, edit it with
+undo, or download its recipe.
 
-This update also publishes release notes through GitHub Actions without
-automatically adding personal contributor mentions.
+Live sound animates each recording’s original seed artwork with a subtle riff
+wordmark. The player’s **MP4** button exports that same animation with the
+recording’s audio. Width, height,
+and frame rate are editable; progress and cancellation are included. **WAV**
+remains beside it. Reviews and MP4 exports require FFmpeg.
+
+Optional Tailscale Serve access brings the studio to your other devices through
+private HTTPS, restricted to your connected Tailscale account. The setup helper
+preserves existing Serve routes; see the installation guide for instructions.
 
 Download `install.py` and run `python3 install.py`, or open **Studio settings**
 in an installed copy of Riff to check for the update. Your library and engine
 settings carry over. See the [installation guide](https://github.com/Flip-Engineering/riff/blob/main/docs/install.md).
 
 Release checks cover Python 3.9 and 3.14, browser workflows, packaged installation
-and rollback, and Metal, CPU, and CUDA builds. CUDA inference on NVIDIA hardware
+and rollback, real MP4 encoding and cancellation, and Metal, CPU, and CUDA builds. CUDA inference on NVIDIA hardware
 remains unverified.
 
 Riff is MIT licensed. Separately downloaded YuE2 model weights retain their

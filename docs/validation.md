@@ -30,9 +30,22 @@ interval. Linux process metrics exclude GPU memory.
 - Backend tests for queue ownership, cancellation, recovery, audio ranges, library
   persistence, credential handling, native request construction, score-only jobs,
   composition requests, update activation and archive validation.
+- Strict producer recipes include supplied/generated symbolic context, preserve
+  held lyrics, reject incomplete responses, and pass the normal generation validator.
+- Tailscale access tests cover exact origin and user checks, rejected spoofed or
+  missing identities, loopback proxy boundaries, and preservation of other Serve routes.
+- Real FFmpeg exports test PNG frame order, same-origin requests, cancellation,
+  H.264 video with AAC audio, complete recording duration, and ranged downloads.
 - Browser workflows for playback, library CRUD, writing, saved sounds, reviews,
   composition, note selection, transposition, audition, MIDI export, theme choice,
   narrow layouts and settings persistence.
+- Browser export draws from the same seed geometry as the SVG cover, responds to
+  play/pause/seek, and produces an MP4 whose decoded first frame matches the Live
+  sound renderer within codec tolerance. Desktop, 390px, and 320px layouts pass.
+- A real 28-second recording was played, sought, and exported through private
+  Tailscale HTTPS at 1280×990 and 24 fps. The MP4 contains H.264 video and the
+  complete AAC-encoded recording; the artwork includes only the riff wordmark.
+  Audio range requests returned 206 and a foreign-origin export request returned 403.
 - Installation from the packaged archive in a temporary workspace, real HTTP
   startup, and fallback from a deliberately broken candidate release.
 

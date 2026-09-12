@@ -9,6 +9,8 @@ from unittest.mock import patch
 
 from keychain import Keychain
 from review_client import listen
+from review_recipe import FIELDS, recommended_generation
+from studio_core import validate_recipe
 from reviews import Reviews
 from studio import StudioServer
 import test_studio
@@ -43,9 +45,16 @@ from pathlib import Path
 s=json.load(sys.stdin)
 if s['focus']=='wait': time.sleep(300)
 if s['focus']=='fail': result={'error':'Provider rejected '+s['api_key']}
-else: result={'notes':'0:00 Strong entrance. '+s['api_key'], 'summary':'Bring the crowd forward.',
-              'revision':{'title':'Another take','style':'Congas and a whispered chorus',
-                          'lyrics':'Fresh words','steps':1},'usage':{'cost':.01}}
+else:
+ from studio_core import validate_recipe
+ from review_recipe import FIELDS
+ take=validate_recipe({**s['recipe'], 'title':'Another take',
+   'style':'Congas and a whispered chorus', 'lyrics':s['recipe'].get('lyrics','') if s['keep_lyrics'] else 'Fresh words',
+   'mode':'lyrics', 'steps':37, 'max_seconds':26, 'seed':'1729', 'cfg_scale':1.6,
+   'temperature':0.85, 'cot':'full', 'abc':'X:1\\nM:4/4\\nL:1/8\\nQ:1/4=108\\nK:Dm\\nD2 F2 A2 G2|F2 E2 D4|',
+   'refinement':{'semantic_top_p':0.82,'abc_temperature':0.65}})
+ result={'notes':'0:00 Strong entrance. '+s['api_key'], 'summary':'Bring the crowd forward.',
+         'generation':{key:take[key] for key in FIELDS},'usage':{'cost':.01}}
 Path(sys.argv[1]).write_text(json.dumps(result))
 """
     return [sys.executable, "-c", script, str(output)]
@@ -89,7 +98,12 @@ class ReviewTests(StudioFixture):
         wait_until(lambda: self.reviews.get(review["id"])["status"] == "done")
         result = self.reviews.get(review["id"])
         self.assertNotIn("lyrics", result["revision"])
-        self.assertNotIn("steps", result["revision"])
+        self.assertEqual(result["generation"]["steps"], 37)
+        self.assertEqual(result["generation"]["max_seconds"], 26)
+        self.assertEqual(result["generation"]["cfg_scale"], 1.6)
+        self.assertEqual(result["generation"]["refinement"]["semantic_top_p"], 0.82)
+        self.assertIn("K:Dm", result["generation"]["abc"])
+        self.assertEqual(result["generation"]["lyrics"], recipe()["lyrics"])
         self.assertEqual(result["source_recipe"]["steps"], 19)
         self.assertEqual(result["source_recipe"]["max_seconds"], 420)
         self.assertEqual(result["source_recipe"]["lyrics"], recipe()["lyrics"])
@@ -154,7 +168,22 @@ class ReviewTests(StudioFixture):
 
 
 class ReviewClientTests(unittest.TestCase):
-    def request(self, response_text, keep=True):
+    def source(self):
+        return {**recipe(steps=19, max_seconds=28, cfg_scale=1.4, temperature=.9,
+                         refinement={"semantic_top_p":.85}),
+                "symbolic_plan":{"abc":"X:1\nM:4/4\nL:1/8\nK:Dm\nD2 F2 A4|",
+                                 "truncated":False,"token_count":42}}
+
+    def proposal(self, keep=True, **updates):
+        take = validate_recipe(self.source())
+        take.update(title="A new procession", style="Yemeni chant and Korean brass choir",
+                    abc=self.source()["symbolic_plan"]["abc"], cot="full", steps=37,
+                    lyrics=take["lyrics"] if keep else "새로운 노래", **updates)
+        return {"notes":"0:04 The low brass disappears beneath the voices.",
+                "summary":"Carry the choir with a clearer brass pulse.",
+                "generation":{key:take[key] for key in FIELDS}}
+
+    def request(self, response_text, keep=True, finish="stop"):
         from io import BytesIO
         from pathlib import Path
         captured = {}
@@ -164,33 +193,48 @@ class ReviewClientTests(unittest.TestCase):
         def respond(request, **kwargs):
             captured.update(json.loads(request.data))
             self.assertEqual(request.get_header("Authorization"), "Bearer test-secret")
-            return BytesIO(json.dumps({"choices":[{"message":{"content":response_text}}], "usage":{"cost":0}}).encode())
-        settings = {"recipe":recipe(),"keep_lyrics":keep,"focus":"Make it stranger.",
-                    "model":"custom/audio-model","api_key":"test-secret","audio":"fixture.wav","duration":195.52}
+            return BytesIO(json.dumps({"choices":[{"message":{"content":response_text}, "finish_reason":finish}], "usage":{"cost":0}}).encode())
+        settings = {"recipe":self.source(),"keep_lyrics":keep,"focus":"Make it stranger.",
+                    "model":"google/gemini-3.8-flash","api_key":"test-secret","audio":"fixture.wav","duration":27.52}
         with patch("review_client.shutil.which",return_value="ffmpeg"), \
                 patch("review_client.subprocess.run", side_effect=encode), \
                 patch("review_client.urllib.request.urlopen", side_effect=respond):
             result = listen(settings)
         return result,captured
 
-    def test_native_audio_request_and_flexible_model_notes(self):
-        result,request = self.request("A forceful entrance. Let the final chord ring.")
-        self.assertEqual(result["notes"], "A forceful entrance. Let the final chord ring.")
-        self.assertEqual(result["revision"], {})
-        self.assertEqual(request["model"], "custom/audio-model")
-        content = request["messages"][0]["content"]
+    def test_audio_prior_controls_and_native_plan_produce_a_runnable_take(self):
+        result, request = self.request(json.dumps(self.proposal()))
+        self.assertEqual(request["model"], "google/gemini-3.8-flash")
+        self.assertTrue(request["provider"]["require_parameters"])
+        self.assertEqual(request["response_format"]["type"], "json_schema")
+        self.assertTrue(request["response_format"]["json_schema"]["strict"])
+        schema=request["response_format"]["json_schema"]["schema"]["properties"]["generation"]
+        self.assertEqual(set(schema["required"]), set(FIELDS))
+        content=request["messages"][0]["content"]
         self.assertEqual(content[1]["type"], "input_audio")
         self.assertEqual(content[1]["input_audio"]["format"], "mp3")
-        self.assertIn("Make it stranger.", content[0]["text"])
-        self.assertIn(recipe()["lyrics"], content[0]["text"])
-        self.assertIn("195.52 seconds", content[0]["text"])
+        for text in ('"steps": 19', '"cfg_scale": 1.4', '"semantic_top_p": 0.85', 'generated_abc', 'K:Dm', '27.52 seconds'):
+            self.assertIn(text,content[0]["text"])
+        self.assertEqual(validate_recipe(result["generation"])["steps"],37)
+        self.assertEqual(result["generation"]["lyrics"], self.source()["lyrics"])
 
-    def test_fenced_suggestions_honor_lyric_choice_without_changing_compute_settings(self):
-        reply = '```json\n{"notes":"A vivid chorus.","revision":{"lyrics":"A new lyric.","style":"Drums in 7/8","steps":999}}\n```'
-        kept,_ = self.request(reply)
-        changed,_ = self.request(reply,keep=False)
-        self.assertNotIn("lyrics",kept["revision"])
-        self.assertEqual(changed["revision"], {"lyrics":"A new lyric.","style":"Drums in 7/8"})
+    def test_lyric_choice_is_explicit_and_custom_settings_are_retained(self):
+        changed,_ = self.request(json.dumps(self.proposal(keep=False)),keep=False)
+        self.assertEqual(changed["generation"]["lyrics"], "새로운 노래")
+        value=self.proposal();value["generation"]["steps"]=999
+        accepted,_=self.request(json.dumps(value))
+        self.assertEqual(accepted["generation"]["steps"],999)
+        with self.assertRaisesRegex(ValueError,"changed lyrics"):
+            self.request(json.dumps(self.proposal(keep=False)))
+
+    def test_incomplete_or_invalid_recommendations_cannot_become_takes(self):
+        invalid=["Try more brass.", '```json\n{}\n```', json.dumps({"notes":"A note","summary":"An idea"})]
+        for change in ({"cfg_scale":21},{"abc":"X:1\nK:Dm\nD2|","cot":"off"},{"steps":True}):
+            value=self.proposal();value["generation"].update(change);invalid.append(json.dumps(value))
+        for value in invalid:
+            with self.subTest(value=value),self.assertRaises(ValueError):self.request(value)
+        with self.assertRaisesRegex(ValueError,"cut off"):
+            self.request(json.dumps(self.proposal()),finish="length")
 
 
 class ReviewHttpTests(StudioFixture):

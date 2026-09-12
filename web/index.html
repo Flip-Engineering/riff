@@ -17,6 +17,7 @@
     <script src="/explore.js" defer></script>
     <script src="/visualizer.js" defer></script>
     <script src="/app.js" defer></script>
+    <script src="/video.js" defer></script>
     <script src="/review.js" defer></script>
     <script src="/controls.js" defer></script>
     <script src="/vendor/abcjs-basic-min.js" defer></script>
@@ -394,9 +395,9 @@
                     <input
                       type="number"
                       id="duration"
-                      min="1"
+                      min="0.04"
                       value="30"
-                      step="1"
+                      step="any"
                       required
                     /><span>sec</span>
                   </div>
@@ -449,7 +450,7 @@
                       id="guidance"
                       min="0"
                       max="20"
-                      step="0.01"
+                      step="any"
                       value="1"
                     />
                   </div>
@@ -460,7 +461,7 @@
                       id="temperature"
                       min="0"
                       max="5"
-                      step="0.05"
+                      step="any"
                       value="1"
                     />
                   </div>
@@ -576,19 +577,9 @@
                 ></svg>
                 <canvas
                   id="sound-field"
-                  aria-label="Live audio frequency visualization"
+                  aria-label="Seed artwork moving with the music"
                   hidden
                 ></canvas>
-                <div
-                  id="sound-field-caption"
-                  class="sound-field-caption"
-                  hidden
-                >
-                  Press play to see the sound
-                </div>
-                <div class="cover-stamp">
-                  <span>riff.</span><span>Sound, taking shape</span>
-                </div>
               </div>
               <div
                 class="cover-switch"
@@ -662,12 +653,13 @@
                   <span data-icon="play"></span>
                 </button>
                 <div class="transport-secondary">
+                  <button type="button" id="download-video" class="video-download" aria-label="Download animated MP4" disabled><span data-icon="download"></span><span>MP4</span></button>
                   <a
                     id="download"
-                    class="icon-button"
+                    class="text-button audio-download"
                     aria-label="Download WAV"
                     aria-disabled="true"
-                    ><span data-icon="download"></span></a
+                    >WAV</a
                   ><button
                     type="button"
                     id="track-details"
@@ -736,7 +728,7 @@
                     Review & suggest a take
                   </button>
                   <p class="control-hint">
-                    Sends this recording, its lyrics, and direction to
+                    Sends this recording, its score, and generation inputs to
                     OpenRouter. OpenRouter usage charges apply.
                   </p>
                   <p
@@ -874,6 +866,20 @@
     </footer>
     <audio id="audio" preload="metadata"></audio>
     <div id="toast" class="toast" role="status" hidden></div>
+
+    <dialog id="video-dialog" class="video-dialog">
+      <div class="dialog-top"><h2>Sound, taking shape</h2><button type="button" class="icon-button" data-close="video-dialog" aria-label="Close video export"><span data-icon="close"></span></button></div>
+      <p class="dialog-description">Your recording, with its artwork in motion.</p>
+      <canvas id="video-preview" width="440" height="340" aria-label="Animated artwork preview"></canvas>
+      <h3 id="video-title"></h3>
+      <form id="video-form">
+        <details id="video-options"><summary>Video settings</summary><div class="video-dimensions"><div><label for="video-width">Width</label><input type="number" id="video-width" min="2" step="2" value="1280" required /></div><div><label for="video-height">Height</label><input type="number" id="video-height" min="2" step="2" value="990" required /></div><div><label for="video-fps">Frames / second</label><input type="number" id="video-fps" min="0.01" step="any" value="24" required /></div></div></details>
+        <progress id="video-progress" max="1" value="0" aria-label="Video export progress" hidden></progress>
+        <p id="video-status" class="control-hint" role="status">MP4 · animated artwork and audio</p>
+        <p id="video-error" class="form-error" role="alert" hidden></p>
+        <div class="dialog-actions"><button type="submit" id="render-video" class="secondary-button solid">Create MP4</button><button type="button" id="cancel-video" class="text-button" hidden>Cancel export</button><a id="save-video" class="secondary-button" hidden>Download MP4</a></div>
+      </form>
+    </dialog>
 
     <dialog id="track-dialog" class="detail-dialog">
       <div class="dialog-top">
