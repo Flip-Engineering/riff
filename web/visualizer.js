@@ -22,15 +22,22 @@ function visualizationFor(trackId) {
 }
 
 function motionAt(data, seconds) {
-  if (!data?.frames?.length) return [0, 0, 0, 0];
-  const position = Math.max(0, seconds * data.fps), index = Math.floor(position);
-  const blend = position - index;
+  if (!data?.frames?.length) return Array(8).fill(0);
   const frame = offset => data.frames[Math.min(data.frames.length - 1, Math.max(0, offset))];
   // A symmetric window softens frame boundaries without accumulating state.
-  const smooth = offset => [0, 1, 2, 3].map(band =>
-    (frame(offset - 1)[band] + 2 * frame(offset)[band] + frame(offset + 1)[band]) / 4);
-  const a = smooth(index), b = smooth(index + 1);
-  return a.map((value, band) => value + (b[band] - value) * blend);
+  const smooth = offset => Array.from({ length: 8 }, (_, band) =>
+    ((frame(offset - 1)[band] || 0) + 2 * (frame(offset)[band] || 0) + (frame(offset + 1)[band] || 0)) / 4);
+  const at = time => {
+    if (time < 0) return Array(8).fill(0);
+    const position = time * data.fps, index = Math.floor(position), blend = position - index;
+    const a = smooth(index), b = smooth(index + 1);
+    return a.map((value, band) => value + (b[band] - value) * blend);
+  };
+  const motion = at(seconds);
+  // A beat travels through the surface using its real, recent envelope.
+  // Sampling the audio clock makes seeking and exported frames reproducible.
+  motion.history = Array.from({ length: 20 }, (_, i) => at(seconds - i / 19));
+  return motion;
 }
 
 function updateMiniPlayer() {
@@ -47,8 +54,9 @@ function updateMiniPlayer() {
 
 function drawSoundField() {
   soundAnimation = null;
-  const canvas = $("#sound-field"), context = canvas.getContext("2d");
-  if (!context || canvas.hidden || document.hidden || $("#studio-view").hidden) return;
+  const immersive = $("#sound-view-dialog").open;
+  const canvas = immersive ? $("#sound-view-canvas") : $("#sound-field"), context = canvas.getContext("2d");
+  if (!context || canvas.hidden || document.hidden || (!immersive && $("#studio-view").hidden)) return;
   const bounds = canvas.getBoundingClientRect(), scale = devicePixelRatio || 1;
   if (!bounds.width || !bounds.height) return;
   const width = Math.round(bounds.width * scale), height = Math.round(bounds.height * scale);
@@ -65,7 +73,7 @@ function drawSoundField() {
 function synchronizeSoundField() {
   if (soundAnimation !== null) cancelAnimationFrame(soundAnimation);
   soundAnimation = null;
-  if (visualization !== "sound" || document.hidden || $("#studio-view").hidden) return;
+  if ((!$("#sound-view-dialog").open && (visualization !== "sound" || $("#studio-view").hidden)) || document.hidden) return;
   if (selected && soundMotionTrack !== selected.id) {
     const id = selected.id;
     soundMotionTrack = id;
@@ -80,6 +88,23 @@ function synchronizeSoundField() {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
+  const immersive = $("#sound-view-dialog");
+  function immersivePlayback() {
+    $("#sound-view-play").innerHTML = icon(audio.paused ? "play" : "pause");
+    $("#sound-view-play").setAttribute("aria-label", audio.paused ? "Play recording" : "Pause recording");
+    $("#sound-view-play").disabled = !selected;
+    $("#sound-view-seek").disabled = !selected;
+    $("#sound-view-seek").max = selected?.audio.duration || 1;
+    $("#sound-view-seek").value = audio.currentTime;
+    $("#sound-view-seek").setAttribute("aria-valuetext", `${formatTime(audio.currentTime)} of ${formatDuration(selected?.audio.duration)}`);
+  }
+  $("#open-sound-view").addEventListener("click", () => { immersive.showModal(); immersivePlayback(); synchronizeSoundField(); });
+  $("#close-sound-view").addEventListener("click", () => immersive.close());
+  immersive.addEventListener("close", synchronizeSoundField);
+  $("#sound-view-play").addEventListener("click", togglePlay);
+  $("#sound-view-seek").addEventListener("input", event => { audio.currentTime = Number(event.target.value); updatePlayback(); });
+  for (const event of ["timeupdate", "play", "pause", "loadedmetadata"]) audio.addEventListener(event, immersivePlayback);
+  new ResizeObserver(synchronizeSoundField).observe($("#sound-view-canvas"));
   $$("[data-visual]").forEach(button => button.addEventListener("click", () => {
     visualization = button.dataset.visual;
     $$("[data-visual]").forEach(item => item.setAttribute("aria-pressed", String(item === button)));

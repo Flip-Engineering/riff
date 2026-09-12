@@ -41,12 +41,14 @@ The application license does not change the model's terms.
   to an optional OpenRouter composer and preview its proposed score.
 - **Short studies.** Select a few lyric lines and try a brief take while retaining
   the full draft. Duration and quality shortcuts stay editable.
+- **Compare takes.** Switch A/B at the same listening position, loop a passage,
+  and see which musical inputs changed. Reorder waiting takes with keyboard controls.
 - **Granular control.** Melody/chord planning, supplied ABC, guidance, seeds,
   semantic and planning sampling, repetition controls, and acoustic solver steps.
   Blank optional controls retain the runtime defaults.
-- **Listening and library.** Playback, seeking, a measured waveform, seed artwork
-  that moves with the music, favorites, notes, search, reversible archiving, and
-  animated MP4, WAV, and artwork exports. Restore
+- **Listening and library.** Playback, seeking, a measured waveform, sculptural seed
+  artwork with an immersive sound view, favorites, notes, search, reversible archiving,
+  and animated MP4, WAV, and PNG artwork exports. Restore
   any recording's recipe and make a variation.
 - **Producer review.** Optional direct audio review through OpenRouter, informed
   by the recording's recipe and actual YuE2 score. Each review returns a complete

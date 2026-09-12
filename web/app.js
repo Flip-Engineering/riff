@@ -28,6 +28,8 @@ const icons = {
   close: '<path d="m6 6 12 12M6 18 18 6"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
   chevron: '<path d="m6 9 6 6 6-6"/>',
+  up: '<path d="m6 15 6-6 6 6"/>',
+  expand: '<path d="M9 3H3v6m12-6h6v6M3 15v6h6m12-6v6h-6"/>',
   search: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/>',
   volume:
     '<path d="m11 5-6 4H2v6h3l6 4ZM15 8a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14"/>',
@@ -58,97 +60,6 @@ function hash(text) {
     value = Math.imul(value, 16777619);
   }
   return value >>> 0;
-}
-const colors = [
-  { paper: "#dfe7f4", ink: "#4d70b4", shadow: "#a9bedc", warm: "#b9cba9" },
-  { paper: "#e5e1ee", ink: "#7970a3", shadow: "#c3b6d6", warm: "#a9b4ce" },
-  { paper: "#e1e7e1", ink: "#6a8a7e", shadow: "#adbfba", warm: "#d2c1a0" },
-  { paper: "#e8e4dc", ink: "#9a865e", shadow: "#cebf9d", warm: "#acb7c6" },
-];
-const artworkCache = new Map();
-function artGeometry(seed) {
-  const key = String(seed);
-  if (artworkCache.has(key)) return artworkCache.get(key);
-  const h = hash(seed),
-    c = colors[h % colors.length],
-    phase = (h % 1000) / 159,
-    twist = 0.28 + (h % 37) / 110;
-  const rings = [];
-  for (let ring = 0; ring < 28; ring++) {
-    const points = [];
-    for (let point = 0; point <= 160; point++) {
-      const t = (point / 160) * Math.PI * 2,
-        f = ring / 27;
-      const radius = 100 + ring * 2.25 + 22 * Math.sin(3 * t + phase) * f;
-      const x = Math.cos(t) * radius,
-        y = Math.sin(t) * (68 + ring * 1.3) + 30 * Math.sin(t * 2 + phase) * f;
-      const rx = x * Math.cos(twist) - y * Math.sin(twist),
-        ry = x * Math.sin(twist) + y * Math.cos(twist);
-      points.push([rx, ry, t]);
-    }
-    rings.push(points);
-  }
-  const geometry = { c, phase, rings };
-  if (artworkCache.size >= 24) artworkCache.delete(artworkCache.keys().next().value);
-  artworkCache.set(key, geometry);
-  return geometry;
-}
-function artContent(seed) {
-  const { c, rings } = artGeometry(seed);
-  const paths = rings.map((points, ring) => {
-    const d = points.map(([x, y], point) => `${point ? "L" : "M"}${(220 + x).toFixed(1)},${(149 + y).toFixed(1)}`).join("");
-    return `<path d="${d}Z" fill="none" stroke="${ring % 6 === 0 ? c.warm : c.ink}" stroke-width="${ring % 6 === 0 ? 1.3 : 0.85}" opacity="${(0.25 + ring / 85).toFixed(2)}"/>`;
-  }).join("");
-  return `<rect width="440" height="340" fill="${c.paper}"/><circle cx="220" cy="149" r="48" fill="${c.shadow}" opacity=".12"/>${paths}<circle cx="220" cy="149" r="4" fill="${c.ink}" opacity=".7"/><text x="23" y="318" font-family="Arial, sans-serif" font-size="22" font-weight="600" fill="${c.ink}" opacity=".65">riff.</text>`;
-}
-
-// Live playback and video export share this exact renderer and audio timebase.
-function drawSeedArtwork(context, width, height, seed, seconds = 0, motion = [0, 0, 0, 0]) {
-  const { c, phase, rings } = artGeometry(seed);
-  const [level, bass, middle, air] = motion;
-  const scale = Math.min(width / 440, height / 340);
-  context.setTransform(1, 0, 0, 1, 0, 0);
-  context.globalAlpha = 1;
-  context.fillStyle = c.paper;
-  context.fillRect(0, 0, width, height);
-  context.translate((width - 440 * scale) / 2, (height - 340 * scale) / 2);
-  context.scale(scale, scale);
-  context.translate(220, 149);
-  context.rotate(level * .012 * Math.sin(seconds * .7));
-  context.fillStyle = c.shadow;
-  context.globalAlpha = .12 + bass * .08;
-  context.beginPath();
-  context.arc(0, 0, 48 + bass * 10, 0, Math.PI * 2);
-  context.fill();
-  rings.forEach((points, ring) => {
-    const f = ring / 27;
-    context.beginPath();
-    points.forEach(([x, y, t], point) => {
-      const ripple = Math.sin(3 * t - seconds * 1.3 + phase);
-      const rx = x * (1 + bass * .075 + middle * .018 * ripple * f);
-      const ry = y * (1 + bass * .06) + middle * 4 * f * Math.sin(3 * t + seconds * 1.8 + phase)
-        + air * 1.5 * f * Math.sin(7 * t - seconds * 2);
-      if (point) context.lineTo(rx, ry); else context.moveTo(rx, ry);
-    });
-    context.closePath();
-    context.strokeStyle = ring % 6 === 0 ? c.warm : c.ink;
-    context.lineWidth = (ring % 6 === 0 ? 1.3 : .85) + air * .18;
-    context.globalAlpha = Math.min(1, Number((.25 + ring / 85).toFixed(2)) + air * .12);
-    context.stroke();
-  });
-  context.fillStyle = c.ink;
-  context.globalAlpha = .7;
-  context.beginPath();
-  context.arc(0, 0, 4 + middle * 1.5, 0, Math.PI * 2);
-  context.fill();
-  context.setTransform(scale, 0, 0, scale, (width - 440 * scale) / 2, (height - 340 * scale) / 2);
-  context.globalAlpha = .65;
-  context.font = "600 22px Arial";
-  context.fillText("riff.", 23, 318);
-  context.globalAlpha = 1;
-}
-function artSVG(seed) {
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 440 340" preserveAspectRatio="xMidYMid slice" aria-hidden="true">${artContent(seed)}</svg>`;
 }
 const formatTime = (seconds) => {
   const s = Math.max(0, Math.floor(Number(seconds) || 0));
@@ -513,6 +424,7 @@ function renderPlayerInfo() {
   if (has) $("#download").href = `/api/tracks/${selected.id}/audio?download=1`;
   else $("#download").removeAttribute("href");
   renderReviews();
+  window.RiffCompare?.render();
 }
 function renderWaveform() {
   const peaks = selected?.audio.waveform || Array(160).fill(0.05),
@@ -527,10 +439,13 @@ function renderWaveform() {
     `<defs><clipPath id="played-clip"><rect id="played-width" width="0" height="54"/></clipPath></defs><g fill="#cbd4e3">${bars}</g><g fill="#5b75b6" clip-path="url(#played-clip)">${bars}</g>`;
   updatePlayback();
 }
+let selectionRequest = 0;
 async function selectTrack(id, autoplay = false) {
+  const request = ++selectionRequest;
   try {
     if (selected?.id !== id) {
       const track = await api(`/api/tracks/${id}`);
+      if (request !== selectionRequest) return;
       selected = track;
       audio.src = `/api/tracks/${id}/audio`;
       audio.load();
@@ -671,10 +586,11 @@ function renderRecent() {
     ? tracks
         .map(
           (t) =>
-            `<div class="recent-track"><button class="mini-cover" type="button" data-play="${t.id}" aria-label="Play ${esc(t.title)}">${artSVG(t.seed)}</button><div class="recent-track-info"><button type="button" data-select="${t.id}">${esc(t.title)}</button><p>${esc(formatDate(t.created))} / ${esc(t.style.split(",").slice(1, 3).join(",").trim() || "Original recording")}</p></div><span class="recent-track-time">${formatDuration(t.duration)}</span><button type="button" class="icon-button" data-detail="${t.id}" aria-label="Details for ${esc(t.title)}">${icon("more")}</button></div>`,
+            `<div class="recent-track"><button class="mini-cover" type="button" data-play="${t.id}" aria-label="Play ${esc(t.title)}">${artThumbnail(t.seed)}</button><div class="recent-track-info"><button type="button" data-select="${t.id}">${esc(t.title)}</button><p>${esc(formatDate(t.created))} / ${esc(t.style.split(",").slice(1, 3).join(",").trim() || "Original recording")}</p></div><span class="recent-track-time">${formatDuration(t.duration)}</span><button type="button" class="icon-button" data-detail="${t.id}" aria-label="Details for ${esc(t.title)}">${icon("more")}</button></div>`,
         )
         .join("")
     : '<p class="empty-recent">Start a take. The ones you make will collect here.</p>';
+  observeArtPosters($("#recent-tracks"));
 }
 function renderLibrary() {
   const query = $("#search").value.trim().toLocaleLowerCase();
@@ -696,9 +612,10 @@ function renderLibrary() {
   $("#library-grid").innerHTML = tracks
     .map(
       (t) =>
-        `<article class="library-card"><button class="library-card-art" type="button" data-play="${t.id}" aria-label="Play ${esc(t.title)}">${artSVG(t.seed)}<span class="card-play-overlay">${icon("play")}</span></button><div class="library-card-body"><div class="library-card-title"><button type="button" data-select="${t.id}">${esc(t.title)}</button><button class="icon-button" type="button" data-favorite="${t.id}" aria-label="Favorite ${esc(t.title)}" aria-pressed="${t.favorite}">${icon("heart")}</button></div><p>${esc(t.style)}</p><div class="card-meta"><span>${formatDuration(t.duration)}</span><span>${esc(formatDate(t.created))}</span><button class="icon-button" type="button" data-detail="${t.id}" aria-label="Details for ${esc(t.title)}">${icon("more")}</button></div></div></article>`,
+        `<article class="library-card"><button class="library-card-art" type="button" data-play="${t.id}" aria-label="Play ${esc(t.title)}">${artThumbnail(t.seed)}<span class="card-play-overlay">${icon("play")}</span></button><div class="library-card-body"><div class="library-card-title"><button type="button" data-select="${t.id}">${esc(t.title)}</button><button class="icon-button" type="button" data-favorite="${t.id}" aria-label="Favorite ${esc(t.title)}" aria-pressed="${t.favorite}">${icon("heart")}</button></div><p>${esc(t.style)}</p><div class="card-meta"><span>${formatDuration(t.duration)}</span><span>${esc(formatDate(t.created))}</span><button class="icon-button" type="button" data-detail="${t.id}" aria-label="Details for ${esc(t.title)}">${icon("more")}</button></div></div></article>`,
     )
     .join("");
+  observeArtPosters($("#library-grid"));
   $("#library-empty").hidden = tracks.length > 0;
   $("#empty-title").textContent = query
     ? "Try a different search."
@@ -828,15 +745,16 @@ $("#archive-track").addEventListener("click", async () => {
     errorMessage("#detail-error", error.message);
   }
 });
-$("#export-art").addEventListener("click", () => {
+$("#export-art").addEventListener("click", async () => {
   if (!detailTrack) return;
-  const blob = new Blob([artSVG(detailTrack.recipe.seed)], {
-      type: "image/svg+xml",
-    }),
-    url = URL.createObjectURL(blob),
-    link = document.createElement("a");
+  const track = detailTrack, canvas = document.createElement("canvas");
+  canvas.width = 1760; canvas.height = 1360;
+  drawSeedArtwork(canvas.getContext("2d"), canvas.width, canvas.height, track.recipe.seed);
+  const blob = await new Promise(resolve => canvas.toBlob(resolve, "image/png"));
+  if (!blob) { notify("The artwork could not be exported."); return; }
+  const url = URL.createObjectURL(blob), link = document.createElement("a");
   link.href = url;
-  link.download = `${detailTrack.title}.svg`;
+  link.download = `${track.title}.png`;
   link.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 });
@@ -880,16 +798,21 @@ function renderQueue() {
     $("#live-job").innerHTML = "";
     $("#live-job").dataset.jobId = "";
   }
-  const queued = active.filter((j) => j.status === "queued");
+  const queued = active.filter((j) => j.status === "queued")
+    .sort((a, b) => (a.queue_position ?? a.created) - (b.queue_position ?? b.created) || a.created - b.created || a.id.localeCompare(b.id));
   const signature = JSON.stringify(queued.map((j) => [j.id, j.title]));
   if ($("#queued-jobs").dataset.signature !== signature) {
+    const focused = $("#queued-jobs").contains(document.activeElement) ? document.activeElement : null;
+    const focusKey = focused?.dataset.queueMove ? `[data-queue-move="${focused.dataset.queueMove}"][data-job="${focused.dataset.job}"]`
+      : focused?.dataset.cancel ? `[data-cancel="${focused.dataset.cancel}"]` : null;
     $("#queued-jobs").dataset.signature = signature;
     $("#queued-jobs").innerHTML = queued
       .map(
-        (j) =>
-          `<div class="queued-job"><span>Queued</span><strong>${esc(j.title)}</strong><button type="button" class="text-button" data-cancel="${j.id}">Cancel</button></div>`,
+        (j, index) =>
+          `<div class="queued-job" data-queued-job="${j.id}"><span class="queue-number" aria-label="Queue position ${index + 1}">${String(index + 1).padStart(2, "0")}</span><strong>${esc(j.title)}</strong><div class="queue-order" role="group" aria-label="Order ${esc(j.title)}"><button type="button" class="icon-button" data-queue-move="up" data-job="${j.id}" aria-label="Move ${esc(j.title)} earlier" aria-disabled="${index === 0}">${icon("up")}</button><button type="button" class="icon-button" data-queue-move="down" data-job="${j.id}" aria-label="Move ${esc(j.title)} later" aria-disabled="${index === queued.length - 1}">${icon("chevron")}</button></div><button type="button" class="icon-button" data-cancel="${j.id}" aria-label="Cancel ${esc(j.title)}">${icon("close")}</button></div>`,
       )
       .join("");
+    if (focusKey) $(focusKey, $("#queued-jobs"))?.focus({ preventScroll: true });
   }
   $("#generate-label").textContent = busySubmit
     ? "Adding your take…"
@@ -931,6 +854,21 @@ function renderHistory() {
     : '<p class="history-empty">New takes and their progress will appear here.</p>';
 }
 document.addEventListener("click", async (event) => {
+  const move = event.target.closest("[data-queue-move]");
+  if (move) {
+    if (move.getAttribute("aria-disabled") === "true") return;
+    move.setAttribute("aria-disabled", "true");
+    try {
+      const result = await api(`/api/jobs/${move.dataset.job}/move`, "POST", { direction: move.dataset.queueMove });
+      await refresh();
+      notify(`Queue position ${result.position}`);
+    } catch (error) {
+      move.setAttribute("aria-disabled", "false");
+      notify(error.message);
+      await refresh();
+    }
+    return;
+  }
   const cancel = event.target.closest("[data-cancel]"),
     revisit = event.target.closest("[data-revisit]");
   if (cancel) {
@@ -1005,6 +943,7 @@ async function refresh() {
   state = next;
   window.RiffControls?.render(next);
   window.RiffScore?.update(next);
+  window.RiffCompare?.render();
   $("#library-count").textContent = state.tracks.filter(
     (t) => !t.archived,
   ).length;
@@ -1028,7 +967,7 @@ async function refresh() {
     firstLoad = false;
   } else if (added.length) {
     notify(`“${added[0].title}” is ready to listen.`);
-    if (audio.paused && !$("#producer-panel").open && !$("dialog[open]"))
+    if (audio.paused && !$("#producer-panel").open && !$("#take-comparison").open && !$("dialog[open]"))
       await selectTrack(added[0].id);
   }
   next.jobs

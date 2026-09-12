@@ -1142,7 +1142,13 @@ select,
 .queued-job strong {
   flex: 1;
   font-weight: 500;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
+.queue-number { font-variant-numeric: tabular-nums; }
+.queue-order { display: flex; gap: 2px; }
+.queued-job .icon-button { width: 32px; height: 36px; padding: 7px; flex-shrink: 0; }
+.queue-order [aria-disabled="true"] { opacity: .3; cursor: default; }
 .queued-job .text-button {
   font-size: 9px;
 }

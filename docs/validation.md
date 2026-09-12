@@ -39,9 +39,21 @@ interval. Linux process metrics exclude GPU memory.
 - Browser workflows for playback, library CRUD, writing, saved sounds, reviews,
   composition, note selection, transposition, audition, MIDI export, theme choice,
   narrow layouts and settings persistence.
-- Browser export draws from the same seed geometry as the SVG cover, responds to
+- Browser export draws from the same seed geometry as the cover, responds to
   play/pause/seek, and produces an MP4 whose decoded first frame matches the Live
   sound renderer within codec tolerance. Desktop, 390px, and 320px layouts pass.
+- Native queue tests cover ordering, schema migration, unchanged creation times,
+  active take preservation, and recovery after temporary storage errors. Browser
+  tests exercise ordering with the keyboard and preserve focus across refreshes.
+- A/B browser checks preserve playback position, pause state and the composition
+  draft, exercise passage loops and input differences, and test immersive playback
+  and Escape focus restoration at desktop and narrow widths.
+- Motion tests distinguish bass, voice and air energy, stereo balance and width,
+  and transient attacks; silence remains still. Renderer checks cover deterministic
+  seeking, independent responses, and the sole corner wordmark at multiple ratios.
+  Both the WebGL2 renderer and Canvas fallback have been exercised. A local M4
+  browser measurement at 1280×990 averaged 3.2 ms per WebGL frame (3.6 ms at p95);
+  this measures drawing, not PNG encoding, network delivery or whole-video export.
 - A real 28-second recording was played, sought, and exported through private
   Tailscale HTTPS at 1280×990 and 24 fps. The MP4 contains H.264 video and the
   complete AAC-encoded recording; the artwork includes only the riff wordmark.

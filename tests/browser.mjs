@@ -319,9 +319,9 @@ try {
     assert.equal(JSON.parse(readFileSync(recipePath)).lyrics, lyrics);
     const artPath = await downloadFrom(
       () => page.getByRole("button", { name: "Artwork", exact: true }).click(),
-      "reedlight.svg",
+      "reedlight.png",
     );
-    assert(readFileSync(artPath, "utf8").includes("<svg"));
+    assert.deepEqual([...readFileSync(artPath).subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
     await snapshot("recording-details");
     await context.grantPermissions(["clipboard-read", "clipboard-write"], {
       origin: base,

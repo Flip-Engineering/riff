@@ -21,8 +21,8 @@ of this pipeline. Its low-memory default uses Q4 main weights and an F16 VAE.
 | Semantic guidance | Guidance |
 | Acoustic rendering | Solver steps |
 | Decoder or quantization | Custom GGUF paths in Studio settings |
-| Compare revisions | Short studies, parent links, recipe restoration, audio-and-score reviews with runnable generation recommendations |
-| Share a recording | Animated seeded-artwork MP4 with audio, WAV, SVG, and generation recipe |
+| Compare revisions | A/B takes at the same listening position, passage loops, input differences, short studies, parent links, and runnable producer recommendations |
+| Share a recording | Animated seeded-artwork MP4 with audio, WAV, PNG artwork, and generation recipe |
 
 The score is conditioning for a new performance, not an audio editor. Changing
 ABC, harmony or lyrics renders another take. The native runtime does not expose

@@ -19,8 +19,11 @@ character appears only as a tiny detail at the base of the r in the Riff wordmar
 related app icon. See [branding](docs/branding.md) for exact tokens and provenance.
 
 The large artwork begins with a deterministic shape from the recording's seed.
-Live sound moves those same contours with measured bass, middle, and upper-band
-energy. MP4 exports use the same renderer and audio clock, with the original audio
+Live sound folds those same contours into a sculptural surface with depth, lighting,
+and fine ridges. Bass, middle and high frequencies shape its body; transient attacks
+travel through the folds, while stereo balance and width shift its perspective.
+The only mark inside the artwork is riff in the bottom-left corner.
+An immersive view keeps transport controls outside the image. MP4 exports use the same renderer and audio clock, with the original audio
 muxed separately. Animation rests when playback stops, the view is hidden, or
 reduced motion is requested; deliberately exported videos still animate. Descriptive titles and ample
 writing space carry more visual weight than engine statistics.
@@ -36,7 +39,12 @@ writing space carry more visual weight than engine statistics.
    guidance, token budgets, seeds and custom solver steps. Expose real runtime
    choices and validate their actual domains rather than inventing creative caps.
 
-A short study uses selected lines without replacing the full draft. A recording
+A short study uses selected lines without replacing the full draft. A/B comparison
+keeps the listening position and play state while changing takes; a passage can
+loop across both performances. Input differences remain alongside the audition,
+and finishing a new take does not replace a comparison in progress. Waiting takes
+can move in the queue with keyboard controls, without altering the active take or
+creation timestamps. A recording
 retains its recipe and captured symbolic plan. Variations link back to their source;
 producer notes link to moments in the audio. Each proposed AI score is previewed
 before application, and editing has undo. Score generation is a real native YuE2

@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import re
 import signal
+import sqlite3
 import sys
 import threading
 from urllib.parse import quote, unquote, urlsplit
@@ -28,7 +29,7 @@ import platform_support
 WEB = ROOT / "web"
 TRACK_ROUTE = re.compile(r"/api/tracks/([a-f0-9]{32})(?:/(audio|recipe|visualization|video-exports))?")
 VIDEO_ROUTE = re.compile(r"/api/video-exports/([a-f0-9]{32})(?:/(frames|finish|cancel|download))?")
-JOB_ROUTE = re.compile(r"/api/jobs/([a-f0-9]{32})(?:/(cancel|retry))?")
+JOB_ROUTE = re.compile(r"/api/jobs/([a-f0-9]{32})(?:/(cancel|retry|move))?")
 PRESET_ROUTE = re.compile(r"/api/presets/([a-z0-9-]+)")
 TRACK_REVIEWS_ROUTE = re.compile(r"/api/tracks/([a-f0-9]{32})/reviews")
 REVIEW_ROUTE = re.compile(r"/api/reviews/([a-f0-9]{32})(?:/(cancel))?")
@@ -200,9 +201,9 @@ class Handler(BaseHTTPRequestHandler):
                 self.json_response(200, job)
             else:
                 files = {"/": "index.html", "/app.js": "app.js", "/explore.js": "explore.js", "/review.js": "review.js",
-                         "/visualizer.js": "visualizer.js", "/video.js": "video.js", "/style.css": "style.css",
+                         "/artwork.js": "artwork.js", "/visualizer.js": "visualizer.js", "/video.js": "video.js", "/style.css": "style.css",
                          "/theme.js": "theme.js", "/suite.css": "suite.css", "/controls.js": "controls.js",
-                         "/flip-face.svg": "flip-face.svg", "/score.js": "score.js",
+                         "/flip-face.svg": "flip-face.svg", "/score.js": "score.js", "/compare.js": "compare.js",
                          "/vendor/abcjs-basic-min.js": "vendor/abcjs-basic-min.js",
                          "/icon.svg": "icon.svg", "/manifest.webmanifest": "manifest.webmanifest"}
                 if path not in files:
@@ -212,6 +213,8 @@ class Handler(BaseHTTPRequestHandler):
                 if file.suffix == ".webmanifest":
                     content_type = "application/manifest+json"
                 self.send_file(file, content_type)
+        except sqlite3.OperationalError:
+            self.json_response(503, {"error": "Riff could not access its library. Check available disk space and try again."})
         except KeyError as exc:
             self.json_response(404, {"error": str(exc.args[0])})
         except (BrokenPipeError, ConnectionResetError):
@@ -273,6 +276,8 @@ class Handler(BaseHTTPRequestHandler):
             if len(frame) != size:
                 raise ValueError("The visualization frame was interrupted.")
             self.json_response(200, self.server.video_exports.frame(export_id, index, frame))
+        except sqlite3.OperationalError:
+            self.json_response(503, {"error": "Riff could not access its library. Check available disk space and try again."})
         except KeyError as exc:
             self.json_response(404, {"error": str(exc.args[0])})
         except (BrokenPipeError, ConnectionResetError):
@@ -351,14 +356,19 @@ class Handler(BaseHTTPRequestHandler):
                     self.server.store.delete_preset(match[1])
                     self.json_response(200, {"status": "removed"})
             elif (match := JOB_ROUTE.fullmatch(path)) and method == "POST":
-                if match[2] != "cancel":
+                if match[2] == "move":
+                    self.json_response(200, self.server.generator.move_queued(match[1], payload.get("direction")))
+                elif match[2] == "cancel":
+                    status = self.server.generator.cancel(match[1])
+                    self.json_response(200, {"status": status})
+                else:
                     raise KeyError("Action not found.")
-                status = self.server.generator.cancel(match[1])
-                self.json_response(200, {"status": status})
             elif (match := TRACK_ROUTE.fullmatch(path)) and not match[2] and method == "PATCH":
                 self.json_response(200, self.server.store.update_track(match[1], payload))
             else:
                 raise KeyError("Action not found.")
+        except sqlite3.OperationalError:
+            self.json_response(503, {"error": "Riff could not access its library. Check available disk space and try again."})
         except KeyError as exc:
             self.json_response(404, {"error": str(exc.args[0])})
         except (BrokenPipeError, ConnectionResetError):

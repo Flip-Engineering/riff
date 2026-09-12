@@ -1,5 +1,6 @@
 import http.client
 import json
+import math
 import shutil
 import struct
 import subprocess
@@ -26,11 +27,48 @@ class MotionTests(StudioFixture):
         self.assertEqual(data["duration"], .1)
         self.assertEqual(len(data["frames"]), 3)
         self.assertTrue(all(frame[0] > 0 for frame in data["frames"]))
+        self.assertTrue(all(frame[5] > 0 for frame in data["frames"]))
         import wave
         with wave.open(str(self.audio), "wb") as output:
             output.setparams((2, 2, 48000, 0, "NONE", ""))
             output.writeframes(bytes(4800 * 4))
-        self.assertEqual(motion_envelope(self.audio)["frames"], [[0.0] * 4] * 3)
+        self.assertEqual(motion_envelope(self.audio)["frames"], [[0.0] * 8] * 3)
+
+    def test_frequency_and_stereo_changes_have_distinct_motion(self):
+        import wave
+        def measure(frequency, left=1, right=1):
+            data = bytearray()
+            for sample in range(24000):
+                value = 6000 * math.sin(2 * math.pi * frequency * sample / 48000)
+                data.extend(struct.pack("<hh", round(value * left), round(value * right)))
+            with wave.open(str(self.audio), "wb") as output:
+                output.setparams((2, 2, 48000, 0, "NONE", ""))
+                output.writeframes(data)
+            return motion_envelope(self.audio)["frames"][-1]
+        bass, middle, air = measure(70), measure(700), measure(4500)
+        self.assertGreater(bass[1], bass[3])
+        self.assertGreater(middle[2], middle[1])
+        self.assertGreater(air[3], air[1])
+        self.assertGreater(air[3], air[2])
+        left, right = measure(700, 1, 0), measure(700, 0, 1)
+        self.assertLess(left[4], 0)
+        self.assertGreater(right[4], 0)
+        self.assertAlmostEqual(left[0], right[0])
+        self.assertEqual(middle[5], 0)
+
+    def test_percussive_attack_decays_and_stays_finite(self):
+        import wave
+        data = bytearray()
+        for sample in range(24000):
+            value = round(10000 * math.sin(2 * math.pi * 100 * sample / 48000)) if sample < 3000 else 0
+            data.extend(struct.pack("<hh", value, value))
+        with wave.open(str(self.audio), "wb") as output:
+            output.setparams((2, 2, 48000, 0, "NONE", ""))
+            output.writeframes(data)
+        frames = motion_envelope(self.audio)["frames"]
+        self.assertGreater(frames[0][6], .5)
+        self.assertGreater(frames[2][6], frames[-1][6])
+        self.assertTrue(all(math.isfinite(value) for frame in frames for value in frame))
 
 
 @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "FFmpeg and ffprobe required")
@@ -115,3 +153,12 @@ class VideoTests(StudioFixture):
         second = self.server.video_exports.visualization(self.track)
         self.assertNotEqual(first["source"], second["source"])
         self.assertEqual(first["frames"], second["frames"])
+
+    def test_old_motion_cache_is_recomputed_for_new_features(self):
+        first = self.server.video_exports.visualization(self.track)
+        target = self.server.video_exports.cache / (self.track + ".json")
+        target.write_text(json.dumps({"source": first["source"], "fps": 24, "frames": [[0] * 4]}))
+        updated = self.server.video_exports.visualization(self.track)
+        self.assertEqual(updated["version"], 2)
+        self.assertEqual(updated["features"][4], "balance")
+        self.assertEqual(len(updated["frames"][0]), 8)

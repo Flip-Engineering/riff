@@ -28,6 +28,29 @@ try {
     return difference / rest.length;
   });
   assert(geometry < 1, `Seed artwork changed: pixel MAE ${geometry}`);
+  const response = await page.evaluate(() => {
+    const canvas = document.createElement("canvas"); canvas.width = 440; canvas.height = 340;
+    const context = canvas.getContext("2d"), seed = selected.recipe.seed;
+    const pixels = (seconds, motion) => { drawSeedArtwork(context, 440, 340, seed, seconds, motion); return canvas.toDataURL(); };
+    const quiet = Array(8).fill(0), rest = pixels(0, quiet), later = pixels(45, quiet);
+    const bands = [1, 2, 3, 4, 5, 6].map(band => { const value = [...quiet]; value[0] = .4; value[band] = .8; return pixels(2, value); });
+    const seekAgain = pixels(2, [.4, .8, 0, 0, 0, 0, 0, 0]);
+    const labels = [];
+    const originalText = context.fillText.bind(context);
+    context.fillText = (text, x, y) => { labels.push({ text, x, y, width: canvas.width, height: canvas.height }); originalText(text, x, y); };
+    for (const [width, height] of [[640, 360], [360, 640], [440, 340]]) {
+      canvas.width = width; canvas.height = height; drawSeedArtwork(context, width, height, seed);
+    }
+    return { silenceStill: rest === later, uniqueBands: new Set(bands).size, deterministic: bands[0] === seekAgain, labels };
+  });
+  assert(response.silenceStill && response.deterministic);
+  assert.equal(response.uniqueBands, 6);
+  assert.equal(response.labels.length, 3);
+  for (const label of response.labels) {
+    assert.equal(label.text, "riff.");
+    assert(label.x < label.width * .12 && label.y > label.height * .85);
+  }
+  console.log("PASS Bass, voice, air, stereo and attacks shape distinct frames; silence stays still; deterministic seeking and corner branding work in every aspect ratio");
   await page.locator("[data-visual=sound]").click();
   await page.waitForFunction(() => soundMotion?.frames.length);
   await page.emulateMedia({ reducedMotion: "no-preference" });

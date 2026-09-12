@@ -190,12 +190,18 @@ class Store:
                 CREATE TABLE IF NOT EXISTS jobs (
                     id TEXT PRIMARY KEY, title TEXT NOT NULL, created REAL NOT NULL,
                     status TEXT NOT NULL, recipe TEXT NOT NULL, error TEXT DEFAULT '',
-                    started REAL, finished REAL, track_id TEXT);
+                    started REAL, finished REAL, track_id TEXT, queue_position INTEGER NOT NULL DEFAULT 0);
                 CREATE TABLE IF NOT EXISTS presets (
                     id TEXT PRIMARY KEY, name TEXT NOT NULL, style TEXT NOT NULL, color TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS library_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
                 CREATE INDEX IF NOT EXISTS jobs_status ON jobs(status, created);
             """)
+            db.execute("BEGIN IMMEDIATE")
+            if "queue_position" not in {row["name"] for row in db.execute("PRAGMA table_info(jobs)")}:
+                db.execute("ALTER TABLE jobs ADD COLUMN queue_position INTEGER NOT NULL DEFAULT 0")
+                rows = db.execute("SELECT id FROM jobs ORDER BY created,id").fetchall()
+                db.executemany("UPDATE jobs SET queue_position=? WHERE id=?",
+                               ((position, row["id"]) for position, row in enumerate(rows, 1)))
             if not db.execute("SELECT 1 FROM library_meta WHERE key='sounds_seeded'").fetchone():
                 db.executemany("INSERT OR IGNORE INTO presets VALUES (?,?,?,?)", PRESETS)
                 db.execute("INSERT INTO library_meta VALUES('sounds_seeded','1')")
@@ -313,7 +319,7 @@ class Store:
     def snapshot(self):
         with self.db() as db:
             rows = db.execute("SELECT * FROM tracks ORDER BY created DESC, id DESC").fetchall()
-            jobs = [dict(row) for row in db.execute("SELECT id,title,created,status,error,started,finished,track_id FROM jobs ORDER BY created, id")]
+            jobs = [dict(row) for row in db.execute("SELECT id,title,created,status,error,started,finished,track_id,queue_position FROM jobs ORDER BY created, id")]
             presets = [dict(row) for row in db.execute("SELECT * FROM presets ORDER BY rowid")]
         tracks = []
         for row in rows:
@@ -460,10 +466,33 @@ class Generator:
         recipe = validate_recipe(payload)
         job_id = uuid.uuid4().hex
         with self.store.db() as db:
-            db.execute("INSERT INTO jobs (id,title,created,status,recipe) VALUES (?,?,?,'queued',?)",
-                       (job_id, recipe["title"], time.time(), json.dumps(recipe)))
+            db.execute("BEGIN IMMEDIATE")
+            position = db.execute("SELECT COALESCE(MAX(queue_position),0)+1 FROM jobs").fetchone()[0]
+            db.execute("INSERT INTO jobs (id,title,created,status,recipe,queue_position) VALUES (?,?,?,'queued',?,?)",
+                       (job_id, recipe["title"], time.time(), json.dumps(recipe), position))
         self.wake.set()
         return {"id": job_id, "recipe": recipe, "status": "queued"}
+
+    def move_queued(self, job_id, direction):
+        if direction not in ("up", "down", "first"):
+            raise ValueError("Choose an earlier or later place in the queue.")
+        with self.store.db() as db:
+            # Claiming and reordering share the same database write lock. A
+            # take that started since the last browser refresh stays active.
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute("SELECT status FROM jobs WHERE id=?", (job_id,)).fetchone()
+            if row is None:
+                raise KeyError("Take not found.")
+            if row["status"] != "queued":
+                raise ValueError("Only waiting takes can move in the queue.")
+            ids = [row[0] for row in db.execute("SELECT id FROM jobs WHERE status='queued' ORDER BY queue_position,created,id")]
+            current = ids.index(job_id)
+            target = 0 if direction == "first" else max(0, current - 1) if direction == "up" else min(len(ids) - 1, current + 1)
+            ids.insert(target, ids.pop(current))
+            db.executemany("UPDATE jobs SET queue_position=? WHERE id=? AND status='queued'",
+                           ((position, item) for position, item in enumerate(ids, 1)))
+        self.wake.set()
+        return {"status": "queued", "position": target + 1, "order": ids}
 
     def cancel(self, job_id):
         with self.lock:
@@ -494,11 +523,17 @@ class Generator:
 
     def work(self):
         while not self.stop.is_set():
-            with self.store.db() as db:
-                db.execute("BEGIN IMMEDIATE")
-                row = db.execute("SELECT * FROM jobs WHERE status='queued' ORDER BY created,id LIMIT 1").fetchone()
-                if row:
-                    db.execute("UPDATE jobs SET status='running',started=? WHERE id=?", (time.time(), row["id"]))
+            try:
+                with self.store.db() as db:
+                    db.execute("BEGIN IMMEDIATE")
+                    row = db.execute("SELECT * FROM jobs WHERE status='queued' ORDER BY queue_position,created,id LIMIT 1").fetchone()
+                    if row:
+                        db.execute("UPDATE jobs SET status='running',started=? WHERE id=?", (time.time(), row["id"]))
+            except sqlite3.OperationalError:
+                # Keep the worker alive while storage is temporarily unavailable.
+                # Shutdown interrupts the same polling interval used by rendering.
+                self.stop.wait(.5)
+                continue
             if row:
                 with self.model_gate:
                     self.execute(dict(row))
@@ -589,15 +624,26 @@ class Generator:
                 if self.process and self.process.poll() is None:
                     self.process.terminate()
                     self.process.wait()
-                with self.store.db() as db:
-                    row = db.execute("SELECT status FROM jobs WHERE id=?", (job_id,)).fetchone()
-                    status = "done" if track_id else "planned" if planned else "interrupted" if self.stop.is_set() else (
-                        "cancelled" if row[0] == "cancelling" else "failed" if failure or not track_id else "done")
-                    if status == "cancelled":
-                        failure = ""
-                    db.execute("UPDATE jobs SET status=?,error=?,finished=?,track_id=? WHERE id=?",
-                               (status, failure, time.time(), track_id, job_id))
-                self.process, self.live = None, None
+                self.process = None
+            while True:
+                try:
+                    with self.store.db() as db:
+                        row = db.execute("SELECT status FROM jobs WHERE id=?", (job_id,)).fetchone()
+                        status = "done" if track_id else "planned" if planned else "interrupted" if self.stop.is_set() else (
+                            "cancelled" if row[0] == "cancelling" else "failed" if failure or not track_id else "done")
+                        if status == "cancelled":
+                            failure = ""
+                        db.execute("UPDATE jobs SET status=?,error=?,finished=?,track_id=? WHERE id=?",
+                                   (status, failure, time.time(), track_id, job_id))
+                    break
+                except sqlite3.OperationalError:
+                    with self.lock:
+                        if self.live:
+                            self.live.update(stage="Waiting for storage", stage_progress=None, footprint=0)
+                    if self.stop.wait(.5):
+                        break
+            with self.lock:
+                self.live = None
 
     def close(self):
         self.stop.set()

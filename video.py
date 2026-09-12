@@ -11,20 +11,30 @@ import time
 import uuid
 import wave
 
+MOTION_VERSION = 2
+
+
+def lowpass_coefficients(frequency, sample_rate):
+    k = math.tan(math.pi * frequency / sample_rate)
+    scale = 1 / (1 + math.sqrt(2) * k + k * k)
+    b0 = k * k * scale
+    return b0, 2 * b0, b0, 2 * (k * k - 1) * scale, (1 - math.sqrt(2) * k + k * k) * scale
+
 
 def motion_envelope(path, fps=24):
-    """Read one audio window at a time; keep only four energy bands per frame."""
+    """Stream energy, stereo image and transients; retain no decoded audio."""
     result = []
     with wave.open(str(path), "rb") as source:
         rate, channels, width, total = source.getframerate(), source.getnchannels(), source.getsampwidth(), source.getnframes()
         if width not in (1, 2, 3, 4) or not rate or not channels:
             raise ValueError("This recording's PCM format cannot be visualized.")
-        stride = max(1, round(rate / 6000))
+        stride = max(1, round(rate / 12000))
         sample_rate = rate / stride
-        bass_alpha = 1 - math.exp(-2 * math.pi * 180 / sample_rate)
-        mid_alpha = 1 - math.exp(-2 * math.pi * 1800 / sample_rate)
-        low, middle = [0.0] * channels, [0.0] * channels
-        position = 0
+        bass_filter = lowpass_coefficients(min(180, sample_rate * .08), sample_rate)
+        mid_filter = lowpass_coefficients(min(1800, sample_rate * .3), sample_rate)
+        low, middle = [[0.0, 0.0] for _ in range(channels)], [[0.0, 0.0] for _ in range(channels)]
+        position, previous_level, transient = 0, 0.0, 0.0
+        release = math.exp(-1 / (fps * .18))
         for frame in range(math.ceil(total / rate * fps)):
             end = min(total, round((frame + 1) * rate / fps))
             raw = source.readframes(end - position)
@@ -37,18 +47,41 @@ def motion_envelope(path, fps=24):
             else:
                 samples = [int.from_bytes(raw[i:i + 3], "little", signed=True) for i in range(0, len(raw), 3)]
             sums, count = [0.0] * 4, 0
+            channel_energy, cross, peak = [0.0] * channels, 0.0, 0.0
             normalization = 2 ** (width * 8 - 1)
             for i in range(0, len(samples), channels * stride):
+                if channels >= 2:
+                    cross += (samples[i] / normalization) * (samples[i + 1] / normalization)
                 for channel in range(channels):
                     sample = samples[i + channel] / normalization
-                    low[channel] += bass_alpha * (sample - low[channel])
-                    middle[channel] += mid_alpha * (sample - middle[channel])
-                    for band, value in enumerate((sample, low[channel], middle[channel] - low[channel], sample - middle[channel])):
+                    channel_energy[channel] += sample * sample
+                    peak = max(peak, abs(sample))
+                    values = []
+                    for coefficients, states in ((bass_filter, low), (mid_filter, middle)):
+                        b0, b1, b2, a1, a2 = coefficients
+                        value = b0 * sample + states[channel][0]
+                        states[channel][0] = b1 * sample - a1 * value + states[channel][1]
+                        states[channel][1] = b2 * sample - a2 * value
+                        values.append(value)
+                    for band, value in enumerate((sample, values[0], values[1] - values[0], sample - values[1])):
                         sums[band] += value * value
                     count += 1
             # Fixed transfer curve preserves the relative dynamics of the recording.
-            result.append([round(min(1, math.sqrt(value / max(1, count)) ** .6 * 1.8), 5) for value in sums])
-    return {"fps": fps, "duration": total / rate, "frames": result}
+            energy = [min(1, math.sqrt(value / max(1, count)) ** .6 * 1.8) for value in sums]
+            rms = math.sqrt(sums[0] / max(1, count))
+            balance, spread = 0.0, 0.0
+            if channels >= 2 and sum(channel_energy[:2]) > 0:
+                left, right = (math.sqrt(value) for value in channel_energy[:2])
+                balance = (right - left) / (right + left)
+                spread = math.sqrt(max(0, min(1, (left * left + right * right - 2 * cross)
+                                                  / (2 * (left * left + right * right)))))
+            transient = max(min(1, max(0, energy[0] - previous_level) * 3.8), transient * release)
+            previous_level = energy[0]
+            crest = min(1, max(0, (peak / rms - 1) / 4)) if rms else 0.0
+            result.append([round(value, 5) for value in
+                           [*energy, balance * energy[0], spread * energy[0], transient, crest * energy[3]]])
+    return {"version": MOTION_VERSION, "fps": fps, "duration": total / rate,
+            "features": ["level", "bass", "middle", "air", "balance", "spread", "attack", "crest"], "frames": result}
 
 
 class VideoExports:
@@ -78,7 +111,7 @@ class VideoExports:
         with self.lock:
             if target.exists():
                 value = json.loads(target.read_text())
-                if value.get("source") == stamp: return value
+                if value.get("source") == stamp and value.get("version") == MOTION_VERSION: return value
             value = {**motion_envelope(path), "source": stamp,
                      "seed": self.store.track(track_id)["recipe"].get("seed", "")}
             temporary = target.with_suffix(".tmp")

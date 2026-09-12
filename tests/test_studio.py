@@ -2,6 +2,8 @@ import sys
 import array
 import http.client
 import json
+import sqlite3
+from contextlib import contextmanager
 from pathlib import Path
 import subprocess
 import tempfile
@@ -9,6 +11,7 @@ import threading
 import time
 import unittest
 import wave
+from unittest.mock import patch
 
 from studio import StudioServer, byte_range
 from studio_core import CONTEXT, Generator, Store, observe_generation, validate_recipe
@@ -96,6 +99,18 @@ class StudioFixture(unittest.TestCase):
 
 
 class StoreTests(StudioFixture):
+    def test_queue_migration_retains_original_timestamps_and_recipes(self):
+        original = json.dumps(recipe())
+        with self.store.db() as db:
+            db.execute("DROP TABLE jobs")
+            db.execute("CREATE TABLE jobs (id TEXT PRIMARY KEY,title TEXT,created REAL,status TEXT,recipe TEXT,error TEXT,started REAL,finished REAL,track_id TEXT)")
+            db.executemany("INSERT INTO jobs(id,title,created,status,recipe) VALUES(?,?,?,?,?)",
+                           [("b", "Later", 20.5, "queued", original), ("a", "Earlier", 10.25, "queued", original)])
+        restored = Store(self.root / "data", self.root / "outputs")
+        with restored.db() as db:
+            rows = db.execute("SELECT id,created,recipe,queue_position FROM jobs ORDER BY queue_position").fetchall()
+        self.assertEqual([tuple(row) for row in rows], [("a", 10.25, original, 1), ("b", 20.5, original, 2)])
+
     def test_saved_sounds_crud_does_not_reseed_removed_defaults(self):
         sound = self.store.add_preset({"name": "A sound", "style": "piano"})
         self.store.update_preset(sound["id"], {"name": "Changed", "style": "cellos"})
@@ -180,6 +195,54 @@ Path(marker).unlink()
     def status(self, job_id):
         with self.store.db() as db:
             return db.execute("SELECT status FROM jobs WHERE id=?", (job_id,)).fetchone()[0]
+
+    def test_queue_reordering_preserves_active_take_and_timestamps_then_runs_in_order(self):
+        performed = []
+        def command(settings, output):
+            performed.append(settings["title"])
+            return self.fake_command(settings, output)
+        self.generator = Generator(self.store, command)
+        active = self.generator.submit(recipe(title="Active", style="wait"))["id"]
+        wait_until(lambda: (self.root / "exclusive-worker").exists())
+        pid = self.generator.process.pid
+        first, second, third = [self.generator.submit(recipe(title=name))["id"] for name in ("First", "Second", "Third")]
+        created = {job["id"]: job["created"] for job in self.store.snapshot()["jobs"]}
+        self.assertEqual(self.generator.move_queued(third, "first")["order"], [third, first, second])
+        self.assertEqual(self.generator.move_queued(third, "down")["order"], [first, third, second])
+        self.assertEqual(self.generator.move_queued(second, "up")["order"], [first, second, third])
+        self.generator.move_queued(third, "first")
+        with self.assertRaises(ValueError): self.generator.move_queued(active, "up")
+        self.assertEqual(self.generator.process.pid, pid)
+        restored = Store(self.root / "data", self.root / "outputs").snapshot()["jobs"]
+        self.assertEqual({job["id"]: job["created"] for job in restored}, created)
+        self.assertEqual([job["id"] for job in sorted(restored, key=lambda j: j["queue_position"]) if job["status"] == "queued"], [third, first, second])
+        fourth = self.generator.submit(recipe(title="Fourth"))["id"]
+        self.generator.cancel(active)
+        wait_until(lambda: self.status(fourth) == "done")
+        self.assertEqual(performed, ["Active", "Third", "First", "Second", "Fourth"])
+
+    def test_temporary_storage_failure_does_not_kill_worker_or_repeat_generation(self):
+        self.generator = Generator(self.store, self.fake_command)
+        active = self.generator.submit(recipe(style="wait"))["id"]
+        wait_until(lambda: (self.root / "exclusive-worker").exists())
+        next_job = self.generator.submit(recipe())["id"]
+        original_db = self.store.db
+        storage_available = threading.Event()
+        @contextmanager
+        def unreliable_db():
+            if threading.current_thread() is self.generator.thread and not storage_available.is_set():
+                raise sqlite3.OperationalError("database or disk is full")
+            with original_db() as db: yield db
+        with patch.object(self.store, "db", unreliable_db):
+            self.generator.cancel(active)
+            wait_until(lambda: (self.generator.status() or {}).get("stage") == "Waiting for storage")
+            self.assertTrue(self.generator.thread.is_alive())
+            self.assertIsNone(self.generator.process)
+            storage_available.set()
+            wait_until(lambda: self.status(next_job) == "done")
+        self.assertEqual(self.status(active), "cancelled")
+        self.assertEqual(len(self.store.snapshot()["tracks"]), 1)
+        self.assertTrue(self.generator.thread.is_alive())
 
     def fake_writer(self, output):
         script = """
@@ -321,6 +384,13 @@ class HttpTests(StudioFixture):
         self.assertEqual(int(headers["Content-Length"]), self.audio.stat().st_size)
         self.assertEqual(self.request("GET", path, headers={"Range": "bytes=999999-"})[0], 416)
         self.assertEqual(self.request("GET", path, headers={"Range": "bytes=-8"})[2], self.audio.read_bytes()[-8:])
+
+    def test_storage_failure_returns_retryable_json_and_reading_recovers(self):
+        with patch.object(self.store, "snapshot", side_effect=sqlite3.OperationalError("database or disk is full")):
+            status, headers, body = self.request("GET", "/api/state")
+            self.assertEqual(status, 503)
+            self.assertIn("disk space", json.loads(body)["error"])
+        self.assertEqual(self.request("GET", "/api/state")[0], 200)
 
     def test_cross_origin_and_host_spoofed_requests_cannot_mutate(self):
         payload = json.dumps({"favorite": True})

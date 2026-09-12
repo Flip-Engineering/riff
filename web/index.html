@@ -15,8 +15,10 @@
     <link rel="stylesheet" href="/style.css" />
     <link rel="stylesheet" href="/suite.css" />
     <script src="/explore.js" defer></script>
+    <script src="/artwork.js" defer></script>
     <script src="/visualizer.js" defer></script>
     <script src="/app.js" defer></script>
+    <script src="/compare.js" defer></script>
     <script src="/video.js" defer></script>
     <script src="/review.js" defer></script>
     <script src="/controls.js" defer></script>
@@ -591,6 +593,7 @@
                 ><button type="button" data-visual="sound" aria-pressed="false">
                   Live sound
                 </button>
+                <button type="button" id="open-sound-view" class="sound-expand" aria-label="Open immersive sound view"><span data-icon="expand"></span></button>
               </div>
               <div class="now-playing-info">
                 <div>
@@ -671,6 +674,22 @@
                   </button>
                 </div>
               </div>
+              <details id="take-comparison" class="take-comparison">
+                <summary><span>Compare takes</span><span class="quiet-text" aria-hidden="true">A / B</span></summary>
+                <div class="comparison-body">
+                  <div class="comparison-pair">
+                    <div><button type="button" data-compare="a" aria-label="Switch to take A" aria-pressed="false">A</button><label class="sr-only" for="compare-a">Take A</label><select id="compare-a"></select></div>
+                    <div><button type="button" data-compare="b" aria-label="Switch to take B" aria-pressed="false">B</button><label class="sr-only" for="compare-b">Take B</label><select id="compare-b"></select></div>
+                  </div>
+                  <div class="comparison-passage">
+                    <button type="button" id="compare-loop" class="text-button" aria-pressed="false">Loop passage</button>
+                    <label>From <input type="number" id="compare-start" min="0" step="0.1" value="0" aria-label="Passage start in seconds" /></label>
+                    <label>To <input type="number" id="compare-end" min="0" step="0.1" value="0" aria-label="Passage end in seconds" /></label>
+                  </div>
+                  <div class="comparison-marks"><button type="button" id="compare-mark-in" class="text-button">Mark start</button><button type="button" id="compare-mark-out" class="text-button">Mark end</button><span id="compare-status" class="quiet-text" role="status"></span></div>
+                  <details class="comparison-changes"><summary>What changed</summary><div id="compare-changes"></div></details>
+                </div>
+              </details>
               <button
                 type="button"
                 id="variation"
@@ -1158,6 +1177,10 @@
         YuE2 weights: CC BY-NC 4.0. Each take can find its own ending within the
         chosen length.
       </p>
+    </dialog>
+    <dialog id="sound-view-dialog" class="sound-view-dialog" aria-label="Immersive sound view">
+      <canvas id="sound-view-canvas" aria-label="Seed artwork moving with the music"></canvas>
+      <div class="sound-view-transport"><button type="button" id="sound-view-play" class="icon-button" aria-label="Play recording"><span data-icon="play"></span></button><input type="range" id="sound-view-seek" min="0" max="1" step="0.01" value="0" aria-label="Seek in immersive sound view" /><button type="button" id="close-sound-view" class="icon-button" aria-label="Close immersive sound view"><span data-icon="close"></span></button></div>
     </dialog>
   </body>
 </html>
