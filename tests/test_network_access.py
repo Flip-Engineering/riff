@@ -32,6 +32,23 @@ class NetworkTests(unittest.TestCase):
                 request_origin({"Host": host, "X-Forwarded-For": "100.64.0.8", "X-Forwarded-Proto": "https"},
                                "127.0.0.1", 7878, self.access)
 
+    def test_explicit_https_port_keeps_the_original_studio_address(self):
+        access = {**self.access, "additional_origins": [self.access["origin"] + ":7878"]}
+        for origin in (access["origin"], access["additional_origins"][0]):
+            headers = {"Host": origin.split("//", 1)[1], "Origin": origin,
+                       "X-Forwarded-For": "100.64.0.5", "X-Forwarded-Proto": "https",
+                       "Tailscale-User-Login": access["tailscale_user"]}
+            request_origin(headers, "127.0.0.1", 7878, access)
+            with self.assertRaises(ValueError):
+                request_origin({**headers, "Tailscale-User-Login": "someone-else@example.test"}, "127.0.0.1", 7878, access)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "network.json").write_text(json.dumps(access))
+            self.assertEqual(read_access(root), access)
+            for alias in ("http://studio.example.ts.net:7878", "https://another.example.ts.net", "https://studio.example.ts.net/path"):
+                (root / "network.json").write_text(json.dumps({**access, "additional_origins": [alias]}))
+                with self.assertRaises(ValueError): read_access(root)
+
     def test_only_a_configured_https_tailnet_origin_is_enabled(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -59,3 +76,17 @@ class NetworkTests(unittest.TestCase):
                 patch.object(network_access.subprocess, "run") as command:
             with self.assertRaises(ValueError): network_access.enable(3080)
             command.assert_not_called()
+
+    def test_enable_another_port_preserves_existing_riff_origin(self):
+        state = {"BackendState": "Running", "Self": {"DNSName": "studio.example.ts.net.", "UserID": 1},
+                 "User": {"1": {"LoginName": "artist@example.test"}}}
+        before = {"TCP": {"443": {"HTTPS": True}}, "Web": {"studio.example.ts.net:443": {
+            "Handlers": {"/": {"Proxy": "http://127.0.0.1:7878"}}}}}
+        with tempfile.TemporaryDirectory() as directory, patch.object(network_access, "DATA", Path(directory)), \
+                patch.object(network_access.shutil, "which", return_value="tailscale"), \
+                patch.object(network_access.subprocess, "check_output", side_effect=[json.dumps(state), json.dumps(before)]), \
+                patch.object(network_access.subprocess, "run"):
+            network_access.enable(7878)
+            access = read_access(Path(directory))
+            self.assertEqual(access["origin"], self.access["origin"] + ":7878")
+            self.assertEqual(access["additional_origins"], [self.access["origin"]])

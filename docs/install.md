@@ -31,6 +31,11 @@ when running the helper. It configures a background HTTPS Tailscale Serve proxy
 and prints the private address. If that HTTPS port already serves another app,
 choose another with `--https-port 8443`; existing routes are preserved.
 
+Use the complete HTTPS address printed by the helper. To also use Riff's usual
+port on your other devices, run `python3 network_access.py --https-port 7878`
+and restart Riff. This adds `https://your-device.your-tailnet.ts.net:7878` while
+keeping any existing HTTPS routes to the same studio usable.
+
 The backend remains bound to loopback. Remote requests require the host's
 Tailscale user identity and the configured HTTPS origin, including generation
 and downloads. Tagged devices without a user identity do not receive access.

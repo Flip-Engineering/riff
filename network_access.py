@@ -10,34 +10,50 @@ from urllib.parse import urlsplit
 from paths import DATA
 
 
+def origin_host(origin):
+    if not isinstance(origin, str):
+        raise ValueError("Riff's Tailscale address is invalid.")
+    url = urlsplit(origin)
+    if (url.scheme != "https" or not url.hostname or not url.hostname.endswith(".ts.net")
+            or url.username or url.password or url.path or url.query or url.fragment):
+        raise ValueError("Riff's Tailscale access settings are invalid.")
+    if url.port is not None and not 0 < url.port < 65536:
+        raise ValueError("Riff's Tailscale port is invalid.")
+    return url.netloc
+
+
 def read_access(data_root):
     path = data_root / "network.json"
     if not path.exists(): return None
     value = json.loads(path.read_text())
     origin, login = value.get("origin", ""), value.get("tailscale_user", "")
-    url = urlsplit(origin)
-    if (url.scheme != "https" or not url.hostname or not url.hostname.endswith(".ts.net")
-            or url.username or url.password or url.path or url.query or url.fragment
-            or not isinstance(login, str) or not login.strip() or any(c in login for c in "\r\n")):
-        raise ValueError("Riff's Tailscale access settings are invalid.")
-    if url.port is not None and not 0 < url.port < 65536:
-        raise ValueError("Riff's Tailscale port is invalid.")
-    return {"origin": origin, "host": url.netloc, "tailscale_user": login}
+    if not isinstance(login, str) or not login.strip() or any(c in login for c in "\r\n"):
+        raise ValueError("Riff's Tailscale account is invalid.")
+    result = {"origin": origin, "host": origin_host(origin), "tailscale_user": login}
+    aliases = value.get("additional_origins", [])
+    if not isinstance(aliases, list): raise ValueError("Riff's Tailscale addresses are invalid.")
+    for alias in aliases:
+        origin_host(alias)
+        if urlsplit(alias).hostname != urlsplit(origin).hostname:
+            raise ValueError("Riff's Tailscale addresses must use the same device.")
+    if aliases: result["additional_origins"] = aliases
+    return result
 
 
 def request_origin(headers, peer, port, access):
     local = {f"127.0.0.1:{port}", f"localhost:{port}"}
     host = headers.get("Host")
+    origins = {access["origin"], *access.get("additional_origins", [])} if access else set()
+    hosts = {urlsplit(origin).netloc for origin in origins}
     proxied = bool(headers.get("X-Forwarded-For") or headers.get("X-Forwarded-Proto")
-                   or headers.get("Tailscale-User-Login") or (access and host == access["host"]))
+                   or headers.get("Tailscale-User-Login") or host in hosts)
     if proxied:
         login = str(make_header(decode_header(headers.get("Tailscale-User-Login", ""))))
         if (not access or peer not in ("127.0.0.1", "::1")
-                or host not in local | {access["host"]}
+                or host not in local | hosts
                 or login.casefold() != access["tailscale_user"].casefold()
                 or headers.get("X-Forwarded-Proto", "https") != "https"):
             raise ValueError("This studio is available to its connected Tailscale account.")
-        origins = {access["origin"]}
     else:
         if host not in local:
             raise ValueError("Open Riff at its studio address.")
@@ -65,6 +81,16 @@ def enable(https_port=443, studio_port=7878):
     if str(https_port) in before.get("TCP", {}) and existing != expected:
         raise ValueError("That Tailscale port already serves another application. Choose a different --https-port.")
     value = {"origin": "https://" + host, "tailscale_user": owner}
+    # Keep other HTTPS ports that already serve this same studio usable.
+    aliases = set()
+    device_host = device["DNSName"].rstrip(".")
+    for address, route in before.get("Web", {}).items():
+        if route != expected or not address.startswith(device_host + ":"): continue
+        port = address.rsplit(":", 1)[1]
+        if before.get("TCP", {}).get(port, {}).get("HTTPS"):
+            aliases.add("https://" + (device_host if port == "443" else address))
+    aliases.discard(value["origin"])
+    if aliases: value["additional_origins"] = sorted(aliases)
     DATA.mkdir(parents=True, exist_ok=True)
     path = DATA / "network.json"
     old = path.read_bytes() if path.exists() else None

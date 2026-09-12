@@ -1,4 +1,8 @@
-Producer review now turns a recording into a complete recommended generation.
+Tailscale HTTPS can now keep both the default studio address and an explicit port
+such as 7878 usable. The setup helper preserves earlier Riff routes and continues
+to require the connected Tailscale account for each address.
+
+Producer review turns a recording into a complete recommended generation.
 The selected multimodal model receives the audio, prior generation controls,
 and supplied/generated YuE2 score. Its recommendation includes lyrics, direction,
 score, seed, duration, and sampling settings. Generate it directly, edit it with
@@ -13,6 +17,7 @@ remains beside it. Reviews and MP4 exports require FFmpeg.
 Optional Tailscale Serve access brings the studio to your other devices through
 private HTTPS, restricted to your connected Tailscale account. The setup helper
 preserves existing Serve routes; see the installation guide for instructions.
+Custom HTTPS ports, including 7878, keep earlier Riff addresses usable.
 
 Download `install.py` and run `python3 install.py`, or open **Studio settings**
 in an installed copy of Riff to check for the update. Your library and engine

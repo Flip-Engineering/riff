@@ -46,6 +46,9 @@ interval. Linux process metrics exclude GPU memory.
   Tailscale HTTPS at 1280×990 and 24 fps. The MP4 contains H.264 video and the
   complete AAC-encoded recording; the artwork includes only the riff wordmark.
   Audio range requests returned 206 and a foreign-origin export request returned 403.
+  The same browser checks pass on explicit HTTPS port 7878, and a separate
+  Tailscale device reached the studio successfully. Both HTTPS addresses retain
+  the account and origin checks.
 - Installation from the packaged archive in a temporary workspace, real HTTP
   startup, and fallback from a deliberately broken candidate release.
 
