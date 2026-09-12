@@ -27,3 +27,15 @@ class InspirationTests(unittest.TestCase):
         self.assertIn("num_inference_steps=19", command)
         self.assertIn("cfg_scale=1.2", command)
         self.assertIn("semantic_temperature=1.7", command)
+
+    def test_instrumental_cue_reaches_runtime_without_overriding_artist_inputs(self):
+        direction = "Sparse oud, brass and choir-like textures"
+        for mode, lyrics, expected in (("instrumental", "", "[Instrumental]"),
+                                       ("free", "", ""), ("lyrics", "", ""),
+                                       ("instrumental", "[Oud solo]", "[Oud solo]")):
+            with self.subTest(mode=mode, lyrics=lyrics):
+                command = build_command(lyrics=lyrics, style=direction, max_seconds=10,
+                                        steps=8, cot="off", seed=42, threads=4,
+                                        output="example.wav", mode=mode)
+                self.assertEqual(command[command.index("--lyrics") + 1], expected)
+                self.assertIn("style=" + direction, command)

@@ -38,8 +38,11 @@ Riff's small, reproducible native patch removes YuE2's nonempty-field guards and
 marks its CLI conditioning fields optional. It preserves tokenization, weights,
 and the generation pipeline. No artificial section marker is inserted.
 
-Instrumental mode leaves lyrics empty and supplies a basic instrumental direction
-only when the user leaves the sound blank. User-written sound descriptions are
-preserved. This mode is experimental: the [official model card](https://huggingface.co/m-a-p/YuE2-3B)
+Instrumental mode supplies an `[Instrumental]` cue to the music runtime when no
+lyric text is provided, and a basic instrumental direction only when the sound
+is blank. Artist-written descriptions and custom lyric cues are preserved. In a
+same-seed brass study, this cue produced a clean instrumental passage where empty
+lyrics introduced singing; it is a useful default, not a guarantee. The
+[official model card](https://huggingface.co/m-a-p/YuE2-3B)
 describes song generation, and instrumental requests may still produce voice-like
 sounds. Neither lyrics nor a section plan is required in the studio.

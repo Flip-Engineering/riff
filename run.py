@@ -48,10 +48,13 @@ def build_command(*, lyrics, style, max_seconds, steps, cot, seed, threads, outp
     config = json.loads(config_path.read_text()) if config_path.exists() else {}
     token_rate = config.get("sample_rate", 48000) / config.get("downsampling_ratio", 1920)
     token_limit = max(1, math.floor(max_seconds * token_rate))
+    # An explicit instrumental request carries its own cue; Free play remains
+    # unconditioned. Preserve any artist-supplied text, including custom cues.
+    native_lyrics = "[Instrumental]" if mode == "instrumental" and not lyrics else lyrics
     command = [
         settings["binary"], "--task", "gen", "--family", "yue2", "--model", settings["model_root"],
         "--backend", backend or settings["backend"], "--device", str(settings["device"]),
-        "--threads", str(threads), "--lyrics", lyrics,
+        "--threads", str(threads), "--lyrics", native_lyrics,
         "--session-option", "yue2.model_gguf=" + settings["model_file"],
         "--session-option", "yue2.vae_gguf=" + settings["vae_file"],
         "--request-option", "cot=" + cot,
