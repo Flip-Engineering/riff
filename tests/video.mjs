@@ -14,15 +14,18 @@ try {
   await page.locator("#download-video").waitFor({ state: "visible" });
   await page.waitForFunction(() => !document.querySelector("#download-video").disabled);
   const geometry = await page.evaluate(async () => {
-    const canvas = document.createElement("canvas"); canvas.width = 440; canvas.height = 340;
+    // Compare the poster at its native raster size so resampling does not
+    // turn thin contour antialiasing into a geometry regression on Linux.
+    const width = 880, height = 680;
+    const canvas = document.createElement("canvas"); canvas.width = width; canvas.height = height;
     const context = canvas.getContext("2d");
     const seed = selected.recipe.seed;
-    drawSeedArtwork(context, 440, 340, seed);
-    const rest = context.getImageData(0, 0, 440, 340).data;
+    drawSeedArtwork(context, width, height, seed);
+    const rest = context.getImageData(0, 0, width, height).data;
     const image = new Image();
     image.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(artSVG(seed));
-    await image.decode(); context.setTransform(1, 0, 0, 1, 0, 0); context.drawImage(image, 0, 0, 440, 340);
-    const original = context.getImageData(0, 0, 440, 340).data;
+    await image.decode(); context.setTransform(1, 0, 0, 1, 0, 0); context.drawImage(image, 0, 0, width, height);
+    const original = context.getImageData(0, 0, width, height).data;
     let difference = 0;
     for (let i = 0; i < rest.length; i++) difference += Math.abs(rest[i] - original[i]);
     return difference / rest.length;

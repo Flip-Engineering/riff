@@ -1,4 +1,4 @@
-Riff 0.4.0 adds saved-performance refinement and a more expressive listening surface.
+Riff 0.4.1 adds saved-performance refinement and a more expressive listening surface.
 
 - Re-render a take from its native performance codes, keeping its phrasing while exploring acoustic direction, seed and solver detail. OpenRouter producers can recommend the same operation, a fresh take or a score-only composition.
 - Read compositions through voice maps, isolate parts in the tone preview and match generation duration to the written score. Agents can discover the same operations at `/api/capabilities`.
