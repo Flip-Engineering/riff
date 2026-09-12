@@ -48,15 +48,33 @@ try {
   await page.locator("#video-height").fill("248");
   await page.locator("#video-fps").fill("12");
   await page.emulateMedia({ reducedMotion: "reduce" });
+  const recovered = new Set();
+  const frameRoute = /\/api\/video-exports\/[a-f0-9]+\/frames$/;
+  await page.route(frameRoute, async route => {
+    const index = Number(route.request().headers()["x-riff-frame"]);
+    if ([3, 5, 7].includes(index) && !recovered.has(index)) {
+      recovered.add(index);
+      if (index === 5) assert((await route.fetch()).ok(), "Deliver the frame before losing its response");
+      if (index === 7) return route.fulfill({status:503,contentType:"application/json",body:JSON.stringify({error:"Temporary interruption"})});
+      return route.abort("failed");
+    }
+    await route.continue();
+  });
   const finished = page.waitForEvent("download", { timeout: 90000 });
   finished.catch(() => {});
   await page.locator("#render-video").click();
   await page.waitForFunction(() => videoExport?.id || !document.querySelector("#video-error").hidden);
   assert(await page.locator("#video-error").isHidden(), await page.locator("#video-error").textContent());
+  const completedId = await page.evaluate(() => videoExport.id);
   const download = await finished;
   assert(download.suggestedFilename().endsWith(".mp4"));
   await download.saveAs("test-results/seed-visualization.mp4");
   await page.waitForFunction(() => videoExport === null);
+  assert.equal(recovered.size, 3);
+  const completed = await (await page.request.get(`${base}/api/video-exports/${completedId}`)).json();
+  assert.equal(completed.status, "done"); assert.equal(completed.received, completed.frames);
+  await page.unroute(frameRoute);
+  console.log("PASS Interrupted frame uploads, lost acknowledgements and temporary server errors recover without duplicate frames");
   const probe = JSON.parse(execFileSync("ffprobe", ["-v", "error", "-show_streams", "-of", "json", "test-results/seed-visualization.mp4"]));
   const video = probe.streams.find(stream => stream.codec_type === "video");
   const sound = probe.streams.find(stream => stream.codec_type === "audio");
@@ -92,6 +110,12 @@ try {
   await page.locator("#cancel-video").click();
   await page.waitForFunction(() => videoExport === null);
   assert.equal((await (await page.request.get(`${base}/api/video-exports/${id}`)).json()).status, "cancelled");
+  let denied = 0;
+  await page.route(frameRoute, route => { denied++; return route.fulfill({status:403,contentType:"application/json",body:JSON.stringify({error:"Access was denied."})}); });
+  await page.locator("#render-video").click();
+  await page.waitForFunction(() => videoExport === null && !document.querySelector("#video-error").hidden);
+  assert.equal(denied, 1); assert.equal(await page.locator("#video-error").textContent(), "Access was denied.");
+  await page.unroute(frameRoute);
   await page.locator("[data-close=video-dialog]").click();
   assert.equal(await page.locator("#download").getAttribute("href"), await page.evaluate(() => `/api/tracks/${selected.id}/audio?download=1`));
   assert.deepEqual(errors, []);

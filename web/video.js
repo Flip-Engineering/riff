@@ -32,6 +32,45 @@ async function cancelVideoExport() {
   }
 }
 
+async function checkVideoResponse(response) {
+  if (response.ok) return;
+  const body = await response.json().catch(() => ({}));
+  const error = new Error(body.error || "This video frame could not be saved.");
+  error.retryable = response.status === 429 || response.status >= 500;
+  throw error;
+}
+
+async function sendVideoFrame(operation, job, index, frame) {
+  let confirm = false;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      if (operation.cancelled) throw new DOMException("Export cancelled.", "AbortError");
+      if (confirm) {
+        const response = await fetch(`/api/video-exports/${job.id}`, { signal: operation.controller.signal });
+        await checkVideoResponse(response);
+        const saved = await response.json();
+        if (saved.status !== "rendering") throw new Error("This video export has stopped.");
+        // A lost response may follow a successful write. Never append that frame twice.
+        if (saved.received === index + 1) return;
+        if (saved.received !== index) throw new Error("The video frame sequence changed. Export again to restart.");
+        confirm = false;
+      }
+      const response = await fetch(`/api/video-exports/${job.id}/frames`, {
+        method: "POST", headers: { "Content-Type": "image/png", "X-Riff-Request": "1", "X-Riff-Frame": String(index) },
+        body: frame, signal: operation.controller.signal,
+      });
+      await checkVideoResponse(response);
+      return;
+    } catch (error) {
+      if (operation.cancelled || operation.controller.signal.aborted || attempt >= 3 ||
+          !(error instanceof TypeError || error.retryable)) throw error;
+      confirm = true;
+      $("#video-status").textContent = "Reconnecting…";
+      await new Promise(resolve => setTimeout(resolve, 250 * 2 ** attempt));
+    }
+  }
+}
+
 async function createVideo(event) {
   event.preventDefault();
   if (videoExport || !videoTrack) return;
@@ -66,11 +105,7 @@ async function createVideo(event) {
       drawSeedArtwork(context, job.width, job.height, track.recipe.seed, seconds, motionAt(motion, seconds));
       const frame = await new Promise(resolve => canvas.toBlob(resolve, "image/png"));
       if (!frame) throw new Error("The browser could not draw this video frame.");
-      const response = await fetch(`/api/video-exports/${job.id}/frames`, {
-        method: "POST", headers: { "Content-Type": "image/png", "X-Riff-Request": "1", "X-Riff-Frame": String(index) },
-        body: frame, signal: operation.controller.signal,
-      });
-      if (!response.ok) throw new Error((await response.json()).error || "This frame could not be saved.");
+      await sendVideoFrame(operation, job, index, frame);
       // Reuse the completed frame for the progress preview; no parallel audio playback.
       previewContext.setTransform(1, 0, 0, 1, 0, 0);
       previewContext.drawImage(canvas, 0, 0, preview.width, preview.height);
