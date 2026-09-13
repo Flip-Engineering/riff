@@ -5,10 +5,11 @@ const browser = await chromium.launch({ executablePath: process.env.RIFF_BROWSER
 const page = await browser.newPage({ viewport: { width: 1280, height: 1000 } });
 const errors = []; page.on("pageerror", error => errors.push(error.message));
 let stopped = false, cancellation, needsRepair = false, retried = false;
+let taskOverride = null, sourceMode = false, rejectSettings = true;
 function desktop(system) {
-  return { ...system, desktop: true, managed: true, prerequisites: [],
+  return { ...system, desktop: !sourceMode, managed: !sourceMode, prerequisites: [],
     pending: needsRepair ? { version: "0.0.2" } : null,
-    task: { action: "update", status: needsRepair ? "failed" : stopped ? "cancelled" : "running", message: needsRepair ? "Prepare this update again" : stopped ? "Update preparation stopped" : "Preparing the update" } };
+    task: taskOverride || { action: "update", status: needsRepair ? "failed" : stopped ? "cancelled" : "running", message: needsRepair ? "Prepare this update again" : stopped ? "Update preparation stopped" : "Preparing the update" } };
 }
 try {
   for (const path of ["state", "system"]) await page.route(`**/api/${path}`, async route => {
@@ -25,6 +26,13 @@ try {
     retried = true; needsRepair = false; stopped = false;
     await route.fulfill({ status: 202, json: { status: "running" } });
   });
+  await page.route("**/api/system/engine", async route => {
+    await route.fulfill({ status: rejectSettings ? 400 : 200,
+      json: rejectSettings ? { error: "Choose another music engine" } : { saved: true } });
+  });
+  await page.route("**/api/system/preferences", async route => {
+    await route.fulfill({ status: 400, json: { error: "Update preferences could not be saved" } });
+  });
   await page.goto(process.env.RIFF_URL);
   await page.locator("#play:not([disabled])").waitFor();
   await page.locator("#title").fill("Keep this draft");
@@ -32,6 +40,10 @@ try {
   await page.getByLabel("Studio settings", { exact: true }).click();
   assert(await page.locator("#setup-engine").isHidden(), "Desktop setup does not offer a compiler action");
   assert(!/builds|compiler|curl/.test(await page.locator("#setup-description").textContent()));
+  assert.equal(await page.locator("#update-task-slot #system-feedback").count(), 1);
+  assert.equal(await page.locator("#system-progress").getAttribute("aria-label"), "Update progress");
+  assert(await page.locator("#check-update").isDisabled());
+  assert(await page.locator("#setup-description").isHidden());
   await page.locator("#engine-threads").fill("7");
   await page.getByRole("button", { name: "Stop preparation", exact: true }).click();
   await page.waitForFunction(() => document.querySelector("#system-task").textContent === "Update preparation stopped");
@@ -43,7 +55,39 @@ try {
   await page.getByRole("button", { name: "Prepare again", exact: true }).click();
   await page.waitForFunction(() => document.querySelector("#system-task").textContent === "Preparing the update");
   assert(retried, "A failed prepared update has a graphical recovery action");
+  sourceMode = true;
+  taskOverride = { action: "setup", status: "running", message: "Downloading music models" };
+  await page.evaluate(() => refresh());
+  assert.equal(await page.locator("#engine-task-slot #system-feedback").count(), 1);
+  assert.equal(await page.locator("#system-progress").getAttribute("aria-label"), "Setup progress");
+  assert.equal(await page.locator("#system-log").innerText(), "Setup log");
+  assert(await page.locator("#setup-description").isVisible());
+  sourceMode = false;
+  taskOverride = { action: "check", status: "done", message: "Riff is up to date" };
+  await page.evaluate(() => refresh());
+  assert.equal(await page.locator("#update-task-slot #system-feedback").count(), 1);
+  assert(await page.locator("#system-progress").isHidden());
+  assert(await page.locator("#system-log").isHidden(), "An update check has no setup log");
+  assert(await page.locator("#check-update").isEnabled());
+  await page.getByRole("button", { name: "Use engine settings", exact: true }).click();
+  await page.locator("#system-error:not([hidden])").waitFor();
+  assert.equal(await page.locator("#system-error").innerText(), "Choose another music engine");
+  assert.equal(await page.locator("#system-error").getAttribute("role"), "alert");
+  await page.evaluate(() => refresh());
+  assert(await page.locator("#system-error").isVisible(), "Polling must preserve the request error inside the dialog");
+  rejectSettings = false;
+  await page.getByRole("button", { name: "Use engine settings", exact: true }).click();
+  assert(await page.locator("#system-error").isHidden(), "A retry clears its prior request error");
+  const checkedBefore = await page.locator("#automatic-checks").isChecked();
+  const downloadsBefore = await page.locator("#automatic-downloads").isChecked();
+  await page.locator("#automatic-checks").setChecked(!checkedBefore);
+  await page.waitForFunction(() => document.querySelector("#system-error").textContent === "Update preferences could not be saved");
+  assert(await page.locator("#system-error").isVisible());
+  assert.equal(await page.locator("#automatic-checks").isChecked(), checkedBefore);
+  assert.equal(await page.locator("#automatic-downloads").isChecked(), downloadsBefore);
+  assert(await page.locator("#automatic-checks").isEnabled());
+  assert(await page.locator("#automatic-downloads").isEnabled());
   assert.deepEqual(await page.evaluate(() => formRecipe()), before);
   assert.deepEqual(errors, []);
-  console.log("PASS Desktop update cancellation is visible, preserves the draft, and removes compiler setup from the installed flow");
+  console.log("PASS Desktop update recovery, operation-specific status, dialog errors and draft preservation");
 } finally { await browser.close(); }

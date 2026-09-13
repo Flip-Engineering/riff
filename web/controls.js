@@ -6,6 +6,11 @@
   const engineFields = { backend: "engine-backend", threads: "engine-threads", device: "engine-device",
     binary: "engine-binary", model_root: "engine-model-root", model_file: "engine-model-file", vae_file: "engine-vae-file" };
 
+  function settingsError(message = "") {
+    $("#system-error").textContent = message;
+    $("#system-error").hidden = !message;
+  }
+
   function fill(values) {
     for (const field of controlSchema) {
       const input = $("#control-" + field.key);
@@ -45,10 +50,16 @@
     system = next.maintenance || system;
     if (finishedSetup) settingsFilled = false;
     if (!system) return;
+    const updateTask = ["check", "update", "activate"].includes(system.task.action);
+    const feedback = $("#system-feedback"), slot = $(updateTask ? "#update-task-slot" : "#engine-task-slot");
+    if (feedback.parentElement !== slot) slot.append(feedback);
     $("#setup-invitation").hidden = next.engine.ready;
     $("#system-task").textContent = system.task.message || (system.engine.ready ? "Music engine ready" : "Choose an engine to get started");
     $("#system-task").classList.toggle("form-error", system.task.status === "failed");
     $("#system-progress").hidden = system.task.status !== "running";
+    $("#system-progress").setAttribute("aria-label", updateTask ? "Update progress" : "Setup progress");
+    $("#system-log").textContent = updateTask ? "Update log" : "Setup log";
+    $("#system-log").hidden = !["setup", "update", "activate"].includes(system.task.action);
     $("#cancel-update").hidden = system.task.status !== "running" || system.task.action !== "update" || !system.desktop;
     $("#system-version").textContent = "Riff " + system.version;
     $("#system-update-state").textContent = system.pending ? `Version ${system.pending.version} is ready to use.`
@@ -56,6 +67,7 @@
     $("#install-update").hidden = (!system.release && !system.pending) || (!!system.pending && system.task.status !== "failed");
     $("#install-update").textContent = system.pending ? "Prepare again" : "Prepare update";
     $("#install-update").disabled = !system.managed || system.task.status === "running";
+    $("#check-update").disabled = system.task.status === "running";
     $("#restart-update").hidden = !system.pending;
     $("#restart-update").disabled = system.busy || system.task.status === "running";
     $("#managed-hint").hidden = system.managed;
@@ -64,6 +76,7 @@
     $("#setup-description").textContent = system.desktop
       ? "Model downloads are verified and reused when Riff updates."
       : "Setup downloads the music models and prepares audio.cpp for your selected accelerator. Verified downloads are reused.";
+    $("#setup-description").hidden = system.desktop && system.engine.ready;
     if (!settingsFilled) {
       for (const [key, id] of Object.entries(engineFields)) $("#" + id).value = system.engine[key];
       $("#automatic-checks").checked = system.preferences.automatic_checks;
@@ -79,34 +92,48 @@
   }
 
   async function openSettings() {
+    settingsError();
     settingsFilled = false;
     // Fill synchronously before the first interaction; a slower refresh must
     // not replace a backend or path the user has just entered.
     render(state);
     dialog.showModal();
     try { render({ maintenance: await api("/api/system"), engine: state.engine }); }
-    catch (error) { $("#system-task").textContent = error.message; }
+    catch (error) { settingsError(error.message); }
   }
   $("#system-open").addEventListener("click", openSettings);
   $("#setup-open").addEventListener("click", openSettings);
   $("#reset-refinement").addEventListener("click", () => { draftRefinement = {}; fill({}); saveDraft(); });
   $("#engine-form").addEventListener("submit", async (event) => {
     event.preventDefault();
+    settingsError();
     const payload = Object.fromEntries(Object.entries(engineFields).map(([key, id]) => [key, ["device", "threads"].includes(key) ? Number($("#" + id).value) : $("#" + id).value]));
     try { await api("/api/system/engine", "POST", payload); await refresh(); notify("Engine settings saved"); }
-    catch (error) { $("#system-task").textContent = error.message; }
+    catch (error) { settingsError(error.message); }
   });
   for (const [button, action] of [["setup-engine", "setup"], ["check-update", "check"], ["install-update", "update"], ["restart-update", "restart"], ["cancel-update", "cancel"]]) {
     $("#" + button).addEventListener("click", async () => {
+      settingsError();
       try {
         await api("/api/system/" + action, "POST", action === "setup" ? { backend: $("#engine-backend").value } : {});
         await refresh();
-      } catch (error) { $("#system-task").textContent = error.message; }
+      } catch (error) { settingsError(error.message); }
     });
   }
   for (const id of ["automatic-checks", "automatic-downloads"]) $("#" + id).addEventListener("change", async () => {
-    try { await api("/api/system/preferences", "POST", { automatic_checks: $("#automatic-checks").checked, automatic_downloads: $("#automatic-downloads").checked }); }
-    catch (error) { notify(error.message); }
+    settingsError();
+    const previous = { ...system.preferences };
+    const fields = { automatic_checks: "automatic-checks", automatic_downloads: "automatic-downloads" };
+    for (const input of Object.values(fields)) $("#" + input).disabled = true;
+    try {
+      const saved = await api("/api/system/preferences", "POST", { automatic_checks: $("#automatic-checks").checked, automatic_downloads: $("#automatic-downloads").checked });
+      system.preferences = saved.preferences;
+    } catch (error) {
+      for (const [key, input] of Object.entries(fields)) $("#" + input).checked = previous[key];
+      settingsError(error.message);
+    } finally {
+      for (const input of Object.values(fields)) $("#" + input).disabled = false;
+    }
   });
 
   let selection = null, studySubmitting = false;

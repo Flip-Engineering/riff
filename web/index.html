@@ -1158,6 +1158,7 @@
     </dialog>
     <dialog id="system-dialog" class="system-dialog">
       <div class="dialog-top"><h2>Studio settings</h2><button type="button" class="icon-button" data-close="system-dialog" aria-label="Close studio settings"><span data-icon="close"></span></button></div>
+      <p id="system-error" class="form-error" role="alert" hidden></p>
       <section class="system-section"><h3>Music engine</h3>
         <form id="engine-form"><div class="advanced-grid"><div><label for="engine-backend">Acceleration</label><select id="engine-backend"><option value="metal">Apple Metal</option><option value="cuda">NVIDIA CUDA</option><option value="cpu">CPU</option></select></div><div><label for="engine-threads">CPU threads</label><input id="engine-threads" type="number" min="1" step="1" /></div></div>
           <details><summary>Engine paths and device</summary><div class="advanced-grid"><div><label for="engine-device">GPU device</label><input id="engine-device" type="number" min="0" step="1" /></div><div><label for="engine-binary">audio.cpp executable</label><input id="engine-binary" type="text" /></div><div><label for="engine-model-root">Model folder</label><input id="engine-model-root" type="text" /></div><div><label for="engine-model-file">Music model GGUF</label><input id="engine-model-file" type="text" /></div><div><label for="engine-vae-file">Audio decoder GGUF</label><input id="engine-vae-file" type="text" /></div></div></details>
@@ -1165,12 +1166,13 @@
         </form>
         <p id="setup-description" class="control-hint">Verified model downloads are reused.</p>
         <div id="setup-requirements" class="control-hint"></div>
-        <progress id="system-progress" aria-label="Setup progress" hidden></progress><p id="system-task" role="status"></p><a href="/api/system/log" target="_blank" class="text-button">Setup log</a>
+        <div id="engine-task-slot"><div id="system-feedback"><progress id="system-progress" aria-label="Setup progress" hidden></progress><p id="system-task" role="status"></p><a id="system-log" href="/api/system/log" target="_blank" class="text-button" hidden>Setup log</a></div></div>
       </section>
       <section class="system-section"><h3>Updates</h3><p id="system-version"></p><p id="system-update-state" role="status"></p>
         <label class="review-check"><input id="automatic-checks" type="checkbox" />Check automatically</label>
         <label class="review-check"><input id="automatic-downloads" type="checkbox" />Prepare updates when the studio is idle</label>
         <div class="system-actions"><button type="button" class="secondary-button" id="check-update">Check for updates</button><button type="button" class="secondary-button" id="install-update" hidden>Prepare update</button><button type="button" class="text-button" id="cancel-update" hidden>Stop preparation</button><button type="button" class="secondary-button" id="restart-update" hidden>Restart and update</button></div>
+        <div id="update-task-slot"></div>
         <p id="managed-hint" class="control-hint">This copy runs from source. <a href="https://github.com/Flip-Engineering/riff/releases" target="_blank" rel="noreferrer">Install a release</a> to enable app updates.</p>
       </section>
     </dialog>
