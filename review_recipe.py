@@ -76,7 +76,13 @@ def symbolic_context(source):
     return context
 
 
-def response_schema(source, keep_lyrics):
+def source_seed(source):
+    """Keep native seed precision; legacy recordings may have no recorded seed."""
+    seed = source.get("seed")
+    return str(seed) if type(seed) in (str, int) and str(seed).strip() else None
+
+
+def response_schema(source, keep_lyrics, *, preserve_seed=False):
     refinement = {}
     for option in model_options.schema():
         field = {"type": "integer" if option["integer"] else "number",
@@ -108,12 +114,15 @@ def response_schema(source, keep_lyrics):
         "refinement": {"type": "object", "properties": refinement, "additionalProperties": False,
                        "description": "YuE2 sampling overrides. Omitted controls use runtime defaults."},
         "performance_source": {"type": "string", "enum": [""] + ([source["performance_track_id"]] if source.get("performance_track_id") else []),
-                               "description": "Empty for a fresh performance. Use the supplied track ID to re-synthesize its saved performance codes with revised acoustic conditioning, solver steps or seed. Retains phrasing and length; not suitable for new words or a new composition."},
+                               "description": "Empty for a fresh performance. Use the supplied track ID to re-synthesize its saved performance codes with revised acoustic conditioning or solver steps. Retains phrasing and length; not suitable for new words or a new composition."},
         "render_mode": {"type": "string", "enum": ["music", "plan", "performance"],
                         "description": "music renders a take; performance saves music codes to render later without audio; plan composes an editable score without audio and requires cot melody or full and empty performance_source."},
     }
     if keep_lyrics:
         properties["lyrics"]["description"] = "Riff preserves the source lyrics. This field may be empty when Keep lyrics is enabled."
+    if preserve_seed and source_seed(source) is not None:
+        properties["seed"].update(enum=[source_seed(source)],
+                                  description="Retain this recording's original seed while refining its music. The artist can change it in the studio.")
     return {"type": "object", "additionalProperties": False,
             "required": ["notes", "summary", "generation"],
             "properties": {
@@ -154,4 +163,6 @@ def recommended_generation(value, source, keep_lyrics):
     if isinstance(value, dict):
         # Recommendations made by earlier installed producers remain runnable.
         value = {"performance_source": "", "score_source": "", "render_mode": "music", "solver": "midpoint", **value}
+        if source_seed(source) is not None:
+            value["seed"] = source_seed(source)
     return validate_generation(value, source, keep_lyrics)

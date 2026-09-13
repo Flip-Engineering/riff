@@ -46,11 +46,13 @@ def listen(settings):
         "Supplied ABC or a saved score requires cot=melody or full. Preserve the artist's creative intent; "
         "language, genre, structure, and instruments remain open to their direction. Carry over "
         "generation settings unless a change serves this iteration, and keep a short study "
-        "within the requested preview scope. Preserve any useful sampling overrides. "
+        "within the requested preview scope. Retain the source seed exactly; improve the musical "
+        "inputs and synthesis settings while keeping the same random starting point. The artist "
+        "can change the seed afterward in the studio. Preserve any useful sampling overrides. "
         "You can recommend music, a performance saved for later rendering, a score-only composition, or a re-render of "
         "the supplied saved performance when performance_track_id is available. These use "
         "Riff's same generation queue and editable inputs. Reuse retains the performance's "
-        "phrasing and duration; adjust acoustic direction, solver detail or seed. Music sampling "
+        "phrasing and duration; adjust acoustic direction or solver detail while retaining the seed. Music sampling "
         "controls are skipped during reuse. If the words, structure or phrasing need to change, "
         "choose a fresh performance. Supply the complete actual score when needed. "
         "YuE2's native context is 24576 tokens and "
@@ -74,7 +76,7 @@ def listen(settings):
                "provider": {"require_parameters": True},
                "response_format": {"type": "json_schema", "json_schema": {
                    "name": "riff_recommended_take", "strict": True,
-                   "schema": response_schema(source, settings["keep_lyrics"])}},
+                   "schema": response_schema(source, settings["keep_lyrics"], preserve_seed=True)}},
                "messages": [{"role": "user", "content": [
         {"type": "text", "text": prompt},
         {"type": "input_audio", "input_audio": {"data": audio, "format": "mp3"}},

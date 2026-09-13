@@ -101,6 +101,7 @@ class ReviewTests(StudioFixture):
         result = self.reviews.get(review["id"])
         self.assertNotIn("lyrics", result["revision"])
         self.assertEqual(result["generation"]["steps"], 37)
+        self.assertEqual(result["generation"]["seed"], result["source_recipe"]["seed"])
         self.assertEqual(result["generation"]["max_seconds"], 26)
         self.assertEqual(result["generation"]["cfg_scale"], 1.6)
         self.assertEqual(result["generation"]["refinement"]["semantic_top_p"], 0.82)
@@ -302,6 +303,33 @@ class ReviewClientTests(unittest.TestCase):
         self.assertEqual(accepted["generation"]["steps"],999)
         kept,_ = self.request(json.dumps(self.proposal(keep=False)))
         self.assertEqual(kept["generation"]["lyrics"], self.source()["lyrics"])
+
+    def test_producer_retains_zero_and_full_precision_seeds_through_both_boundaries(self):
+        from review_recipe import response_schema, validate_generation
+        for source_seed in ("0", "9223372036854775807"):
+            for proposed_seed in ("", "1729"):
+                with self.subTest(source_seed=source_seed, proposed_seed=proposed_seed):
+                    source = {**self.source(), "seed": source_seed}
+                    proposal = self.proposal(seed=proposed_seed)
+                    result, request = self.request(json.dumps(proposal), source=source)
+                    final = recommended_generation(result["generation"], source, True)
+                    self.assertEqual(final["seed"], source_seed)
+                    self.assertEqual(final["steps"], 37)
+                    schema = request["response_format"]["json_schema"]["schema"]["properties"]["generation"]
+                    self.assertEqual(schema["properties"]["seed"]["enum"], [source_seed])
+                    self.assertIn("Retain the source seed exactly", request["messages"][0]["content"][0]["text"])
+                    # The shared writer contract and an explicit studio edit remain open.
+                    self.assertNotIn("enum", response_schema(source, False)["properties"]["generation"]["properties"]["seed"])
+                    changed = {**result["generation"], "seed": "7"}
+                    self.assertEqual(validate_generation(changed, source)["seed"], "7")
+
+    def test_legacy_source_without_a_seed_does_not_invent_one(self):
+        source = self.source()
+        source.pop("seed", None)
+        result, request = self.request(json.dumps(self.proposal(seed="1729")), source=source)
+        self.assertEqual(result["generation"]["seed"], "1729")
+        schema = request["response_format"]["json_schema"]["schema"]["properties"]["generation"]
+        self.assertNotIn("enum", schema["properties"]["seed"])
 
     def test_lyric_lock_keeps_bilingual_words_and_notes_across_both_validation_steps(self):
         source = {**self.source(), "lyrics": "\n[Caller]\nمَنْ شَادَ الْمَوَانِئَ؟\n[Choir]\n우리가 세웠다!\n"}

@@ -161,7 +161,7 @@ try {
   assert.equal(await page.locator("#title").inputValue(), "Another take");
   assert.equal(await page.locator("#custom-steps").inputValue(), "37");
   assert.equal(await page.locator("#duration").inputValue(), "26");
-  assert.equal(await page.locator("#seed").inputValue(), "1729");
+  assert.equal(await page.locator("#seed").inputValue(), "15961");
   assert.equal(await page.locator("#guidance").inputValue(), "1.6");
   assert.equal(await page.locator("#planning").inputValue(), "full");
   assert((await page.locator("#abc").inputValue()).includes("K:Dm"));
@@ -177,6 +177,8 @@ try {
   await page.locator("#temperature").fill("0.92321");
   await page.locator("#guidance").fill("1.61234");
   await page.locator("#duration").fill("26.04");
+  await page.locator("#seed").fill("7");
+  assert.equal(await page.evaluate(() => formRecipe().seed), "7", "The artist can change a retained seed");
   assert(await page.locator("#generation-form").evaluate(form => form.checkValidity()),
     "Continuous model settings must remain valid after editing a recommendation");
   await page.locator(".creative-controls > summary").click();
@@ -210,7 +212,7 @@ try {
   await page.locator("[data-generate-review]").first().click();
   const generation = await (await pending).json();
   assert.equal(generation.recipe.steps,37);
-  assert.equal(generation.recipe.seed,"1729");
+  assert.equal(generation.recipe.seed,"15961");
   assert.equal(generation.recipe.cfg_scale,1.6);
   assert.equal(generation.recipe.refinement.semantic_top_p,.82);
   assert(generation.recipe.abc.includes("K:Dm"));
