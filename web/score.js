@@ -5,6 +5,74 @@
   let pendingPlan = null, planInput = "", knownPlans = "", undo = [];
   let proposal = null;
   let writtenSeconds = 0, auditionParts = new Set(), partSignature = "";
+  let candidate = null, restoring = false, lastDraft = scoreFields();
+  const useScore = document.createElement("button");
+  useScore.id = "score-use"; useScore.type = "button"; useScore.className = "text-button";
+  useScore.textContent = "Use this score"; useScore.hidden = true;
+  $("#score-status").before(useScore);
+
+  function scoreFields() {
+    const recipe = formRecipe();
+    return { score_source: recipe.score_source || "", abc: recipe.abc,
+      abc_draft: recipe.abc_draft, cot: recipe.cot };
+  }
+  function attachedStatus() {
+    if (candidate?.display_error) return "Saved score attached · notation unavailable";
+    return candidate?.truncated ? "An unfinished score, ready to develop." : "Saved score attached";
+  }
+  function updateUseScore() {
+    const attached = scoreFields().score_source;
+    const inUse = attached && attached === candidate?.artifact_id;
+    useScore.hidden = !candidate?.artifact_id || !!inUse;
+    const available = state.engine?.capabilities?.exact_score_replay === true;
+    useScore.disabled = !available;
+    useScore.title = available ? "" : "Available after updating the music engine.";
+    if (inUse && !pendingPlan) {
+      const message = attachedStatus();
+      if ($("#score-status").textContent !== message) $("#score-status").textContent = message;
+    }
+  }
+  function syncDraft() {
+    const next = scoreFields();
+    if (JSON.stringify(next) !== JSON.stringify(lastDraft)) {
+      if (!restoring) undo.push(lastDraft);
+      lastDraft = next;
+      if (dialog.open) {
+        stop();
+        if (source.value !== next.abc_draft) source.value = next.abc_draft;
+        $("#score-mode").value = next.cot === "off" ? "melody" : next.cot;
+        render();
+      }
+    }
+    if (next.score_source && next.score_source !== candidate?.artifact_id)
+      candidate = { artifact_id: next.score_source, abc: next.abc_draft, cot: next.cot };
+    $("#score-undo").disabled = !undo.length;
+    updateUseScore();
+  }
+  function restore(fields, remember = true) {
+    restoring = !remember;
+    try { fillRecipe({ ...formRecipe(), ...fields }); }
+    finally { restoring = false; }
+    saveDraft();
+  }
+  function openSaved(item) {
+    const plan = item.recipe?.symbolic_plan;
+    const text = plan?.abc ?? item.recipe?.abc ?? "";
+    const cot = ["melody", "full"].includes(item.recipe?.cot) ? item.recipe.cot : "melody";
+    candidate = { artifact_id: plan?.artifact_id || "", abc: text, cot, truncated: !!plan?.truncated,
+      token_count: plan?.token_count, display_error: !!plan?.display_error };
+    const attached = scoreFields().score_source;
+    restore({ score_source: candidate.artifact_id === attached ? attached : "", abc: text, abc_draft: text, cot });
+    $("#score-status").textContent = `Score from ${item.title}`;
+    updateUseScore();
+  }
+  useScore.addEventListener("click", () => {
+    if (!candidate?.artifact_id || state.engine?.capabilities?.exact_score_replay !== true) return;
+    const mode = scoreFields().cot;
+    restore({ score_source: candidate.artifact_id, abc: "", abc_draft: candidate.abc,
+      cot: mode === "off" ? candidate.cot : mode });
+    $("#score-status").textContent = attachedStatus();
+  });
 
   function overview() {
     const host = $("#score-overview"), rows = $("#score-voices");
@@ -54,6 +122,14 @@
     selectedNote = null;
     $("#note-editor").hidden = true;
     $("#score-empty").hidden = !!source.value.trim();
+    const attached = scoreFields().score_source;
+    const sameCandidate = candidate?.abc === source.value && (!attached || candidate.artifact_id === attached);
+    $("#score-empty").textContent = sameCandidate && candidate.display_error
+      ? "Notation is unavailable. You can still use this saved score."
+      : attached ? sameCandidate && candidate.token_count === 0
+        ? "A blank score, ready for a new performance."
+        : "Saved score attached. Its notation is not shown."
+      : "Compose a score from your current sound and lyrics, import one, or start a sketch.";
     $("#score-tempo").value = header("Q").match(/(?:=|^)(\d+(?:\.\d+)?)\s*$/)?.[1] || "";
     $("#score-key").value = header("K");
     $("#score-meter").value = header("M");
@@ -92,32 +168,27 @@
     $("#export-midi").disabled = !tunes.length;
     overview();
   }
-  function replace(value, remember = true) {
-    if (remember && source.value !== value) undo.push(source.value);
-    stop();
-    source.value = value;
-    abc.value = value;
-    if (value.trim() && $("#planning").value === "off") $("#planning").value = "melody";
-    $("#score-mode").value = $("#planning").value === "off" ? "melody" : $("#planning").value;
-    saveDraft(); render();
-    $("#score-undo").disabled = !undo.length;
+  function replace(value, remember = true, fresh = false) {
+    const previous = scoreFields();
+    restore({ score_source: !fresh && value === previous.abc_draft ? previous.score_source : "",
+      abc: value, abc_draft: value,
+      cot: value.trim() && previous.cot === "off" ? "melody" : previous.cot }, remember);
   }
   function open() {
     source.value = abc.value;
     $("#score-mode").value = $("#planning").value === "off" ? "melody" : $("#planning").value;
     dialog.showModal();
-    render();
+    syncDraft(); render();
   }
   $("#score-open").addEventListener("click", open);
   $("#score-open-player").addEventListener("click", async () => {
     const track = selected;
-    if (!track?.recipe?.symbolic_plan?.abc && !track?.recipe?.abc) return;
+    if (!track?.recipe?.symbolic_plan?.artifact_id && !track?.recipe?.symbolic_plan?.abc && !track?.recipe?.abc) return;
     open();
-    replace(track.recipe.symbolic_plan?.abc || track.recipe.abc);
-    $("#score-status").textContent = `Score from ${track.title}`;
+    openSaved(track);
   });
-  $("#score-mode").addEventListener("change", () => { $("#planning").value = $("#score-mode").value; saveDraft(); });
-  source.addEventListener("input", () => { abc.value = source.value; if (abc.value && $("#planning").value === "off") $("#planning").value = "melody"; saveDraft(); render(); });
+  $("#score-mode").addEventListener("change", () => restore({ ...scoreFields(), cot: $("#score-mode").value }));
+  source.addEventListener("input", () => replace(source.value));
   $("#apply-score-header").addEventListener("click", () => {
     let value = source.value || "X:1\nT:" + ($("#title").value.trim() || "Untitled") + "\nL:1/8\nK:C\n";
     const bpm = Number($("#score-tempo").value);
@@ -138,14 +209,14 @@
     try { replace(ABCJS.strTranspose(source.value, tunes, steps)); }
     catch (error) { $("#score-warning").textContent = error.message; }
   });
-  $("#score-undo").addEventListener("click", () => { if (undo.length) replace(undo.pop(), false); });
+  $("#score-undo").addEventListener("click", () => { if (undo.length) restore(undo.pop(), false); });
   $("#score-fit-duration").addEventListener("click", () => {
     if (writtenSeconds > 0) {
       $("#duration").value = Math.ceil(writtenSeconds);
       saveDraft(); $("#score-status").textContent = "Generation duration follows the written score.";
     }
   });
-  $("#new-score").addEventListener("click", () => replace("X:1\nT:" + ($("#title").value.trim() || "Untitled") + "\nM:4/4\nL:1/8\nQ:1/4=108\nK:Dm\nD2 F2 A2 G2 | F2 E2 D4 |\n"));
+  $("#new-score").addEventListener("click", () => replace("X:1\nT:" + ($("#title").value.trim() || "Untitled") + "\nM:4/4\nL:1/8\nQ:1/4=108\nK:Dm\nD2 F2 A2 G2 | F2 E2 D4 |\n", true, true));
 
   function stop() {
     for (const voice of voices) { try { voice.stop(); } catch {} }
@@ -184,7 +255,7 @@
     $("#revise-score").disabled = true; $("#stop-score-edit").hidden = false;
     $("#score-edit-status").textContent = "Writing a score revision…";
     try {
-      const result = await api("/api/composition/revise", "POST", { ...formRecipe(), abc: source.value,
+      const result = await api("/api/composition/revise", "POST", { ...formRecipe(),
         cot: $("#score-mode").value, brief: $("#score-change").value });
       if (result.cancelled) { $("#score-edit-status").textContent = "Writing stopped"; return; }
       proposal = result;
@@ -217,35 +288,39 @@
   });
   $("#compose-score").addEventListener("click", async () => {
     try {
-      const recipe = { ...formRecipe(), cot: $("#score-mode").value, abc: "", performance_source: "", render_mode: "plan" };
+      const before = JSON.stringify(scoreFields());
+      const recipe = { ...formRecipe(), cot: $("#score-mode").value, score_source: "", abc: "", abc_draft: "", performance_source: "", render_mode: "plan" };
       const job = await api("/api/plans", "POST", recipe);
-      pendingPlan = job.id; planInput = source.value;
+      const unchanged = JSON.stringify(scoreFields()) === before;
+      if (unchanged) restore({ score_source: "", abc: "", abc_draft: "", cot: recipe.cot });
+      pendingPlan = job.id; planInput = unchanged ? JSON.stringify(scoreFields()) : null;
       $("#score-status").textContent = "Composing a score…";
       await refresh();
     } catch (error) { $("#score-status").textContent = error.message; }
   });
   function update(next) {
-    const plans = next.plans || [], signature = JSON.stringify(plans.map((plan) => plan.id));
+    const plans = next.plans || [], signature = JSON.stringify(plans.map((plan) => [plan.id, plan.recipe?.symbolic_plan, plan.recipe?.cot]));
     if (signature !== knownPlans) {
       knownPlans = signature; $("#score-history").replaceChildren();
       for (const plan of plans) {
         const button = document.createElement("button"); button.type = "button"; button.className = "score-history-item";
         button.textContent = `${plan.title} · ${new Date(plan.finished * 1000).toLocaleString()}`;
-        button.addEventListener("click", () => { replace(plan.recipe.symbolic_plan.abc); $("#score-status").textContent = plan.recipe.symbolic_plan.truncated ? "This plan reached its token budget. You can edit it or compose with a larger budget." : "Score opened"; });
+        button.addEventListener("click", () => openSaved(plan));
         $("#score-history").append(button);
       }
     }
     if (pendingPlan) {
       const plan = plans.find((item) => item.id === pendingPlan), job = next.jobs.find((item) => item.id === pendingPlan);
       if (plan) {
-        if (source.value === planInput) replace(plan.recipe.symbolic_plan.abc);
-        $("#score-status").textContent = plan.recipe.symbolic_plan.truncated ? "Score ready; the planning token budget was reached." : "Score ready";
+        if (JSON.stringify(scoreFields()) === planInput) openSaved(plan);
+        $("#score-status").textContent = plan.recipe.symbolic_plan.truncated ? "An unfinished score, ready to develop." : "Score ready";
         pendingPlan = null;
       } else if (job && ["failed", "cancelled", "interrupted"].includes(job.status)) { $("#score-status").textContent = job.error || "Composition stopped"; pendingPlan = null; }
     }
-    $("#score-open-player").hidden = !(selected?.recipe?.symbolic_plan?.abc || selected?.recipe?.abc);
+    $("#score-open-player").hidden = !(selected?.recipe?.symbolic_plan?.artifact_id || selected?.recipe?.symbolic_plan?.abc || selected?.recipe?.abc);
+    syncDraft();
   }
-  window.RiffScore = { update, open };
+  window.RiffScore = { update, open, syncDraft };
   let width = 0;
   new ResizeObserver(() => {
     const next = $("#score-notation").clientWidth;

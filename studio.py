@@ -144,6 +144,11 @@ class Handler(BaseHTTPRequestHandler):
                 if self.server.maintenance:
                     state["maintenance"] = self.server.maintenance.snapshot()
                 self.json_response(200, state)
+            elif path.startswith("/api/scores/"):
+                reference = path[len("/api/scores/"):]
+                if not self.server.store.artifacts:
+                    raise KeyError("Score not found.")
+                self.json_response(200, self.server.store.artifacts.describe(reference))
             elif path == "/api/health":
                 self.json_response(200, {"app": "Riff", "status": "ready"})
             elif path == "/api/capabilities":

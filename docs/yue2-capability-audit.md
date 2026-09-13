@@ -2,7 +2,8 @@
 
 Audited September 12, 2026 against upstream
 [88da114a](https://github.com/multimodal-art-projection/YuE/tree/88da114a67df892af0329472073b96a5ef700b93)
-and Riff v0.5.3 (`5919837`). Upstream `main` now contains YuE2; the original
+and initially Riff v0.5.3 (`5919837`); Riff coverage updated September 13 for exact
+score replay. Upstream `main` at that audit contains YuE2; the original
 YuE is on its separate `YuE-v1` branch. Riff uses the native implementation and
 patches pinned in [sources.json](../sources.json), not the Python backend.
 
@@ -20,8 +21,8 @@ establishes available operations, not musical equivalence between runtimes.
 | Seven sampling controls independently for score and semantic music | Twelve refinement overrides, top-level music temperature, and duration converted to the music-token maximum | All fourteen mapped. See the field table below. |
 | Guidance and seed | Studio, producer, writer and queue | Exposed, including guidance below 1 and integer seeds through `2**63 - 1`. |
 | Acoustic integration and step count | Midpoint and native AB2, custom steps, saved-performance refinement | Exposed. AB2 is a Riff extension; upstream's public configuration specifies midpoint. |
-| Semantic generation without synthesis; synthesis from saved semantics | Performance to render later, interrupted-stage recovery, Render performance, `performance_source` | Exposed. Codes and duration are checked; exact original symbolic-prefix replay remains a gap below. |
-| Restoring an unchanged `SymbolicPlan` by its token IDs | Raw planning tokens are saved privately; score history and variations submit decoded ABC | **Partial.** There is no native input or common recipe reference for the exact saved plan. |
+| Semantic generation without synthesis; synthesis from saved semantics | Performance to render later, interrupted-stage recovery, Render performance, `performance_source` | Exposed. Codes and duration are checked; captured score references preserve the symbolic input. |
+| Restoring an unchanged `SymbolicPlan` by its token IDs | Saved score attachments, score history, variations, writer/producer recipe and `score_source` | Exposed for newly captured scores. Native replay retains exact IDs, empty-score presence and truncation. Historical scores without captured tokenizer provenance remain editable ABC. |
 | Saved acoustic latents and separate `decode()` | Internal native synthesis and VAE decoding | **Missing operation.** Completed latents are not retained for decode-only recovery or comparison. |
 | Complete artifact bundle, effective settings and model identities | WAV, ABC/MIDI, recipe, code hashes, generation logs and stage status | **Partial.** No single verified bundle binds every stage, effective defaults, tokenizer, model, decoder and runtime to each recording. |
 | Standard/legacy VAE selection; full or tiled decoding | Custom model/VAE GGUF paths; native standard tiled decoder | **Partial.** Named compatible decoders and supported tile controls need native verification and discovery. |
@@ -56,11 +57,11 @@ the complete recipe. These serve different editing scopes.
 
 ## Work to prioritize
 
-1. **Exact plan reuse and acoustic checkpoints.** Preserve an unchanged plan's
-   token IDs and provenance through the queue, then save completed acoustic
-   latents and expose decode-only recovery. The current score reader trims
-   decoded text, and re-encoding a generated token sequence is not an exact replay
-   contract. Existing raw files are retained, so they can support migration.
+1. **Acoustic checkpoints.** Exact plan reuse now preserves token IDs and
+   captured tokenizer provenance through the queue. Next, save completed acoustic
+   latents and expose decode-only recovery. Decoded ABC remains an editing view;
+   re-encoding it does not guarantee the original token sequence. Historical raw
+   files remain intact, but unknown capture provenance is not invented.
    Recovery should avoid rerunning a completed expensive stage.
 2. **Melody and harmony controls with a visible comparison.** Offer an explicit
    operation to free the harmony of a supplied score. Merely selecting melody

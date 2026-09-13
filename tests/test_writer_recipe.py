@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 import model_options
 import writer
+from capabilities import describe
 from review_recipe import FIELDS, generation_context, symbolic_context
 from studio_core import Generator, validate_recipe
 from test_studio import StudioFixture, wait_until
@@ -14,6 +15,10 @@ from test_reviews import FakeKeychain, Reviews, fake_listener
 
 
 SCORE = 'X:1\nT:Folded melody\nM:7/8\nL:1/8\nQ:1/4=112\nK:Dm\n"Dm"D2 F A2 G2|"Bb"F2 E D4|'
+SCORE_ID = "riff-score-v1:" + "a" * 64
+SAVED_SCORE = {"id": SCORE_ID, "title": "Folded melody", "abc": SCORE, "cot": "full",
+               "token_count": 91, "truncated": False, "sha256": "b" * 64, "bytes": 456,
+               "source_job_id": "c" * 32, "provenance": {"kind": "composition"}, "compatible": True}
 
 
 def source(**changes):
@@ -29,6 +34,67 @@ def response(**changes):
 
 
 class WriterContractTests(unittest.TestCase):
+    def test_unavailable_notation_is_distinct_from_empty_score_and_incompatible_ids_are_not_offered(self):
+        unreadable = {**SAVED_SCORE, "abc": "", "display_error": "The saved score's notation could not be displayed."}
+        legacy = {**SAVED_SCORE, "id": "riff-score-v1:" + "b" * 64}
+        legacy.pop("compatible")
+        incompatible = {**SAVED_SCORE, "id": "riff-score-v1:" + "c" * 64, "compatible": False}
+        payload = {**source(), "available_scores": [unreadable, legacy, incompatible]}
+        self.assertEqual(symbolic_context(payload)["available_scores"], [unreadable, legacy])
+        schema = writer.writing_schema(payload)["properties"]["generation"]
+        self.assertEqual(schema["properties"]["score_source"]["enum"], ["", SCORE_ID, legacy["id"]])
+        with self.assertRaisesRegex(ValueError, "score.*not supplied"):
+            writer.written_generation(response(abc="", score_source=incompatible["id"]), payload)
+
+    def test_provider_can_keep_an_offered_exact_score_with_complete_editable_context(self):
+        payload = {**source(), "available_scores": [{**SAVED_SCORE, "path": "/private/score.json"}],
+                   "idea_engine": "openrouter", "model": "google/gemini-3.8-flash", "api_key": "test-writer-secret"}
+        proposed = response(abc="", score_source=SCORE_ID, steps=17)
+        reply = {"choices": [{"message": {"content": json.dumps(proposed)}}]}
+        with patch("urllib.request.urlopen", return_value=BytesIO(json.dumps(reply).encode())) as send:
+            actual = writer.write(payload)
+        body = json.loads(send.call_args.args[0].data)
+        schema = body["response_format"]["json_schema"]["schema"]["properties"]["generation"]
+        context = json.loads(body["messages"][1]["content"])
+        self.assertEqual(schema["properties"]["score_source"]["enum"], ["", SCORE_ID])
+        self.assertIn("score_source", schema["required"])
+        self.assertEqual(context["symbolic"]["available_scores"], [SAVED_SCORE])
+        self.assertNotIn("/private/", json.dumps(context))
+        self.assertEqual(actual["generation"], proposed["generation"])
+
+    def test_local_score_changes_replace_the_alternative_and_omission_keeps_attachment(self):
+        attached = {**source(abc="", score_source=SCORE_ID), "available_scores": [SAVED_SCORE]}
+        cases = [({"abc": SCORE}, SCORE, ""), ({"abc": ""}, "", ""),
+                 ({"steps": 17}, "", SCORE_ID), ({"score_source": ""}, "", "")]
+        for proposal, abc, score_id in cases:
+            with self.subTest(proposal=proposal):
+                result = writer.written_generation({"generation": proposal}, attached, partial=True)
+                self.assertEqual((result["abc"], result["score_source"]), (abc, score_id))
+        retained = writer.written_generation({"generation": {"score_source": SCORE_ID}},
+                                            {**source(), "available_scores": [SAVED_SCORE]}, partial=True)
+        self.assertEqual((retained["abc"], retained["score_source"]), ("", SCORE_ID))
+        with self.assertRaises(ValueError):
+            writer.written_generation({"generation": {"abc": SCORE, "score_source": SCORE_ID}}, attached, partial=True)
+
+    def test_unoffered_score_cannot_be_authorized_by_the_current_input_or_reference(self):
+        proposed = response(abc="", score_source=SCORE_ID)
+        for payload in (source(), source(abc="", score_source=SCORE_ID),
+                        {**source(), "reference": {"available_scores": [SAVED_SCORE]}},
+                        {**source(), "available_scores": ["wrong-shape", {"id": "/private/score.json"}]}):
+            with self.subTest(payload=payload), self.assertRaisesRegex(ValueError, "score.*not supplied"):
+                writer.written_generation(proposed, payload)
+
+    def test_capability_schema_accepts_owned_score_ids_without_limiting_to_one_request(self):
+        import re
+        capabilities = describe()
+        field = capabilities["recipe_schema"]["properties"]["score_source"]
+        self.assertNotIn("enum", field)
+        self.assertIsNotNone(re.fullmatch(field["pattern"], SCORE_ID))
+        self.assertIsNone(re.fullmatch(field["pattern"], "/private/score.json"))
+        self.assertIn("score_source", capabilities["score"]["inputs"])
+        self.assertEqual(capabilities["operations"]["score"]["path"], "/api/scores/{score_source}")
+        self.assertEqual(capabilities["operations"]["score"]["method"], "GET")
+
     def test_cloud_receives_all_controls_and_returns_runnable_score_and_settings(self):
         payload = {**source(), "idea_engine": "openrouter", "model": "google/gemini-3.8-flash", "api_key": "test-writer-secret",
                    "symbolic_plan": {"abc": SCORE, "token_count": 91, "truncated": False}, "brief": "Develop the harmony"}

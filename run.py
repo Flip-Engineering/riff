@@ -4,6 +4,8 @@ import argparse
 import ctypes
 from datetime import datetime
 import json
+import hashlib
+from functools import lru_cache
 import math
 from pathlib import Path
 import resource
@@ -42,10 +44,12 @@ def sysctl_int(name):
 
 def build_command(*, lyrics, style, max_seconds, steps, cot, seed, threads, output,
                   backend=None, abc="", mode="lyrics", cfg_scale=1., temperature=1., refinement=None, render_mode="music",
-                  performance_file=None, semantic_only=False, solver="midpoint"):
+                  performance_file=None, semantic_only=False, solver="midpoint", score_file=None):
     """Shared native invocation for the command line and Riff studio."""
     if solver not in ("midpoint", "ab2"):
         raise ValueError("Choose midpoint or ab2 for acoustic synthesis.")
+    if score_file and (abc or cot == "off"):
+        raise ValueError("Use a saved score with melody or full planning and an empty ABC input.")
     settings = platform_runtime.settings()
     config_path = Path(settings["model_root"]) / "sidecars/yue2-vae-config.json"
     config = json.loads(config_path.read_text()) if config_path.exists() else {}
@@ -81,12 +85,75 @@ def build_command(*, lyrics, style, max_seconds, steps, cot, seed, threads, outp
         command += ["--request-option", "semantic_codes_out=" + str(Path(output).with_suffix(".codes.i32"))]
     if performance_file:
         command += ["--request-option", "semantic_codes_file=" + str(performance_file)]
+    if score_file:
+        command += ["--request-option", "score_tokens_file=" + str(score_file)]
     if semantic_only:
         command += ["--request-option", "semantic_only=true"]
     from model_options import validate
     for key, value in validate(refinement or {}, max_seconds).items():
         command += ["--request-option", f"{key}={value}"]
     return command
+
+
+def file_identity(path):
+    info = Path(path).stat()
+    return (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+
+
+@lru_cache(maxsize=32)
+def _file_digest(path, identity):
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    if file_identity(path) != identity:
+        raise ValueError("A selected model file changed while its identity was being read.")
+    return digest.hexdigest()
+
+
+def file_digest(path):
+    path = str(Path(path).resolve())
+    return _file_digest(path, file_identity(path))
+
+
+@lru_cache(maxsize=16)
+def _engine_capabilities(binary, model_root, identity):
+    try:
+        result = subprocess.run([binary, "--family", "yue2", "--model", model_root, "--help"],
+                                capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return {"exact_score_replay": False}
+    metadata = {}
+    if result.returncode == 0 and file_identity(binary) == identity:
+        for line in result.stdout.splitlines():
+            if "=" in line:
+                key, value = line.strip().split("=", 1)
+                if key.startswith(("feature.yue2.", "format.yue2.")):
+                    metadata[key] = value
+    exact = (metadata.get("feature.yue2.score_tokens") == "1" and
+             metadata.get("format.yue2.score_tokens") == "riff.yue2.score-tokens.v1" and
+             metadata.get("format.yue2.prefix") == "riff.yue2.prefix.v1")
+    return {"exact_score_replay": exact, "score_format": metadata.get("format.yue2.score_tokens"),
+            "prefix_contract": metadata.get("format.yue2.prefix")}
+
+
+def engine_capabilities(settings=None):
+    settings = settings or platform_runtime.settings()
+    try:
+        binary = str(Path(settings["binary"]).resolve())
+        return dict(_engine_capabilities(binary, str(Path(settings["model_root"]).resolve()), file_identity(binary)))
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return {"exact_score_replay": False}
+
+
+def score_contract(settings=None):
+    settings = settings or platform_runtime.settings()
+    capability = engine_capabilities(settings)
+    if not capability["exact_score_replay"]:
+        raise ValueError("Update the selected music engine to reuse saved scores. Your score is kept.")
+    vocabulary = Path(settings["model_root"]) / "sidecars/yue2-qwen.tiktoken"
+    return {"format": capability["score_format"], "prefix_contract": capability["prefix_contract"],
+            "tokenizer_sha256": file_digest(vocabulary)}
 
 
 def require_solver(solver, binary):
@@ -116,6 +183,7 @@ def main():
     parser.add_argument("--plan-only", action="store_true", help="Save a symbolic score without rendering music; requires --cot melody or full")
     parser.add_argument("--performance", type=Path, help="Reuse saved YuE2 .codes.i32 performance codes; keep the source score as conditioning")
     parser.add_argument("--performance-only", action="store_true", help="Save performance codes without synthesizing audio")
+    parser.add_argument("--score-tokens", type=Path, help="Replay a native saved score token file")
     parser.add_argument("--seed", type=int, default=831001)
     parser.add_argument("--threads", type=int, default=platform_runtime.settings()["threads"])
     parser.add_argument("--backend", choices=("metal", "cuda", "cpu"), default=platform_runtime.settings()["backend"])
@@ -140,6 +208,8 @@ def main():
     abc = args.abc.read_text(encoding="utf-8").strip() if args.abc else ""
     if abc and args.cot == "off":
         parser.error("an ABC score requires --cot melody or --cot full")
+    if args.score_tokens and (args.abc or args.cot == "off"):
+        parser.error("--score-tokens requires melody/full planning and no --abc")
     if args.plan_only and args.cot == "off":
         parser.error("--plan-only requires --cot melody or --cot full")
     if args.plan_only and (args.performance or args.performance_only):
@@ -150,10 +220,16 @@ def main():
                             cfg_scale=args.guidance, temperature=args.temperature,
                             refinement=json.loads(args.refinement.read_text()) if args.refinement else {},
                             render_mode="plan" if args.plan_only else "music",
-                            performance_file=args.performance, semantic_only=args.performance_only, solver=args.solver)
+                            performance_file=args.performance, semantic_only=args.performance_only, solver=args.solver,
+                            score_file=args.score_tokens.resolve() if args.score_tokens else None)
     if args.dry_run:
         print(json.dumps(command, indent=2))
         return
+    if args.score_tokens:
+        try:
+            score_contract()
+        except (ValueError, OSError) as exc:
+            parser.error(str(exc))
     if not args.plan_only and not args.performance_only:
         require_solver(args.solver, command[0])
     if not BINARY.is_file():

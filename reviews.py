@@ -130,6 +130,7 @@ class Reviews:
         track = self.store.track(track_id)
         self.store.audio_path(track_id)
         source = dict(track["recipe"])
+        source["available_scores"] = self.store.available_scores(source)
         if source.get("performance"):
             self.store.performance_path(track_id)
             source["performance_track_id"] = track_id
@@ -177,8 +178,10 @@ class Reviews:
         try:
             secret = self.keychain.get()
             track = self.store.track(review["track_id"])
+            source = dict(review["source_recipe"])
+            source["available_scores"] = self.store.available_scores(source, cancelled=self.stop)
             settings = {"model": review["model"], "focus": review["focus"], "keep_lyrics": review["keep_lyrics"],
-                        "recipe": review["source_recipe"], "audio": str(self.store.audio_path(review["track_id"])),
+                        "recipe": source, "audio": str(self.store.audio_path(review["track_id"])),
                         "duration": track["audio"]["duration"],
                         "api_key": secret}
             with tempfile.TemporaryDirectory(prefix="review-", dir=self.store.data_root) as folder:
@@ -202,7 +205,7 @@ class Reviews:
                     error = "The model returned notes the studio could not read. Try the review again."
                 if result and not error:
                     result["generation"] = recommended_generation(
-                        result.get("generation"), review["source_recipe"], review["keep_lyrics"])
+                        result.get("generation"), source, review["keep_lyrics"])
         except Exception as exc:
             error = str(exc).replace(secret, "[redacted]") if secret else str(exc)
         finally:

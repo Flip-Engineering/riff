@@ -20,7 +20,7 @@ import run as engine
 from inspiration import inspire, seed_number
 from paths import ROOT, WORKSPACE
 import model_options
-from model_admission import AdmissionCancelled, ModelAdmission
+from model_admission import AdmissionCancelled, ModelAdmission, SchedulerUnavailable
 from symbolic import read_plan
 
 CONTEXT = model_options.CONTEXT
@@ -103,6 +103,11 @@ def validate_recipe(payload):
         raise ValueError("Choose direct, melody, or melody and chords planning.")
     if abc and cot == "off":
         raise ValueError("Select melody or melody and chords to use an ABC score.")
+    score_source = text("score_source")
+    if score_source and not re.fullmatch(r"riff-score-v1:[a-f0-9]{64}", score_source):
+        raise ValueError("The saved score reference is invalid.")
+    if score_source and (abc or cot == "off"):
+        raise ValueError("Use the saved score with melody or melody and chords, or edit its notation.")
     render_mode = text("render_mode", "music")
     if render_mode not in ("music", "plan", "performance") or (render_mode == "plan" and cot == "off"):
         raise ValueError("Choose melody or melody and chords to compose a score.")
@@ -145,7 +150,7 @@ def validate_recipe(payload):
             "theme": payload.get("theme", "anywhere"),
             "max_seconds": seconds, "steps": steps, "solver": solver, "cot": cot, "seed": str(seed),
             "refinement": model_options.validate(payload.get("refinement", {}), seconds), "render_mode": render_mode,
-            "performance_source": "", **origin, **holds, **provenance}
+            "performance_source": "", "score_source": score_source, **origin, **holds, **provenance}
 
 
 def analyze_audio(path):
@@ -196,6 +201,7 @@ class Store:
         self.data_root.mkdir(parents=True, exist_ok=True)
         self.outputs.mkdir(parents=True, exist_ok=True)
         self.path = self.data_root / "library.sqlite3"
+        self.artifacts = None
         with self.db() as db:
             db.executescript("""
                 PRAGMA journal_mode=WAL;
@@ -288,16 +294,37 @@ class Store:
             raise ValueError("The saved performance has changed. Choose another take.")
         return path
 
-    def capture_artifacts(self, job_id, recipe):
+    def capture_artifacts(self, job_id, recipe, cancelled=None):
         """Capture completed native stages, including after an interrupted render."""
         recipe = dict(recipe)
         output = self.outputs / "riff" / (job_id + ".wav")
-        plan_path = self.library_path(output.with_suffix(".plan.json"))
-        # read_plan also writes a decoded score beside the native token file.
-        self.library_path(plan_path.with_suffix(".abc"))
-        plan = read_plan(plan_path, Path(engine.platform_runtime.settings()["model_root"]) / "sidecars/yue2-qwen.tiktoken")
-        if plan:
-            recipe["symbolic_plan"] = plan
+        errors = dict(recipe.get("artifact_errors") or {})
+        try:
+            plan = self.artifacts.capture(job_id, recipe, cancelled=cancelled) if self.artifacts else None
+            if plan is None:
+                plan_path = self.library_path(output.with_suffix(".plan.json"))
+                self.library_path(plan_path.with_suffix(".abc"))
+                plan = read_plan(plan_path, Path(engine.platform_runtime.settings()["model_root"]) / "sidecars/yue2-qwen.tiktoken")
+            if plan is not None:
+                recipe["symbolic_plan"] = plan
+            errors.pop("score", None)
+        except (ValueError, KeyError, OSError, TypeError, SchedulerUnavailable) as exc:
+            recipe.pop("symbolic_plan", None)
+            errors["score"] = str(exc)
+        try:
+            recipe = self._capture_performance(job_id, recipe)
+            errors.pop("performance", None)
+        except (ValueError, KeyError, OSError, TypeError) as exc:
+            recipe.pop("performance", None)
+            errors["performance"] = str(exc)
+        if errors:
+            recipe["artifact_errors"] = errors
+        else:
+            recipe.pop("artifact_errors", None)
+        return recipe
+
+    def _capture_performance(self, job_id, recipe):
+        output = self.outputs / "riff" / (job_id + ".wav")
         codes = self.library_path(output.with_suffix(".codes.i32"))
         metadata = self.library_path(codes.with_suffix(codes.suffix + ".json"))
         if codes.is_file() and metadata.is_file():
@@ -315,13 +342,13 @@ class Store:
             recipe["performance"] = performance
         return recipe
 
-    def recover_jobs(self):
+    def recover_jobs(self, cancelled=None):
         with self.db() as db:
             interrupted = list(db.execute("SELECT id,recipe FROM jobs WHERE status IN ('running','cancelling')"))
         for row in interrupted:
             recipe = json.loads(row["recipe"])
             try:
-                recipe = self.capture_artifacts(row["id"], recipe)
+                recipe = self.capture_artifacts(row["id"], recipe, cancelled=cancelled)
                 message = "Rendering was interrupted. Your performance is ready to finish." if recipe.get("performance") else "This take was interrupted. Your draft is saved."
             except (ValueError, KeyError, OSError, TypeError):
                 # Partial or invalid files are preserved, never offered as a
@@ -332,21 +359,35 @@ class Store:
                 db.execute("UPDATE jobs SET status='interrupted',recipe=?,error=?,finished=? WHERE id=?",
                            (json.dumps(recipe), message, time.time(), row["id"]))
 
-    def prepare_performance(self, recipe):
+    def score_recipe(self, recipe, cancelled=None):
+        if self.artifacts:
+            return self.artifacts.recipe(recipe, cancelled=cancelled)
+        if recipe.get("score_source"):
+            raise ValueError("The saved-score service is not available. Reopen Riff to use this score.")
+        return recipe
+
+    def available_scores(self, recipe, cancelled=None):
+        return self.artifacts.available(recipe, cancelled=cancelled) if self.artifacts else []
+
+    def prepare_performance(self, recipe, cancelled=None):
         source_id = recipe.get("performance_source")
         if not source_id:
-            return recipe
+            return self.score_recipe(recipe, cancelled=cancelled)
         self.performance_path(source_id)
         source = self.performance_record(source_id)[0]["recipe"]
         recipe = dict(recipe)
         # A generated score must accompany reused codes. The semantic stage is
         # skipped, so it cannot reconstruct an omitted composition this time.
-        if recipe["cot"] != "off" and not recipe["abc"]:
-            recipe["abc"] = source.get("abc") or (source.get("symbolic_plan") or {}).get("abc", "")
-            if not recipe["abc"]:
-                raise ValueError("The saved performance needs its score. Supply a score or choose Direct generation.")
+        if recipe["cot"] != "off" and not recipe["abc"] and not recipe.get("score_source"):
+            saved_score = (source.get("symbolic_plan") or {}).get("artifact_id") or source.get("score_source")
+            if saved_score:
+                recipe["score_source"] = saved_score
+            else:
+                recipe["abc"] = source.get("abc") or (source.get("symbolic_plan") or {}).get("abc", "")
+                if not recipe["abc"]:
+                    raise ValueError("The saved performance needs its score. Supply a score or choose Direct generation.")
         recipe["max_seconds"] = source["performance"]["frames"] / TOKEN_RATE
-        return validate_recipe(recipe)
+        return self.score_recipe(validate_recipe(recipe), cancelled=cancelled)
 
     def add_track(self, file, recipe, metrics, track_id=None):
         path = Path(file).resolve()
@@ -436,6 +477,7 @@ class Store:
         for job in jobs:
             recipe = json.loads(job.pop("recipe"))
             saved = recipe.get("performance") or {}
+            job["score_available"] = bool((recipe.get("symbolic_plan") or {}).get("artifact_id"))
             job["performance_available"] = bool(saved) and job["status"] in ("performed", "done", "cancelled", "interrupted", "failed")
             job["performance_seconds"] = saved.get("frames", 0) / TOKEN_RATE
         tracks = []
@@ -444,7 +486,7 @@ class Store:
             tracks.append({"id": row["id"], "title": row["title"], "created": row["created"],
                            "favorite": bool(row["favorite"]), "archived": bool(row["archived"]),
                            "style": recipe["style"], "seed": recipe["seed"], "duration": audio["duration"],
-                           "mode": recipe.get("mode", "lyrics"), "performance_available": bool(recipe.get("performance"))})
+                           "mode": recipe.get("mode", "lyrics"), "score_available": bool((recipe.get("symbolic_plan") or {}).get("artifact_id")), "performance_available": bool(recipe.get("performance"))})
         with self.db() as db:
             plans = [{"id": row["id"], "title": row["title"], "finished": row["finished"], "recipe": json.loads(row["recipe"])}
                      for row in db.execute("SELECT id,title,finished,recipe FROM jobs WHERE status='planned' ORDER BY finished DESC")]
@@ -468,7 +510,9 @@ class Generator:
         self.live = None
         self.monitor = engine.platform_runtime.ProcessMemory()
         self.admission = admission if admission is not None else ModelAdmission(store.data_root)
-        store.recover_jobs()
+        from score_artifacts import ScoreArtifacts
+        store.artifacts = ScoreArtifacts(store, self.admission)
+        store.recover_jobs(cancelled=self.stop)
         self.thread = threading.Thread(target=self.work, name="riff-generator", daemon=True)
         self.thread.start()
 
@@ -483,7 +527,8 @@ class Generator:
                                     render_mode=recipe.get("render_mode", "music"),
                                     solver=recipe.get("solver", "midpoint"),
                                     semantic_only=recipe.get("render_mode") == "performance",
-                                    performance_file=self.store.performance_path(recipe["performance_source"]) if recipe.get("performance_source") else None)
+                                    performance_file=self.store.performance_path(recipe["performance_source"]) if recipe.get("performance_source") else None,
+                                    score_file=self.store.artifacts.input_path(Path(output).stem) if recipe.get("score_source") else None)
 
     @staticmethod
     def writer_ready():
@@ -579,10 +624,10 @@ class Generator:
             return {key: session[key] for key in ("id", "job_id", "stage", "footprint", "peak_footprint")} | {
                 "elapsed": time.monotonic() - session["started"]}
 
-    def writing_settings(self, payload):
+    def writing_settings(self, payload, cancelled=None):
         # Validate the settings without imposing a particular story, genre, or form.
         seed = seed_number(payload.get("seed"))
-        checked = validate_recipe({**payload, "seed": str(seed)})
+        checked = self.store.score_recipe(validate_recipe({**payload, "seed": str(seed)}), cancelled=cancelled)
         # Do not turn an unspecified theme or compass position into a constraint.
         settings = {key: value for key, value in checked.items() if value is not None}
         scope = payload.get("write_scope", "all")
@@ -624,15 +669,24 @@ class Generator:
                     if review:
                         settings["reference"]["review"] = {key: review[key] for key in ("id", "model", "focus", "notes", "summary")}
                         settings["reference"]["review"]["generation"] = generation_context(json.loads(review["generation"]))
+        offered = {value["id"]: value for value in self.store.available_scores(checked, cancelled=cancelled)}
+        if reference_id:
+            offered.update({value["id"]: value for value in self.store.available_scores(source, cancelled=cancelled)})
+        settings["available_scores"] = list(offered.values())
         return settings
 
     def write_idea(self, payload, job_id=None, started=None, session=None):
         cloud = payload.get("idea_engine") == "openrouter"
         if not cloud and not self.writer_ready():
             raise ValueError("The local AI writer is not installed. Choose another writer in Ideas from.")
-        settings = self.writing_settings(payload)
+        settings = self.writing_settings(payload, cancelled=session["cancelled"])
         settings["queued_generation"] = bool(job_id)
         if payload.get("task") == "score":
+            if settings.get("score_source"):
+                score = next((value for value in settings["available_scores"] if value["id"] == settings["score_source"]), None)
+                if score is None or score.get("display_error"):
+                    raise ValueError("This saved score's notation is unavailable for editing.")
+                settings["abc"] = score["abc"]
             if not cloud or not settings["abc"].strip() or not settings["brief"].strip():
                 raise ValueError("Open a score and describe the change you want.")
             settings["task"] = "score"
@@ -836,9 +890,12 @@ class Generator:
                 recipe["writer_model"] = idea.get("writer_model", "local")
                 with self.store.db() as db:
                     db.execute("UPDATE jobs SET title=?,recipe=? WHERE id=?", (recipe["title"], json.dumps(recipe), job_id))
-            recipe = self.store.prepare_performance(recipe)
+            recipe = self.store.prepare_performance(recipe, cancelled=cancelled)
             reservation = self.admission.reserve(identity, recipe, "native", cancelled, on_wait=waiting)
             reserved = True
+            recipe = self.store.artifacts.launch(job_id, recipe, cancelled=cancelled)
+            with self.store.db() as db:
+                db.execute("UPDATE jobs SET recipe=? WHERE id=?", (json.dumps(recipe), job_id))
             command = self.command_builder(recipe, output)
             with log_path.open("w") as log, self.lock:
                 if cancelled.is_set() or self.stop.is_set():
@@ -871,7 +928,9 @@ class Generator:
             if self.monitor.libproc:
                 metrics["macos_lifetime_peak_footprint_bytes_observed"] = peak
             output.with_suffix(".metrics.json").write_text(json.dumps(metrics, indent=2) + "\n")
-            recipe = self.store.capture_artifacts(job_id, recipe)
+            # Keep completed stages after user cancellation; application shutdown
+            # can interrupt capture and recover it from the launch receipt later.
+            recipe = self.store.capture_artifacts(job_id, recipe, cancelled=self.stop)
             plan = recipe.get("symbolic_plan")
             with self.store.db() as db:
                 db.execute("UPDATE jobs SET recipe=? WHERE id=?", (json.dumps(recipe), job_id))
@@ -881,9 +940,9 @@ class Generator:
                 if returncode:
                     failure = "The music engine stopped before finishing. Your draft is saved; check the generation log for details."
                 elif recipe.get("render_mode") == "plan":
-                    planned = bool(plan and plan["abc"])
+                    planned = isinstance(plan, dict)
                     if not planned:
-                        failure = "No score was returned. Update the music engine in Studio settings and try again."
+                        failure = (recipe.get("artifact_errors") or {}).get("score") or "No score was returned. Update the music engine in Studio settings and try again."
                 elif recipe.get("render_mode") == "performance":
                     performed = bool(recipe.get("performance"))
                     if not performed:

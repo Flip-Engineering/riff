@@ -10,7 +10,7 @@ shape the composition, and collect the takes you want to keep.
 
 [Get Riff](https://github.com/Flip-Engineering/riff/releases/latest)
 
-The new Apple Silicon desktop installer is in validation. Its flow is **open Riff
+The Apple Silicon desktop installer is available in the release assets. Its flow is **open Riff
 Setup → Install → Open Riff**. It includes the application runtime, Metal engine,
 media tools and local writer, downloads the required models with resumable
 progress, and adds Riff to Applications. Subsequent updates belong to the app.
@@ -37,7 +37,9 @@ The application license does not change the model's terms.
 - **Composition.** Generate YuE2's symbolic plan before rendering music. Edit its
   melody and harmony in a score workspace, change tempo/meter/key, transpose, edit
   notes, audition tones, and import/export ABC or MIDI. Describe a musical change
-  to an optional OpenRouter composer and preview its proposed score.
+  to an optional OpenRouter composer and preview its proposed score. Reuse an
+  unchanged score directly; editing its notation starts a new composition input,
+  and Undo restores the original attachment.
 - **Short studies.** Select a few lyric lines and try a brief take while retaining
   the full draft. Duration and quality shortcuts stay editable.
 - **Compare takes.** Switch A/B at the same listening position, loop a passage,

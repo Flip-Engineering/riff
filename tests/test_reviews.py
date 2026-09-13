@@ -170,6 +170,54 @@ class ReviewTests(StudioFixture):
 
 
 class ReviewClientTests(unittest.TestCase):
+    def test_review_retains_an_offered_score_or_revises_it_without_an_attachment(self):
+        score_id = "riff-score-v1:" + "a" * 64
+        offered = {"id": score_id, "abc": "X:1\nK:Dm\nD4|", "cot": "full", "token_count": 42,
+                   "truncated": False, "compatible": True}
+        source = {**self.source(), "score_source": score_id, "available_scores": [offered]}
+        proposal = self.proposal()
+        proposal["generation"].update(abc="", score_source=score_id)
+        result, request = self.request(json.dumps(proposal), source=source)
+        self.assertEqual((result["generation"]["abc"], result["generation"]["score_source"]), ("", score_id))
+        field = request["response_format"]["json_schema"]["schema"]["properties"]["generation"]["properties"]["score_source"]
+        self.assertEqual(field["enum"], ["", score_id])
+        prompt = request["messages"][0]["content"][0]["text"]
+        symbolic = json.loads(prompt.split("SYMBOLIC REPRESENTATION\n", 1)[1])
+        self.assertEqual(symbolic["available_scores"], [offered])
+        self.assertEqual(symbolic["score_source"], score_id)
+        changed, _ = self.request(json.dumps(self.proposal()), source=source)
+        self.assertTrue(changed["generation"]["abc"])
+        self.assertEqual(changed["generation"]["score_source"], "")
+        proposal["generation"]["score_source"] = "riff-score-v1:" + "b" * 64
+        with self.assertRaisesRegex(ValueError, "score.*not supplied"):
+            self.request(json.dumps(proposal), source=source)
+
+    def test_older_recommendation_defaults_to_no_score_attachment(self):
+        proposal = self.proposal()["generation"]
+        proposal.pop("score_source")
+        accepted = recommended_generation(proposal, self.source(), False)
+        self.assertEqual(accepted["score_source"], "")
+        self.assertEqual(accepted["abc"], proposal["abc"])
+
+    def test_arrangements_keep_individual_native_score_references(self):
+        score_id = "riff-score-v1:" + "a" * 64
+        generated_id = "riff-score-v1:" + "b" * 64
+        source = {**self.source(), "arrangement": {"sources": ["first", "second"], "source_recipes": {
+            "first": {**self.source(), "score_source": score_id, "available_scores": [{"id": score_id, "cot": "full"}]},
+            "second": {**self.source(), "symbolic_plan": {**self.source()["symbolic_plan"], "artifact_id": generated_id}}}}}
+        _, request = self.request(json.dumps(self.proposal()), source=source)
+        prompt = request["messages"][0]["content"][0]["text"]
+        symbolic = json.loads(prompt.split("SYMBOLIC REPRESENTATION\n", 1)[1])
+        self.assertEqual(symbolic["available_scores"], [])
+        first = symbolic["arrangement"]["sources"][0]
+        self.assertEqual(first["inputs"]["score_source"], score_id)
+        self.assertEqual(first["symbolic"]["available_scores"], [{"id": score_id, "cot": "full"}])
+        second = symbolic["arrangement"]["sources"][1]
+        self.assertEqual(second["symbolic"]["generated_score_source"], generated_id)
+        self.assertEqual(second["symbolic"]["generated_abc"], self.source()["symbolic_plan"]["abc"])
+        schema = request["response_format"]["json_schema"]["schema"]["properties"]["generation"]
+        self.assertEqual(schema["properties"]["score_source"]["enum"], [""])
+
     def source(self):
         return {**recipe(steps=19, max_seconds=28, cfg_scale=1.4, temperature=.9,
                          refinement={"semantic_top_p":.85}),

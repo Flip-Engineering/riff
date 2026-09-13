@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import threading
 import time
+import uuid
 
 from paths import ROOT, WORKSPACE, MODELS
 import platform_support
@@ -100,6 +101,14 @@ class ModelAdmission:
                                         stderr=self.log, bufsize=0, env={**os.environ, "RELEASE_DISTRIBUTION": "none"})
         self.buffer = b""
 
+    def supports_artifacts(self):
+        """Read-only availability check; source-only installs can retain legacy scores."""
+        try:
+            self._command()
+        except SchedulerNotInstalled:
+            return False
+        return True
+
     def _exchange(self, payload):
         with self.lock:
             self._ensure()
@@ -132,6 +141,49 @@ class ModelAdmission:
                         self._dispose()
                         raise SchedulerUnavailable("Waiting for the resource scheduler to recover")
                     self.buffer += chunk
+
+    def artifact(self, action, arguments, cancelled=None, on_wait=None):
+        """Run file work in the existing control VM, without holding admission's lock while waiting."""
+        if action not in ("capture", "resolve", "prepare") or not isinstance(arguments, dict):
+            raise ValueError("Choose a supported saved-score operation.")
+        cancelled = cancelled if cancelled is not None else threading.Event()
+        identity = uuid.uuid4().hex
+        terminal = False
+        try:
+            if cancelled.is_set() or self.closed:
+                raise AdmissionCancelled()
+            result = self._exchange({**arguments, "op": "artifact_start", "id": identity, "action": action})
+            if result.get("state") != "started" or result.get("id") != identity:
+                raise SchedulerUnavailable("The score operation could not start. Its existing files are kept.")
+            while True:
+                if cancelled.is_set() or self.closed:
+                    raise AdmissionCancelled()
+                result = self._exchange({"op": "artifact_result", "id": identity})
+                if result.get("id") != identity:
+                    raise SchedulerUnavailable("The score operation was interrupted. Try it again.")
+                state = result.get("state")
+                if state in ("complete", "failed"):
+                    terminal = True  # The port consumes this operation's terminal result.
+                    if state == "failed":
+                        raise ValueError(result.get("error", "The saved score could not be prepared."))
+                    if not isinstance(result.get("result"), dict):
+                        raise SchedulerUnavailable("The score operation returned an invalid result.")
+                    return result["result"]
+                if state != "working":
+                    raise SchedulerUnavailable("The score operation was interrupted. Try it again.")
+                if on_wait:
+                    on_wait()
+                # File IO and fsync happen in the port's owned worker. Other
+                # threads can estimate/admit/release model work during this wait.
+                cancelled.wait(.05)
+        finally:
+            if not terminal:
+                with self.lock:
+                    if not self.closed and self.process and self.process.poll() is None:
+                        try:
+                            self._exchange({"op": "artifact_cancel", "id": identity})
+                        except (SchedulerUnavailable, AdmissionCancelled, ValueError):
+                            pass
 
     def estimate(self, inputs, cancelled=None, on_wait=None):
         while True:
@@ -283,7 +335,9 @@ def resource_inputs(recipe, kind, observer, writer_settings=None):
             "backend": backend, "device": observation.get("device_identity") or f"cuda:{configured['device']}",
             "text_bytes": len(text.encode()), "seconds": recipe.get("max_seconds", 0),
             "writer_tokens": recipe.get("writer_tokens", 768), "cfg_scale": recipe.get("cfg_scale", 1.0),
-            "planning": not writer and recipe.get("cot", "off") != "off" and not recipe.get("abc", "").strip(),
+            "planning": not writer and recipe.get("cot", "off") != "off" and not recipe.get("abc", "").strip() and not recipe.get("score_source"),
+            **({"prefix_tokens": len(text.encode()) + recipe["score_input"]["token_count"]}
+               if not writer and recipe.get("score_source") and recipe.get("score_input") else {}),
             # 4096 is the pinned native fallback in assets.cpp; installed
             # generation sidecars and explicit artist overrides take priority.
             "planning_tokens": recipe.get("refinement", {}).get("abc_max_tokens", generation.get("abc", {}).get("max_tokens", 4096)),

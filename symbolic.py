@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 
-def read_plan(path, vocabulary):
+def read_plan(path, vocabulary, write=True):
     path = Path(path)
     if not path.is_file():
         return None
@@ -22,5 +22,6 @@ def read_plan(path, vocabulary):
     # ABC end-of-sequence markers have no entry in the mergeable vocabulary.
     text = b"".join(tokens.get(token, b"") for token in ids).decode("utf-8", errors="replace").strip()
     result = {"abc": text, "truncated": bool(plan.get("truncated")), "token_count": len(ids)}
-    path.with_suffix(".abc").write_text(text + "\n")
+    if write:
+        path.with_suffix(".abc").write_text(text + "\n")
     return result

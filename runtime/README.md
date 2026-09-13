@@ -73,3 +73,24 @@ in `tests/test_studio.py`. The latter use a controllable admission boundary, so
 they do not load models or require Elixir on unrelated application test jobs.
 Actual packaged-runtime and model-overlap receipts are kept in the private
 research directory, separately from automated fixture proof.
+
+## Saved scores
+
+`Riff.Runtime.ScoreArtifact` validates and stores exact native planning tokens.
+An immutable descriptor binds their bytes, tokenizer/format contract and launch
+provenance. Capture and job-copy publication sync files and directories; retries
+verify existing bytes. The Python library adapter records references and derives
+readable notation from the captured tokenizer snapshot. This work shares the
+existing control VM with admission.
+
+`artifact_start`, `artifact_result` and `artifact_cancel` supervise file operations
+without holding the scheduling request channel for their duration. Results are
+consumed once; cancellation affects only its owned worker. Resolve accepts the
+recorded contract for historical viewing, while prepare requires an explicit
+compatible contract. Queue shutdown interrupts pending operations and retains
+launch receipts for recovery. User cancellation can salvage a completed score.
+
+Tests in `installer/test/score_artifact_test.exs` and `scheduler_port_test.exs`
+cover publication, exact integer/key parsing and concurrent admission. The
+Python-to-Elixir integration suite is `tests/test_score_integration.py`; control
+CI runs it explicitly, while application jobs without Elixir report a skip.

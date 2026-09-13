@@ -172,7 +172,10 @@ $("#footer-about").addEventListener("click", () =>
 );
 
 let draftRefinement = {};
+let draftScoreSource = "", draftScoreText = "";
 function formRecipe() {
+  if (draftScoreSource && ($("#abc").value !== draftScoreText || $("#planning").value === "off"))
+    draftScoreSource = "";
   return {
     ...draftOrigin,
     render_mode: $("#render-mode").value,
@@ -187,7 +190,8 @@ function formRecipe() {
     solver: $("#solver").value,
     cot: $("#planning").value,
     seed: $("#seed").value.trim(),
-    abc: $("#planning").value === "off" ? "" : $("#abc").value,
+    score_source: draftScoreSource,
+    abc: $("#planning").value === "off" || draftScoreSource ? "" : $("#abc").value,
     abc_draft: $("#abc").value,
     refinement: { ...draftRefinement },
     mode: $("[name=creation-mode]:checked").value,
@@ -243,6 +247,7 @@ function updateForm() {
       String(preset?.style === $("#style").value),
     );
   });
+  window.RiffScore?.syncDraft();
 }
 function saveDraft() {
   updateForm();
@@ -350,7 +355,11 @@ function fillRecipe(recipe, variation = false) {
   $("#duration").value = recipe.max_seconds || 30;
   $("#planning").value = recipe.cot || "off";
   $("#seed").value = variation ? "" : recipe.seed || "";
-  $("#abc").value = recipe.cot === "off" ? recipe.abc_draft ?? recipe.abc ?? "" : recipe.abc ?? "";
+  draftScoreSource = recipe.score_source || "";
+  $("#abc").value = draftScoreSource
+    ? recipe.abc_draft ?? recipe.symbolic_plan?.abc ?? recipe.abc ?? ""
+    : recipe.cot === "off" ? recipe.abc_draft ?? recipe.abc ?? "" : recipe.abc ?? "";
+  draftScoreText = $("#abc").value;
   draftRefinement = { ...(recipe.refinement || {}) };
   window.RiffControls?.fill(draftRefinement);
 
@@ -630,7 +639,7 @@ $("#variation").addEventListener("click", () => {
 $("#refine-performance").addEventListener("click", () => {
   if (!selected?.recipe?.performance) return;
   openRecipe({ ...selected.recipe, title: selected.title,
-    abc: selected.recipe.abc || selected.recipe.symbolic_plan?.abc || "",
+    abc: selected.recipe.score_source ? "" : selected.recipe.abc || selected.recipe.symbolic_plan?.abc || "",
     max_seconds: selected.recipe.performance.frames / 25,
     parent_track_id: selected.id, performance_source: selected.id, review_id: "", render_mode: "music" }, true);
   saveDraft(); showView("studio"); $("#style").focus();
@@ -941,7 +950,7 @@ document.addEventListener("click", async (event) => {
       const job = await api(`/api/jobs/${finish.dataset.finishPerformance}`);
       const recipe = job.recipe;
       openRecipe({ ...recipe, performance_source: job.id, render_mode: "music",
-        abc: recipe.abc || recipe.symbolic_plan?.abc || "",
+        abc: recipe.score_source ? "" : recipe.abc || recipe.symbolic_plan?.abc || "",
         max_seconds: recipe.performance.frames / 25 });
       $("#style").focus();
       notify("Your performance is ready to shape.");

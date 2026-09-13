@@ -66,7 +66,10 @@ defmodule Riff.Runtime.ScoreArtifact do
       {:ok, %{type: :directory}} ->
         # Repeated capture is idempotent, but existing changed bytes are never
         # repaired silently or replaced by a new capture of the same reference.
-        resolve!(root, id, contract)
+        artifact = resolve!(root, id, contract)
+        # Finish a prior rename-before-parent-sync interruption on retry too.
+        Riff.Installer.Lock.sync_directory!(root)
+        artifact
 
       {:error, :enoent} ->
         staging =
@@ -99,18 +102,33 @@ defmodule Riff.Runtime.ScoreArtifact do
     end
   end
 
+  @doc "Capture only a regular file inside the caller's canonical owned output root."
+  def capture_file!(root, source_root, source_path, contract, provenance) do
+    source_root = directory!(source_root)
+
+    check!(
+      is_binary(source_path) and Path.expand(source_path) == source_path and
+        String.starts_with?(source_path, source_root <> "/"),
+      "The score output is outside its owned job directory."
+    )
+
+    directory!(Path.dirname(source_path))
+    capture!(root, regular_bytes!(source_path), contract, provenance)
+  end
+
   @doc "Verify descriptor and raw bytes against the selected tokenizer and prefix format."
   def resolve!(root, id, contract) do
     root = directory!(root)
-    contract = contract!(contract)
+    selected_contract = if is_nil(contract), do: nil, else: contract!(contract)
     directory = artifact_path!(root, id) |> directory!()
     encoded = regular_bytes!(Path.join(directory, "descriptor.json"))
     check!(@prefix <> digest(encoded) == id, "The saved score descriptor has changed.")
     descriptor = Jason.decode!(encoded)
     check!(descriptor["format_version"] == 1, "The saved score format is not supported.")
+    recorded_contract = contract!(descriptor["contract"])
 
     check!(
-      descriptor["contract"] == contract,
+      is_nil(selected_contract) or recorded_contract == selected_contract,
       "This score uses a different tokenizer or score format."
     )
 
@@ -123,6 +141,7 @@ defmodule Riff.Runtime.ScoreArtifact do
 
   @doc "Create or verify an independent input for an owned job; retries retain the same bytes."
   def prepare!(root, id, contract, input_directory) do
+    contract = contract!(contract)
     artifact = resolve!(root, id, contract)
     input_directory = directory!(input_directory)
     target = Path.join(input_directory, "score.json")
@@ -133,11 +152,18 @@ defmodule Riff.Runtime.ScoreArtifact do
       "The saved score changed before generation."
     )
 
-    case File.open(target, [:write, :exclusive, :binary, :raw]) do
-      {:ok, file} -> write_open!(file, bytes)
-      {:error, :eexist} -> :ok
-      {:error, reason} -> raise File.Error, reason: reason, action: "prepare score", path: target
-    end
+    existing_input? =
+      case File.open(target, [:write, :exclusive, :binary, :raw]) do
+        {:ok, file} ->
+          write_open!(file, bytes)
+          false
+
+        {:error, :eexist} ->
+          true
+
+        {:error, reason} ->
+          raise File.Error, reason: reason, action: "prepare score", path: target
+      end
 
     check!(
       digest(regular_bytes!(target)) == digest(bytes),
@@ -151,6 +177,18 @@ defmodule Riff.Runtime.ScoreArtifact do
       original.inode != copied.inode or original.major_device != copied.major_device,
       "The generation input aliases its saved score."
     )
+
+    # A retry after write-before-sync must persist the file, not only verify
+    # its currently visible bytes. Directory sync alone cannot do that.
+    if existing_input? do
+      {:ok, file} = File.open(target, [:read, :binary, :raw])
+
+      try do
+        :ok = :file.sync(file)
+      after
+        File.close(file)
+      end
+    end
 
     Riff.Installer.Lock.sync_directory!(input_directory)
     Map.put(artifact, "input_path", target)

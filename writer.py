@@ -61,7 +61,7 @@ def edit_score(payload):
             raise ValueError()
     except (ValueError, TypeError, AttributeError):
         raise ValueError("The composer returned an incomplete score. Your current score is kept.") from None
-    return {"abc": value["abc"], "summary": value["summary"], "writer_model": payload["model"]}
+    return {"abc": value["abc"], "score_source": "", "summary": value["summary"], "writer_model": payload["model"]}
 
 
 def writing_context(payload):
@@ -91,6 +91,12 @@ def written_generation(value, payload, partial=False):
         # fields. Every supported field still participates in the same recipe.
         proposal = proposal if proposal is not None else {key: item for key, item in value.items() if key in FIELDS}
         if isinstance(proposal, dict):
+            # A changed score input replaces the inherited alternative. Keep
+            # both explicit inputs for the common validator to check.
+            if "abc" in proposal and "score_source" not in proposal:
+                proposal = {**proposal, "score_source": ""}
+            elif proposal.get("score_source") and "abc" not in proposal:
+                proposal = {**proposal, "abc": ""}
             proposal = {**{key: source[key] for key in FIELDS}, **proposal}
     if not isinstance(proposal, dict):
         raise ValueError("The writer returned no generation recipe. Your current draft is kept.")
@@ -131,8 +137,12 @@ def write(payload, raw_path=None):
         'Use actual musical direction, original words and valid complete ABC when useful, with purposeful generation '
         'settings, not abstract instructions. Melody, chord symbols, key, meter, tempo, multiple voices, dynamics '
         'and arrangement can be expressed in ABC; notation guides the music but does not guarantee exact performance. '
-        'YuE2 can also compose its own score when abc is empty: cot melody plans a melody, full plans melody and chords. '
-        'The current cot off is the artist\'s Direct choice: keep abc empty unless the request invites changing planning. '
+        'To retain an exact native score, select its ID from symbolic.available_scores in score_source and leave abc empty. '
+        'To revise the notation, provide complete abc and leave score_source empty. Displayed ABC is an editing view '
+        'and may not represent every saved native token. Leave both empty for a new composition: cot melody plans '
+        'a melody, full plans melody and chords. An arrangement retains its individual source score references; '
+        'do not treat their notation as one exact combined score. '
+        'The current cot off is the artist\'s Direct choice: keep both score inputs empty unless the request invites changing planning. '
         'Planning sampling controls matter when YuE2 composes, while semantic controls shape fresh music codes; '
         'acoustic steps and solver shape the sound. Preserve useful settings and overrides; change them when it serves '
         'the request. A schema field being available does not mean it must be changed or overridden. '

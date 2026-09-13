@@ -1,5 +1,5 @@
 defmodule Riff.Runtime.ScoreArtifactTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
   alias Riff.Runtime.ScoreArtifact, as: Score
 
   @contract %{
@@ -203,5 +203,82 @@ defmodule Riff.Runtime.ScoreArtifactTest do
     end
 
     assert File.read!(Path.join(staging, "score.json")) == ~s({"tokens":[)
+  end
+
+  test "file capture reads only owned regular descendants and preserves the original", %{
+    root: root
+  } do
+    output = Path.join(root, "job")
+    File.mkdir!(output)
+    source = Path.join(output, "result.plan.json")
+    bytes = ~s({"tokens":[],"truncated":true})
+    File.write!(source, bytes)
+    artifact = Score.capture_file!(root, output, source, @contract, %{"job" => "owned"})
+    assert File.read!(artifact["path"]) == bytes
+    assert File.read!(source) == bytes
+
+    assert_raise Score.Error, fn ->
+      Score.capture_file!(root, output, artifact["path"], @contract, %{})
+    end
+
+    assert_raise Score.Error, fn ->
+      Score.capture_file!(root, output, output <> "/../job/result.plan.json", @contract, %{})
+    end
+
+    linked = Path.join(output, "linked.plan.json")
+    File.ln_s!(source, linked)
+    assert_raise Score.Error, fn -> Score.capture_file!(root, output, linked, @contract, %{}) end
+    assert File.read!(source) == bytes
+  end
+
+  test "retry completes the rename and input-write durability boundaries", %{root: root} do
+    bytes = ~s({"tokens":[22]})
+    artifact = Score.capture!(root, bytes, @contract, %{})
+
+    # The existing directory is the state visible after rename and before the
+    # parent sync. Verify the successful retry includes the native sync call.
+    capture_calls =
+      sync_calls(fn -> assert Score.capture!(root, bytes, @contract, %{}) == artifact end)
+
+    assert {Riff.Installer.Lock, :sync_directory!, [root]} in capture_calls
+
+    inputs = Path.join(root, "interrupted-input")
+    File.mkdir!(inputs)
+    # Model a complete visible write whose originating call ended before fsync.
+    File.write!(Path.join(inputs, "score.json"), bytes)
+    prepare_calls = sync_calls(fn -> Score.prepare!(root, artifact["id"], @contract, inputs) end)
+    assert Enum.any?(prepare_calls, fn {module, name, _} -> module == :file and name == :sync end)
+    assert {Riff.Installer.Lock, :sync_directory!, [inputs]} in prepare_calls
+    assert File.read!(Path.join(inputs, "score.json")) == bytes
+    assert File.read!(artifact["path"]) == bytes
+  end
+
+  defp sync_calls(operation) do
+    tracer = spawn(fn -> collect_sync_calls([]) end)
+    :erlang.trace_pattern({:file, :sync, 1}, true, [])
+    :erlang.trace_pattern({Riff.Installer.Lock, :sync_directory!, 1}, true, [])
+    :erlang.trace(self(), true, [:call, {:tracer, tracer}])
+
+    try do
+      operation.()
+      :erlang.trace(self(), false, [:call])
+      barrier = :erlang.trace_delivered(self())
+      assert_receive {:trace_delivered, _, ^barrier}
+      send(tracer, {:finish, self()})
+      assert_receive {:sync_calls, calls}
+      calls
+    after
+      :erlang.trace(self(), false, [:call])
+      :erlang.trace_pattern({:file, :sync, 1}, false, [])
+      :erlang.trace_pattern({Riff.Installer.Lock, :sync_directory!, 1}, false, [])
+      if Process.alive?(tracer), do: Process.exit(tracer, :kill)
+    end
+  end
+
+  defp collect_sync_calls(calls) do
+    receive do
+      {:trace, _, :call, call} -> collect_sync_calls([call | calls])
+      {:finish, observer} -> send(observer, {:sync_calls, Enum.reverse(calls)})
+    end
   end
 end

@@ -85,7 +85,8 @@ def readiness():
     required = [value["model_file"], value["vae_file"], "sidecars/yue2-model-config.json",
                 "sidecars/yue2-generation-config.json", "sidecars/yue2-vae-config.json", "sidecars/yue2-qwen.tiktoken"]
     missing = [name for name in required if not (model_root / name).is_file()]
-    return {**value, "ready": Path(value["binary"]).is_file() and not missing,
+    from run import engine_capabilities
+    return {**value, "capabilities": engine_capabilities(value), "ready": Path(value["binary"]).is_file() and not missing,
             "binary_ready": Path(value["binary"]).is_file(), "missing_models": missing,
             "platform": platform.system(), "architecture": platform.machine()}
 

@@ -1,10 +1,11 @@
 """A producer's next take uses the studio's generation contract."""
 import math
+import re
 
 import model_options
 from studio_core import validate_recipe
 
-FIELDS = ("title", "lyrics", "style", "abc", "mode", "cot", "max_seconds",
+FIELDS = ("title", "lyrics", "style", "abc", "score_source", "mode", "cot", "max_seconds",
           "steps", "solver", "cfg_scale", "temperature", "seed", "refinement", "performance_source", "render_mode")
 
 
@@ -14,12 +15,30 @@ def generation_context(source):
     return {key: source[key] for key in keys if key in source}
 
 
+def available_scores(source):
+    """Only studio-offered native scores can be selected by a provider."""
+    offered = source.get("available_scores")
+    if not isinstance(offered, list):
+        return []
+    fields = ("id", "title", "abc", "cot", "token_count", "truncated", "sha256", "bytes",
+              "source_track_id", "source_job_id", "provenance", "compatible", "display_error")
+    scores = {}
+    for score in offered:
+        if (isinstance(score, dict) and score.get("compatible") is not False and
+                isinstance(score.get("id"), str) and re.fullmatch(r"riff-score-v1:[a-f0-9]{64}", score["id"])):
+            scores[score["id"]] = {key: score[key] for key in fields if key in score}
+    return list(scores.values())
+
+
 def _native_symbolic_context(source):
     plan = source.get("symbolic_plan") or {}
     if not isinstance(plan, dict):
         plan = {}
     return {"supplied_abc": source.get("abc", ""),
+            "score_source": source.get("score_source", ""),
+            "available_scores": available_scores(source),
             "generated_abc": plan.get("abc", ""),
+            "generated_score_source": plan.get("artifact_id", ""),
             "generated_plan_truncated": bool(plan.get("truncated", False)),
             "generated_plan_token_count": plan.get("token_count")}
 
@@ -70,10 +89,12 @@ def response_schema(source, keep_lyrics):
         "title": {"type": "string", "description": "Title of the recommended take."},
         "lyrics": {"type": "string", "description": "The complete lyric input, or empty for a wordless take."},
         "style": {"type": "string", "description": "The actual YuE2 musical direction, ready to generate."},
-        "abc": {"type": "string", "description": "Complete ABC score to condition the next take, or empty to let YuE2 compose."},
+        "abc": {"type": "string", "description": "Complete revised ABC score with score_source empty. Keep abc empty to retain an offered exact score; leave both empty for a new composition."},
+        "score_source": {"type": "string", "enum": [""] + [score["id"] for score in available_scores(source)],
+                         "description": "An offered exact native score ID, with abc empty and cot melody or full. Reuses the saved score tokens, not the prior audio or music codes. Leave empty for revised ABC or a new composition. Displayed ABC is an editing view and need not preserve every native token."},
         "mode": {"type": "string", "enum": ["free", "instrumental", "lyrics", "surprise"]},
         "cot": {"type": "string", "enum": ["off", "melody", "full"],
-                "description": "YuE2 planning: off, melody, or melody and chords. A supplied ABC score needs melody or full."},
+                "description": "YuE2 planning: off, melody, or melody and chords. Supplied ABC or an exact saved score needs melody or full."},
         "max_seconds": {"type": "number", "minimum": 1 / model_options.TOKEN_RATE,
                         "description": "Requested duration limit in seconds. Keep the artist's preview scope."},
         "steps": {"type": "integer", "minimum": 1, "description": "Acoustic solver steps."},
@@ -106,7 +127,7 @@ def validate_generation(value, source, keep_lyrics=False):
     """Validate a complete composer or producer recipe at the common boundary."""
     if not isinstance(value, dict) or set(value) != set(FIELDS):
         raise ValueError("The model did not return a complete generation recipe. Your current draft is kept.")
-    for key in ("title", "lyrics", "style", "abc", "mode", "cot", "seed", "performance_source", "render_mode", "solver"):
+    for key in ("title", "lyrics", "style", "abc", "score_source", "mode", "cot", "seed", "performance_source", "render_mode", "solver"):
         if not isinstance(value[key], str):
             raise ValueError(f"The recommended {key} must be text.")
     for key in ("max_seconds", "cfg_scale", "temperature"):
@@ -117,6 +138,8 @@ def validate_generation(value, source, keep_lyrics=False):
     lyrics = source.get("lyrics", "") if keep_lyrics else value["lyrics"]
     if value["performance_source"] and value["performance_source"] != source.get("performance_track_id"):
         raise ValueError("The model selected a performance that was not supplied for this request.")
+    if value["score_source"] and value["score_source"] not in {score["id"] for score in available_scores(source)}:
+        raise ValueError("The model selected a score that was not supplied for this request.")
     # These are the same validation and defaults used by POST /api/generations.
     # Origin links come from the studio, never from the model.
     result = validate_recipe({**source, **value, "lyrics": lyrics, "title_auto": False,
@@ -130,5 +153,5 @@ def validate_generation(value, source, keep_lyrics=False):
 def recommended_generation(value, source, keep_lyrics):
     if isinstance(value, dict):
         # Recommendations made by earlier installed producers remain runnable.
-        value = {"performance_source": "", "render_mode": "music", "solver": "midpoint", **value}
+        value = {"performance_source": "", "score_source": "", "render_mode": "music", "solver": "midpoint", **value}
     return validate_generation(value, source, keep_lyrics)

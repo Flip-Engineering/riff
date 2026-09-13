@@ -15,7 +15,7 @@ API to Riff and records remaining stage-reuse and composition workflows.
 | Melody and harmony planning | Composition: Melody / Melody and chords |
 | Direct music generation | Composition: Off |
 | Compose before rendering audio | Compose a new score |
-| Supply or reuse a composition | ABC import, prior score, editable draft |
+| Supply or reuse a composition | ABC import, exact saved-score attachment, editable draft |
 | Reharmonize or change arrangement | Score editor and optional plain-language composer |
 | Develop a complete musical idea | Local AI or OpenRouter writer; complete editable generation recipe, source score and listening context |
 | Reinterpret an existing score | Import ABC, supply lyrics/style, choose a planning mode |
@@ -39,7 +39,28 @@ quantizations as those features. Cover-style work accepts a supplied score and
 lyrics; there is no transcription pipeline.
 
 The composition workspace captures the actual ABC planning tokens from audio.cpp.
-Pinned patches add score export, score-only composition, performance-code capture,
+**Use this score** retains those tokens for subsequent generations, including
+valid empty scores. It skips composing another score while leaving the sound,
+lyrics, music sampling and acoustic controls editable. The displayed ABC is an
+editing view: changing it, importing notation or accepting an altered composer
+proposal replaces the attachment. Undo restores the original score and planning
+mode. Direct generation detaches the score and preserves the readable draft.
+
+Agents use the opaque `score_source` reference with `abc` empty and `cot=melody`
+or `full`. `GET /api/scores/{score_source}` describes an owned score and whether
+the selected engine can replay it. The studio verifies the captured tokenizer
+and format, then prepares independent inputs for each job. Saved notation stays
+viewable when a different engine is selected; compatibility gates reuse. A
+notation-display error retains the verified score reference. Legacy scores
+without captured tokenizer provenance remain available as editable ABC.
+
+Writers and producer reviews receive verified available scores, their readable
+notation, previous inputs and symbolic context. They can retain a score by
+reference, supply revised ABC, or leave both inputs empty for a new composition.
+Saved-performance rendering carries its original score reference forward, so
+re-encoding display text cannot silently change the conditioning tokens.
+
+Pinned patches add score export and replay, score-only composition, performance-code capture,
 optional conditioning and acoustic progress. They also release completed prefix
 graphs and share temporary cache-upload storage across layers. Metal uses an F16
 static attention cache, as CUDA already does; this may change sampling compared
@@ -110,7 +131,7 @@ These operations are also listed at `/api/capabilities`.
 
 The CLI saves performance codes automatically. To re-render them, use
 `--performance saved.codes.i32` with the source's lyrics, style, planning mode and
-ABC. `--performance-only` saves the code stream before acoustic synthesis. These
+`--score-tokens saved.plan.json` (or editable `--abc`). `--performance-only` saves the code stream before acoustic synthesis. These
 options operate on the model's own output; they do not infer notation from audio.
 
 All optional numeric controls validate the runtime's physical or mathematical

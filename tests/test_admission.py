@@ -8,7 +8,7 @@ import time
 import unittest
 from unittest.mock import patch
 
-from model_admission import AdmissionCancelled, ModelAdmission, SchedulerNotInstalled, resource_inputs
+from model_admission import AdmissionCancelled, ModelAdmission, SchedulerNotInstalled, SchedulerUnavailable, resource_inputs
 import platform_support
 from studio_core import Generator
 
@@ -24,6 +24,35 @@ for line in sys.stdin:
     text=json.dumps(result,ensure_ascii=False)+'\n'
     sys.stdout.write(text[:len(text)//2]);sys.stdout.flush()
     sys.stdout.write(text[len(text)//2:]);sys.stdout.flush()
+'''
+
+
+ARTIFACT_FIXTURE = r'''
+import json,sys
+operations={}
+for line in sys.stdin:
+    message=json.loads(line); op=message['op']; identity=message.get('id')
+    if op=='artifact_start':
+        operations[identity]=message
+        result={'state':'started','id':identity}
+    elif op=='artifact_result':
+        request=operations.get(identity)
+        if request is None or request.get('missing'): result={'state':'missing','id':identity}
+        elif request.get('wait'): result={'state':'working','id':identity}
+        elif request.get('fail'):
+            operations.pop(identity)
+            result={'state':'failed','id':identity,'error':'Saved score bytes changed.'}
+        else:
+            operations.pop(identity)
+            result={'state':'complete','id':identity,'result':{'path':'owned/score.json','token_count':0}}
+    elif op=='artifact_cancel':
+        operations.pop(identity,None)
+        result={'state':'cancelled','id':identity}
+    elif op=='estimate': result={'state':'estimated','requirement':{'host_peak':1024}}
+    elif op=='request': result={'state':'admitted'}
+    elif op=='release': result={'state':'released'}
+    else: result={'state':'status','operations':list(operations)}
+    print(json.dumps(result),flush=True)
 '''
 
 
@@ -162,6 +191,91 @@ class AdmissionBridgeTests(unittest.TestCase):
             self.assertIn("--no-compile", command)
             self.assertIn("--no-deps-check", command)
             scheduler.close()
+
+
+class ArtifactBridgeTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.control = ModelAdmission(Path(self.temp.name), observer=Observation(),
+                                      command=[sys.executable, "-u", "-c", ARTIFACT_FIXTURE])
+        self.addCleanup(self.control.close)
+
+    def test_consumes_complete_and_failed_results_in_the_existing_model_control(self):
+        self.control.acquire("music", {"host_peak": 1024}, threading.Event())
+        process = self.control.process
+        result = self.control.artifact("resolve", {})
+        self.assertEqual(result, {"path": "owned/score.json", "token_count": 0})
+        with self.assertRaisesRegex(ValueError, "bytes changed"):
+            self.control.artifact("resolve", {"fail": True})
+        self.assertIs(self.control.process, process)
+        self.assertTrue(self.control.entries["music"]["admitted"])
+        self.assertEqual(self.control._exchange({"op": "status"})["operations"], [])
+        self.control.release("music")
+
+    def test_waiting_file_work_leaves_admission_available_and_cancel_owns_only_its_worker(self):
+        waiting, cancel = threading.Event(), threading.Event()
+        results = []
+        def prepare():
+            try:
+                self.control.artifact("prepare", {"wait": True}, cancel, waiting.set)
+            except AdmissionCancelled:
+                results.append("cancelled")
+        thread = threading.Thread(target=prepare)
+        thread.start()
+        try:
+            self.assertTrue(waiting.wait(5))
+            original = self.control.process
+            # This must complete while the file operation is still pending.
+            self.assertEqual(self.control.estimate({}), {"host_peak": 1024})
+            self.control.acquire("writer", {"host_peak": 1024}, threading.Event())
+            self.assertTrue(self.control.entries["writer"]["admitted"])
+            self.assertTrue(thread.is_alive())
+            cancel.set()
+            thread.join(5)
+            self.assertFalse(thread.is_alive())
+            self.assertEqual(results, ["cancelled"])
+            self.assertIs(self.control.process, original)
+            self.assertTrue(self.control.entries["writer"]["admitted"])
+            self.assertEqual(self.control._exchange({"op": "status"})["operations"], [])
+        finally:
+            cancel.set()
+            thread.join(5)
+            self.control.release("writer")
+
+    def test_shutdown_does_not_restart_a_control_for_cancel_cleanup(self):
+        waiting = threading.Event()
+        results = []
+        def prepare():
+            try:
+                self.control.artifact("capture", {"wait": True}, on_wait=waiting.set)
+            except AdmissionCancelled:
+                results.append("closed")
+        thread = threading.Thread(target=prepare)
+        thread.start()
+        self.assertTrue(waiting.wait(5))
+        original = self.control.process
+        self.control.close()
+        thread.join(5)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(results, ["closed"])
+        self.assertIsNone(self.control.process)
+        self.assertIsNotNone(original.returncode)
+
+    def test_missing_result_is_an_explicit_retry_and_forgets_only_that_operation(self):
+        self.control.acquire("music", {"host_peak": 1024}, threading.Event())
+        with self.assertRaisesRegex(SchedulerUnavailable, "Try it again"):
+            self.control.artifact("resolve", {"missing": True})
+        self.assertTrue(self.control.entries["music"]["admitted"])
+        self.assertEqual(self.control._exchange({"op": "status"})["operations"], [])
+        self.control.release("music")
+
+    def test_cancelled_call_never_starts_the_control(self):
+        cancel = threading.Event()
+        cancel.set()
+        with self.assertRaises(AdmissionCancelled):
+            self.control.artifact("capture", {}, cancel)
+        self.assertIsNone(self.control.process)
 
 
 class ResourceObservationTests(unittest.TestCase):
