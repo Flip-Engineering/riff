@@ -90,6 +90,7 @@ defmodule Riff.Installer.Session do
        message: nil,
        task: nil,
        lock: nil,
+       operation_lock: nil,
        operation_id: nil,
        app: nil
      }}
@@ -105,8 +106,18 @@ defmodule Riff.Installer.Session do
     do: {:reply, {:error, :busy, public(state)}, state}
 
   def handle_call(:install, _from, state) do
-    case Lock.acquire(if(state.payload, do: state.install_root, else: state.destination)) do
-      {:ok, lock} ->
+    claim =
+      if state.payload do
+        Lock.acquire_installation(state.install_root)
+      else
+        case Lock.acquire(state.destination) do
+          {:ok, lock} -> {:ok, lock, nil}
+          error -> error
+        end
+      end
+
+    case claim do
+      {:ok, lock, operation_lock} ->
         server = self()
         operation_id = Base.url_encode64(:crypto.strong_rand_bytes(16), padding: false)
 
@@ -123,6 +134,7 @@ defmodule Riff.Installer.Session do
             message: nil,
             task: task,
             lock: lock,
+            operation_lock: operation_lock,
             operation_id: operation_id,
             app: nil
         }
@@ -170,6 +182,20 @@ defmodule Riff.Installer.Session do
 
   def handle_call({:message, _, _, _}, _from, state), do: {:reply, :cancelled, state}
 
+  def handle_call(
+        {:activation_committed, operation_id},
+        {worker, _},
+        %{operation_id: operation_id, task: %{pid: worker}, state: :installing} = state
+      ) do
+    # The operation guard still excludes other setup/update attempts. The studio
+    # must own the root lock for its first-start engine journal before it can serve HTTP.
+    Lock.release(state.lock)
+    {:reply, :ok, %{state | lock: nil}}
+  end
+
+  def handle_call({:activation_committed, _}, _from, state),
+    do: {:reply, :cancelled, state}
+
   def handle_call(:open, _from, %{state: :ready} = state) do
     with {:ok, app} <- check_app(state),
          opener when is_function(opener, 1) <-
@@ -209,12 +235,14 @@ defmodule Riff.Installer.Session do
   def handle_info({reference, result}, %{task: %{ref: reference}} = state) do
     Process.demonitor(reference, [:flush])
     Lock.release(state.lock)
+    Lock.release(state.operation_lock)
     next = if state.state == :cancelling, do: cancelled(state), else: finish(result, state)
-    {:noreply, %{next | task: nil, lock: nil}}
+    {:noreply, %{next | task: nil, lock: nil, operation_lock: nil}}
   end
 
   def handle_info({:DOWN, reference, :process, _pid, _reason}, %{task: %{ref: reference}} = state) do
     Lock.release(state.lock)
+    Lock.release(state.operation_lock)
 
     next =
       if state.state == :cancelling do
@@ -229,18 +257,19 @@ defmodule Riff.Installer.Session do
         }
       end
 
-    {:noreply, %{next | task: nil, lock: nil}}
+    {:noreply, %{next | task: nil, lock: nil, operation_lock: nil}}
   end
 
-  def handle_info({port, {:exit_status, _}}, %{lock: port, task: task} = state)
-      when task != nil do
+  def handle_info({port, {:exit_status, _}}, %{task: task} = state)
+      when task != nil and (state.lock == port or state.operation_lock == port) do
     Process.exit(task.pid, :shutdown)
 
     {:noreply,
      %{
        state
        | state: :error,
-         lock: nil,
+         lock: if(state.lock == port, do: nil, else: state.lock),
+         operation_lock: if(state.operation_lock == port, do: nil, else: state.operation_lock),
          error: "Setup lost access to its download folder. Choose Continue to resume it."
      }}
   end
@@ -252,6 +281,7 @@ defmodule Riff.Installer.Session do
     # Wait for the writer to close before allowing another installer to claim the folder.
     if state.task, do: Task.shutdown(state.task)
     Lock.release(state.lock)
+    Lock.release(state.operation_lock)
     :ok
   end
 
@@ -322,7 +352,20 @@ defmodule Riff.Installer.Session do
         end
       end
 
-      Desktop.activate(installed, message, state.options)
+      release_activation = fn ->
+        case GenServer.call(server, {:activation_committed, operation_id}, :infinity) do
+          :ok -> :ok
+          :cancelled -> exit(:shutdown)
+        end
+      end
+
+      activate = Keyword.get(state.options, :desktop_activate, &Desktop.activate/3)
+
+      activate.(
+        installed,
+        message,
+        Keyword.put(state.options, :release_activation_lock, release_activation)
+      )
     else
       :ok
     end

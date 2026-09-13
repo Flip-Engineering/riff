@@ -112,6 +112,8 @@
     const downloaded = Math.max(0, Math.min(total || Infinity, Number(status?.progress?.downloaded_bytes) || 0));
     const percent = total ? Math.min(100, downloaded / total * 100) : null;
     const assets = Array.isArray(status?.assets) ? status.assets : [];
+    const modelBytes = assets.filter(asset => asset.id !== "riff-application")
+      .reduce((sum, asset) => sum + Math.max(0, Number(asset.total_bytes) || 0), 0);
     document.body.dataset.state = state;
 
     const copy = {
@@ -150,7 +152,7 @@
 
     const showProgress = status && state !== "idle" && state !== "ready";
     $("#progress-area").hidden = !showProgress;
-    text("#stage-label", ["error", "cancelled"].includes(state) ? "Download progress" : stageNames[status?.stage] || (active ? "Setting up" : "Download progress"));
+    text("#stage-label", ["error", "cancelled"].includes(state) ? "Setup progress" : stageNames[status?.stage] || (active ? "Setting up" : "Setup progress"));
     text("#progress-percent", percent === null ? "" : `${Math.floor(percent)}%`);
     const progress = $("#download-progress");
     progress.dataset.indeterminate = String(percent === null && active);
@@ -158,10 +160,10 @@
     else progress.setAttribute("aria-valuenow", String(Math.floor(percent)));
     const progressDescription = total ? `${bytes(downloaded)} of ${bytes(total)}` : active ? "Preparing downloads" : "";
     text("#progress-detail", progressDescription);
-    progress.setAttribute("aria-valuetext", progressDescription || "Download size pending");
+    progress.setAttribute("aria-valuetext", progressDescription || "Setup size pending");
     $("#progress-fill").style.setProperty("--progress", `${percent || 0}%`);
     $("#download-summary").hidden = state !== "idle";
-    text("#download-summary", status ? total > 0 ? `${bytes(total)} download, including the music models.` : "The music models download as part of setup." : "Getting ready…");
+    text("#download-summary", status ? modelBytes > 0 ? `${bytes(modelBytes)} download, including the music models.` : "The music models download as part of setup." : "Getting ready…");
     const suppliedMessage = typeof status?.error === "string" ? status.error
       : !["prepared", "ready", "cancelling"].includes(state) && typeof status?.message === "string" ? status.message : "";
     message("#setup-message", actionNotice || suppliedMessage);

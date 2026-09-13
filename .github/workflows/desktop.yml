@@ -1,0 +1,407 @@
+name: Build desktop preview
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Attach the verified preview to an existing successful version release
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-preview-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  preview:
+    if: >-
+      github.repository == 'Flip-Engineering/riff' &&
+      (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    runs-on: macos-15
+    timeout-minutes: 120
+    outputs:
+      version: ${{ steps.source.outputs.version }}
+      artifact-id: ${{ steps.preview.outputs.artifact-id }}
+      checksums-sha256: ${{ steps.seal.outputs.checksums-sha256 }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      RIFF_PUBLISH_REQUESTED: ${{ inputs.publish }}
+      RUSTUP_TOOLCHAIN: '1.89.0'
+      MACOSX_DEPLOYMENT_TARGET: '15.0'
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+    steps:
+      - name: Check out the dispatched commit
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Bind the source and version
+        id: source
+        run: |
+          test "$GITHUB_EVENT_NAME" = workflow_dispatch
+          test "$GITHUB_REPOSITORY" = Flip-Engineering/riff
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(uname -m)" = arm64
+          macos_version="$(sw_vers -productVersion)"
+          test "${macos_version%%.*}" -ge 15
+          version="$(cat VERSION)"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          case "$GITHUB_REF" in
+            refs/heads/main) test "$RIFF_PUBLISH_REQUESTED" != true ;;
+            refs/tags/v*)
+              test "$GITHUB_REF" = "refs/tags/v$version"
+              test "$(git rev-parse "$GITHUB_REF^{commit}")" = "$GITHUB_SHA"
+              ;;
+            *) exit 1 ;;
+          esac
+          git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main
+          git diff --quiet HEAD
+          preview_root="$RUNNER_TEMP/riff-desktop-preview"
+          mkdir -p "$preview_root/logs" "$preview_root/artifacts/receipts"
+          echo "RIFF_PREVIEW_ROOT=$preview_root" >> "$GITHUB_ENV"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "RIFF_BUILD_VERSION=$version" >> "$GITHUB_ENV"
+          echo "SOURCE_DATE_EPOCH=$(git show -s --format=%ct HEAD)" >> "$GITHUB_ENV"
+
+      - name: Set up the control toolchain
+        uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1.24.1
+        with:
+          otp-version: '28.0.2'
+          elixir-version: '1.18.4'
+          version-type: strict
+
+      - name: Prepare pinned build tools
+        run: |
+          rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal
+          command -v pkg-config
+          xcrun --find metal
+          if ! command -v ffmpeg || ! command -v ffprobe; then
+            brew install ffmpeg
+          fi
+          ffmpeg -v error -f lavfi -i 'anullsrc=r=48000:cl=mono' -t 0.01 -f f32le -y "$RIFF_PREVIEW_ROOT/test-media.f32"
+          python3 -m venv "$RIFF_PREVIEW_ROOT/tools"
+          elixir -r desktop/support.exs -e '
+            alias Riff.Desktop.Build, as: B
+            root = System.fetch_env!("RIFF_PREVIEW_ROOT")
+            true = B.json_read("sources.json")["cmake"] == "4.4.3"
+            wheel = Path.join(root, "cmake-4.4.3-py3-none-macosx_10_10_universal2.whl")
+            url = "https://files.pythonhosted.org/packages/da/2e/78cc0dab93ad407e4b126ab6a3c8a6fc3df89011b49e910c5a5e9bda78a6/cmake-4.4.3-py3-none-macosx_10_10_universal2.whl"
+            digest = "6c95b37116bb5c714656e4f76931ebdcb739209a1aee91cf51408ccfe137694e"
+            B.run!("curl", ["--fail", "--location", "--silent", "--show-error", "--proto", "=https", "--output", wheel, url])
+            B.verify!(wheel, 54406608, digest)
+            B.run!(Path.join(root, "tools/bin/python"), ["-B", "-m", "pip", "--isolated", "install", "--no-index", "--no-deps", "--no-compile", wheel])
+            B.json_write(Path.join(root, "artifacts/receipts/cmake.json"), %{version: "4.4.3", url: url, bytes: 54406608, sha256: digest})
+          '
+          echo "$RIFF_PREVIEW_ROOT/tools/bin" >> "$GITHUB_PATH"
+
+      - name: Record the build environment
+        run: |
+          elixir -r desktop/support.exs -e '
+            alias Riff.Desktop.Build, as: B
+            versions = for {name, command, arguments} <- [
+              {"macos", "sw_vers", []}, {"xcode", "xcodebuild", ["-version"]},
+              {"clang", "xcrun", ["clang", "--version"]}, {"cmake", "cmake", ["--version"]},
+              {"rust", "rustc", ["--version"]}, {"pkg_config", "pkg-config", ["--version"]},
+              {"elixir", "elixir", ["--version"]}, {"python", "python3", ["--version"]},
+              {"test_ffmpeg", "ffmpeg", ["-version"]}, {"test_ffprobe", "ffprobe", ["-version"]}
+            ], into: %{}, do: {name, String.trim(B.run!(command, arguments))}
+            B.json_write(Path.join(System.fetch_env!("RIFF_PREVIEW_ROOT"), "artifacts/receipts/toolchain.json"), %{
+              versions: versions, runner_image: System.get_env("ImageVersion"),
+              runner_image_os: System.get_env("ImageOS"),
+              architecture: :erlang.system_info(:system_architecture) |> List.to_string()
+            })
+          '
+
+      - name: Validate the control and application
+        run: |
+          mix deps.get --check-locked 2>&1 | tee "$RIFF_PREVIEW_ROOT/logs/dependencies.log"
+          mix check 2>&1 | tee "$RIFF_PREVIEW_ROOT/logs/control-tests.log"
+        working-directory: installer
+
+      - name: Validate scheduling, packaging and launcher behavior
+        run: |
+          elixir runtime/test/admission_test.exs 2>&1 | tee "$RIFF_PREVIEW_ROOT/logs/admission-tests.log"
+          elixir runtime/test/resources_test.exs 2>&1 | tee "$RIFF_PREVIEW_ROOT/logs/resource-tests.log"
+          elixir desktop/test/build_test.exs 2>&1 | tee "$RIFF_PREVIEW_ROOT/logs/desktop-tests.log"
+          python3 -B -m unittest discover -s installer/test -p '*_test.py' -v 2>&1 | tee "$RIFF_PREVIEW_ROOT/logs/launcher-tests.log"
+
+      - name: Fetch the exact native source
+        run: |
+          elixir -r desktop/support.exs -e '
+            alias Riff.Desktop.Build, as: B
+            pins = B.json_read("sources.json")
+            true = pins["runtime_repo"] == "https://github.com/0xShug0/audio.cpp"
+            true = Regex.match?(~r/\A[0-9a-f]{40}\z/, pins["runtime_commit"])
+            source = Path.join(System.fetch_env!("RIFF_PREVIEW_ROOT"), "native-source")
+            B.run!("git", ["init", "--quiet", source])
+            B.run!("git", ["-C", source, "remote", "add", "origin", pins["runtime_repo"]])
+            B.run!("git", ["-C", source, "fetch", "--depth=1", "origin", pins["runtime_commit"]])
+            B.run!("git", ["-C", source, "checkout", "--detach", "FETCH_HEAD"])
+            true = String.trim(B.run!("git", ["-C", source, "rev-parse", "HEAD"])) == pins["runtime_commit"]
+          '
+
+      - name: Build the music engine
+        run: |
+          elixir desktop/build_engine.exs --source "$RIFF_PREVIEW_ROOT/native-source" --output "$RIFF_PREVIEW_ROOT/engine" --jobs 2 2>&1 | tee "$RIFF_PREVIEW_ROOT/logs/engine.log"
+
+      - name: Build media tools
+        run: |
+          elixir desktop/build_media.exs --output "$RIFF_PREVIEW_ROOT/media" --jobs 2 2>&1 | tee "$RIFF_PREVIEW_ROOT/logs/media.log"
+
+      - name: Validate application behavior
+        run: |
+          python3 -B -m unittest discover -s tests -q 2>&1 | tee "$RIFF_PREVIEW_ROOT/logs/application-tests.log"
+
+      - name: Build the portable application runtime
+        run: |
+          elixir desktop/build_python.exs --output "$RIFF_PREVIEW_ROOT/python" 2>&1 | tee "$RIFF_PREVIEW_ROOT/logs/python.log"
+
+      - name: Build the private crypto component
+        run: |
+          elixir desktop/build_openssl.exs --output "$RIFF_PREVIEW_ROOT/openssl" --jobs 2 2>&1 | tee "$RIFF_PREVIEW_ROOT/logs/openssl.log"
+
+      - name: Build and inspect the control release
+        env:
+          MIX_ENV: prod
+        run: |
+          export RIFF_INSTALLER_CRYPTO_RECEIPT="$RIFF_PREVIEW_ROOT/openssl/openssl.json"
+          export RIFF_INSTALLER_PACKAGE_PATH="$RIFF_PREVIEW_ROOT/control/Riff Setup.app"
+          mix run --no-start scripts/package_macos.exs 2>&1 | tee "$RIFF_PREVIEW_ROOT/logs/control-package.log"
+        working-directory: installer
+
+      - name: Package the exact source snapshot
+        run: |
+          git diff --quiet HEAD
+          "$RIFF_PREVIEW_ROOT/python/python/bin/python3.14" -B scripts/package_release.py 2>&1 | tee "$RIFF_PREVIEW_ROOT/logs/source-package.log"
+          "$RIFF_PREVIEW_ROOT/python/python/bin/python3.14" -B scripts/check_install.py "dist/riff-v$RIFF_BUILD_VERSION.tar.gz" 2>&1 | tee "$RIFF_PREVIEW_ROOT/logs/source-check.log"
+
+      - name: Assemble and verify the desktop payload
+        run: |
+          archive="$GITHUB_WORKSPACE/dist/riff-v$RIFF_BUILD_VERSION.tar.gz"
+          digest="$(shasum -a 256 "$archive" | cut -d ' ' -f 1)"
+          elixir desktop/package.exs \
+            --application-archive "$archive" --application-sha256 "$digest" --application-commit "$GITHUB_SHA" \
+            --engine "$RIFF_PREVIEW_ROOT/engine/bin/audiocpp_cli" --engine-source "$RIFF_PREVIEW_ROOT/engine/source" \
+            --engine-receipt "$RIFF_PREVIEW_ROOT/engine/engine.json" \
+            --media "$RIFF_PREVIEW_ROOT/media/media" --media-receipt "$RIFF_PREVIEW_ROOT/media/build.json" \
+            --python "$RIFF_PREVIEW_ROOT/python/python" --python-receipt "$RIFF_PREVIEW_ROOT/python/python.json" \
+            --control "$RIFF_PREVIEW_ROOT/control/Riff Setup.app/Contents/Resources/runtime" \
+            --output "$RIFF_PREVIEW_ROOT/payload" 2>&1 | tee "$RIFF_PREVIEW_ROOT/logs/payload.log"
+
+      - name: Wrap the graphical installer
+        env:
+          MIX_ENV: prod
+        run: |
+          export RIFF_INSTALLER_CRYPTO_RECEIPT="$RIFF_PREVIEW_ROOT/openssl/openssl.json"
+          export RIFF_INSTALLER_BUNDLE_PAYLOAD="$RIFF_PREVIEW_ROOT/payload"
+          export RIFF_INSTALLER_PACKAGE_PATH="$RIFF_PREVIEW_ROOT/setup/Riff Setup.app"
+          mix run --no-start scripts/package_macos.exs 2>&1 | tee "$RIFF_PREVIEW_ROOT/logs/setup-package.log"
+          codesign --verify --deep --strict --verbose=2 "$RIFF_INSTALLER_PACKAGE_PATH" 2>&1 | tee "$RIFF_PREVIEW_ROOT/logs/signature-check.log"
+          codesign --display --verbose=4 "$RIFF_INSTALLER_PACKAGE_PATH" 2> "$RIFF_PREVIEW_ROOT/logs/signing.txt"
+          grep -q '^Signature=adhoc$' "$RIFF_PREVIEW_ROOT/logs/signing.txt"
+        working-directory: installer
+
+      - name: Seal the preview archives and receipts
+        id: seal
+        run: |
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git diff --quiet HEAD
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            git fetch --no-tags origin "$GITHUB_REF"
+            test "$(git rev-parse 'FETCH_HEAD^{commit}')" = "$GITHUB_SHA"
+          fi
+          elixir desktop/archive.exs --payload "$RIFF_PREVIEW_ROOT/payload" --output "$RIFF_PREVIEW_ROOT/artifacts" --epoch "$SOURCE_DATE_EPOCH"
+          ditto -c -k --sequesterRsrc --keepParent "$RIFF_PREVIEW_ROOT/setup/Riff Setup.app" "$RIFF_PREVIEW_ROOT/artifacts/Riff-Setup-macos-arm64.zip"
+          cp "dist/riff-v$RIFF_BUILD_VERSION.tar.gz" "$RIFF_PREVIEW_ROOT/artifacts/"
+          elixir -r desktop/support.exs -e '
+            alias Riff.Desktop.Build, as: B
+            root = System.fetch_env!("RIFF_PREVIEW_ROOT")
+            output = Path.join(root, "artifacts")
+            for {source, name} <- [
+              {"engine/engine.json", "engine.json"}, {"media/build.json", "media.json"},
+              {"python/python.json", "python.json"}, {"openssl/openssl.json", "openssl.json"},
+              {"control/Riff Setup.app/Contents/Resources/runtime/control-build.json", "control.json"},
+              {"setup/package-proof.json", "setup.json"}, {"payload/manifest.json", "payload.json"}
+            ], do: File.cp!(Path.join(root, source), Path.join(output, "receipts/" <> name))
+            B.json_write(Path.join(output, "preview.json"), %{
+              format_version: 1, repository: System.fetch_env!("GITHUB_REPOSITORY"),
+              application_commit: System.fetch_env!("GITHUB_SHA"), source_ref: System.fetch_env!("GITHUB_REF"),
+              version: System.fetch_env!("RIFF_BUILD_VERSION"), source_date_epoch: System.fetch_env!("SOURCE_DATE_EPOCH"),
+              run_url: System.fetch_env!("GITHUB_SERVER_URL") <> "/" <> System.fetch_env!("GITHUB_REPOSITORY") <> "/actions/runs/" <> System.fetch_env!("GITHUB_RUN_ID"),
+              run_attempt: System.fetch_env!("GITHUB_RUN_ATTEMPT"), platform: "macos-arm64", minimum_macos: "15.0",
+              signing: "ad-hoc preview", notarized: false, public_distribution_ready: false,
+              model_downloaded: false, model_inference_validated: false, graphical_install_validated: false
+            })
+            sums = for item <- B.records(output), do: item["sha256"] <> "  " <> item["path"] <> "\n"
+            File.write!(Path.join(output, "SHA256SUMS"), sums)
+          '
+          echo "checksums-sha256=$(shasum -a 256 "$RIFF_PREVIEW_ROOT/artifacts/SHA256SUMS" | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
+
+      - name: Upload complete preview files
+        id: preview
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: riff-v${{ steps.source.outputs.version }}-macos-arm64-preview-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.RIFF_PREVIEW_ROOT }}/artifacts/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+      - name: Retain build diagnostics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: desktop-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.RIFF_PREVIEW_ROOT }}/logs/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Summarize the preview
+        if: success()
+        env:
+          RIFF_ARTIFACT_URL: ${{ steps.preview.outputs.artifact-url }}
+          RIFF_ARTIFACT_DIGEST: ${{ steps.preview.outputs.artifact-digest }}
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<EOF
+          Built Riff $RIFF_BUILD_VERSION for macOS ARM64 from $GITHUB_SHA.
+
+          [Download preview files]($RIFF_ARTIFACT_URL)
+
+          Artifact SHA-256: $RIFF_ARTIFACT_DIGEST
+
+          The installer and update payload passed their build and component checks.
+          This is an ad-hoc preview, without Developer ID signing or notarization.
+          No model download, music generation, or graphical installation ran in this workflow.
+          macOS may block the first launch under its default security settings.
+          Publishing runs separately, only when requested for an existing successful version release.
+          EOF
+
+  publish:
+    if: inputs.publish && startsWith(github.ref, 'refs/tags/v')
+    needs: preview
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      actions: read
+    defaults:
+      run:
+        shell: bash
+    env:
+      RIFF_BUILD_VERSION: ${{ needs.preview.outputs.version }}
+      RIFF_CHECKSUMS_SHA256: ${{ needs.preview.outputs.checksums-sha256 }}
+    steps:
+      - name: Check out the exact release source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Download only the verified build artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ needs.preview.outputs.artifact-id }}
+          path: desktop-preview
+          digest-mismatch: error
+
+      - name: Verify the artifact and component provenance
+        run: |
+          test "$GITHUB_REPOSITORY" = Flip-Engineering/riff
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(cat VERSION)" = "$RIFF_BUILD_VERSION"
+          [[ "$RIFF_BUILD_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          test "$GITHUB_REF" = "refs/tags/v$RIFF_BUILD_VERSION"
+          test "$(git rev-parse "$GITHUB_REF^{commit}")" = "$GITHUB_SHA"
+          git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main
+          [[ "$RIFF_CHECKSUMS_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          test "$(sha256sum desktop-preview/SHA256SUMS | cut -d ' ' -f 1)" = "$RIFF_CHECKSUMS_SHA256"
+          (cd desktop-preview && sha256sum --check --strict SHA256SUMS)
+          jq -e --arg commit "$GITHUB_SHA" --arg ref "$GITHUB_REF" --arg version "$RIFF_BUILD_VERSION" '
+            .repository == "Flip-Engineering/riff" and .application_commit == $commit and
+            .source_ref == $ref and .version == $version and .platform == "macos-arm64" and
+            .signing == "ad-hoc preview" and .notarized == false and .public_distribution_ready == false
+          ' desktop-preview/preview.json
+          source_digest="$(sha256sum "desktop-preview/riff-v$RIFF_BUILD_VERSION.tar.gz" | cut -d ' ' -f 1)"
+          jq -e --arg commit "$GITHUB_SHA" --arg version "$RIFF_BUILD_VERSION" --arg source_digest "$source_digest" \
+            --slurpfile source sources.json --slurpfile components desktop/components.json \
+            --slurpfile wheels desktop/writer-wheels-macos-arm64.json '
+              .version == $version and .platform == "macos-arm64" and
+              .provenance.application_commit == $commit and
+              .provenance.application_archive_sha256 == $source_digest and
+              .provenance.runtime_commit == $source[0].runtime_commit and
+              .provenance.components == $components[0] and
+              .provenance.python_components.writer_wheels == $wheels[0]
+            ' desktop-preview/receipts/payload.json
+          payload="desktop-preview/riff-v$RIFF_BUILD_VERSION-macos-arm64.payload.tar.gz"
+          jq -e --arg version "$RIFF_BUILD_VERSION" --arg asset "${payload##*/}" \
+            --arg digest "$(sha256sum "$payload" | cut -d ' ' -f 1)" --argjson bytes "$(stat -c %s "$payload")" \
+            --slurpfile manifest desktop-preview/receipts/payload.json '
+              .version == $version and .platform == "macos-arm64" and .asset == $asset and
+              .sha256 == $digest and .bytes == $bytes and .runtime_id == $manifest[0].runtime_id
+            ' "$payload.json"
+
+      - name: Attach verified assets to the successful source release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="v$RIFF_BUILD_VERSION"
+          release_json="$RUNNER_TEMP/riff-release.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/workflows/release.yml/runs?head_sha=$GITHUB_SHA&event=push&status=success&per_page=100" \
+            --jq ".workflow_runs[] | select(.head_sha == \"$GITHUB_SHA\" and .status == \"completed\" and .conclusion == \"success\" and .event == \"push\") | .id" \
+            > "$RUNNER_TEMP/riff-source-release-runs"
+          test -s "$RUNNER_TEMP/riff-source-release-runs"
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" > "$release_json"
+          source_digest="sha256:$(sha256sum "desktop-preview/riff-$tag.tar.gz" | cut -d ' ' -f 1)"
+          jq -e --arg tag "$tag" --arg source_digest "$source_digest" '
+            .tag_name == $tag and .draft == false and .prerelease == false and
+            (.body | contains("ad-hoc signed preview") and contains("no Developer ID signature or notarization")) and
+            ([.assets[] | select(.name == ("riff-" + $tag + ".tar.gz") and
+              .digest == $source_digest)] | length == 1)
+          ' "$release_json"
+          cd desktop-preview
+          cp preview.json desktop-preview.json
+          files=(Riff-Setup-macos-arm64.zip "riff-$tag-macos-arm64.payload.tar.gz" "riff-$tag-macos-arm64.payload.tar.gz.json" desktop-preview.json)
+          sha256sum "${files[@]}" > SHA256SUMS-macos-arm64
+          files+=(SHA256SUMS-macos-arm64)
+          missing=()
+          for file in "${files[@]}"; do
+            digest="sha256:$(sha256sum "$file" | cut -d ' ' -f 1)"
+            bytes="$(stat -c %s "$file")"
+            count="$(jq --arg name "$file" '[.assets[] | select(.name == $name)] | length' "$release_json")"
+            if test "$count" = 0; then
+              missing+=("$file")
+            else
+              jq -e --arg name "$file" --arg digest "$digest" --argjson bytes "$bytes" '
+                [.assets[] | select(.name == $name)] | length == 1 and .[0].digest == $digest and .[0].size == $bytes
+              ' "$release_json"
+            fi
+          done
+          git fetch --no-tags origin "$GITHUB_REF"
+          test "$(git rev-parse 'FETCH_HEAD^{commit}')" = "$GITHUB_SHA"
+          if test "${#missing[@]}" -gt 0; then
+            gh release upload "$tag" "${missing[@]}" --repo "$GITHUB_REPOSITORY"
+          fi
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" > "$release_json"
+          for file in "${files[@]}"; do
+            jq -e --arg name "$file" --arg digest "sha256:$(sha256sum "$file" | cut -d ' ' -f 1)" --argjson bytes "$(stat -c %s "$file")" '
+              [.assets[] | select(.name == $name)] | length == 1 and .[0].digest == $digest and .[0].size == $bytes
+            ' "$release_json"
+          done
+          cat >> "$GITHUB_STEP_SUMMARY" <<EOF
+          Attached the verified macOS ARM64 preview to [Riff $tag](https://github.com/$GITHUB_REPOSITORY/releases/tag/$tag).
+
+          [Download Riff Setup](https://github.com/$GITHUB_REPOSITORY/releases/download/$tag/Riff-Setup-macos-arm64.zip)
+
+          The installer is ad-hoc signed and has no Developer ID signature or notarization.
+          macOS may block its first launch under default security settings.
+          The exact versioned payload is now available to Riff's desktop updater.
+          EOF

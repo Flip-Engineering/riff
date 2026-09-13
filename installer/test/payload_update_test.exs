@@ -1,6 +1,6 @@
 defmodule Riff.Installer.PayloadUpdateTest do
   use ExUnit.Case, async: false
-  alias Riff.Installer.{Download, Lock, Payload, TestFixture, Update}
+  alias Riff.Installer.{Desktop, Download, Lock, Payload, Session, TestFixture, Update}
 
   setup do
     directory =
@@ -156,6 +156,130 @@ defmodule Riff.Installer.PayloadUpdateTest do
     end
   end
 
+  test "GUI hands the root lock to the real launcher before readiness while excluding competing setup and updates",
+       context do
+    owner = self()
+
+    # Only the macOS service manager is replaced here. Staging, metadata commit,
+    # both kernel locks, and the launcher's actual first-start engine journal run.
+    activate = fn installed, _progress, options ->
+      Desktop.activate_prepared(installed, options)
+      assert {:error, _} = Lock.acquire(installed.root)
+      release = Keyword.fetch!(options, :release_activation_lock)
+      :ok = release.()
+
+      {output, exit_code} =
+        System.cmd(
+          System.find_executable("python3"),
+          [
+            "-c",
+            """
+            import importlib.util, json, pathlib, sys
+            spec = importlib.util.spec_from_file_location('riff_launcher', sys.argv[1])
+            launcher = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(launcher)
+            root = pathlib.Path(sys.argv[2])
+            launcher.select_engine(root, root / 'releases' / sys.argv[3],
+                                   {'lock_helper': pathlib.Path(sys.argv[4])})
+            receipt = json.loads((root / 'workspace/data/engine-activations.json').read_text())
+            assert sys.argv[3] in receipt
+            assert not (root / '.installer-activation.json').exists()
+            print('engine-ready')
+            """,
+            Path.expand("../../launcher.py", __DIR__),
+            installed.root,
+            installed.version,
+            Application.app_dir(:riff_installer, "priv/native/riff-file-lock")
+          ],
+          stderr_to_stdout: true
+        )
+
+      assert exit_code == 0, output
+      assert output == "engine-ready\n"
+      send(owner, {:awaiting_readiness, self()})
+
+      receive do
+        :ready -> {:ready, %{version: installed.version, url: "http://127.0.0.1:1"}}
+      end
+    end
+
+    options =
+      [
+        name: nil,
+        payload: context.package,
+        install_root: context.root,
+        desktop_activate: activate
+      ] ++ context.options
+
+    first = start_supervised!(Supervisor.child_spec({Session, options}, id: :starting))
+
+    second =
+      start_supervised!(
+        Supervisor.child_spec(
+          {Session, Keyword.delete(options, :desktop_activate) ++ [activation: :stage_only]},
+          id: :competing
+        )
+      )
+
+    assert {:ok, %{state: :installing}} = Session.install(first)
+    assert_receive {:awaiting_readiness, worker}, 10_000
+    assert Session.status(first).state == :installing
+    assert {:ok, %{state: :error, error: message}} = Session.install(second)
+    assert message =~ "Another Riff setup window"
+
+    assert_raise Download.Error, ~r/Another Riff setup window/, fn ->
+      Update.execute(context.request, fn _ -> :ok end, context.options)
+    end
+
+    # Holding the setup guard does not block any launcher engine transaction.
+    {:ok, root_lock} = Lock.acquire(context.root)
+    Lock.release(root_lock)
+    send(worker, :ready)
+    assert wait_session(first).state == :ready
+    assert {:ok, %{state: :installing}} = Session.install(second)
+    assert wait_session(second).state == :prepared
+  end
+
+  test "cancelling readiness releases its operation guard after metadata has been committed",
+       context do
+    owner = self()
+
+    activate = fn installed, _progress, options ->
+      Desktop.activate_prepared(installed, options)
+      :ok = Keyword.fetch!(options, :release_activation_lock).()
+      send(owner, :awaiting_readiness)
+
+      receive do
+        :never -> :ok
+      end
+    end
+
+    session =
+      start_supervised!(
+        {Session,
+         [
+           name: nil,
+           payload: context.package,
+           install_root: context.root,
+           desktop_activate: activate
+         ] ++ context.options}
+      )
+
+    Session.install(session)
+    assert_receive :awaiting_readiness, 10_000
+    assert {:error, _} = Lock.acquire_operation(context.root)
+    Session.cancel(session)
+    assert wait_session(session).state == :cancelled
+    {:ok, activation, operation} = Lock.acquire_installation(context.root)
+    Lock.release(activation)
+    Lock.release(operation)
+
+    assert Jason.decode!(File.read!(Path.join(context.root, "current.json")))["version"] ==
+             "0.5.0"
+
+    refute File.exists?(Path.join(context.root, ".installer-activation.json"))
+  end
+
   test "a packaged local writer includes every pinned writer asset and passes owned paths to the launcher",
        context do
     manifest_path = Path.join(context.package, "manifest.json")
@@ -255,6 +379,19 @@ defmodule Riff.Installer.PayloadUpdateTest do
       {:request, _, _} -> flush_requests()
     after
       0 -> :ok
+    end
+  end
+
+  defp wait_session(session, deadline \\ nil) do
+    deadline = deadline || System.monotonic_time(:millisecond) + 10_000
+    state = Session.status(session)
+
+    if state.state in [:installing, :cancelling] do
+      assert System.monotonic_time(:millisecond) < deadline, inspect(state)
+      Process.sleep(5)
+      wait_session(session, deadline)
+    else
+      state
     end
   end
 end

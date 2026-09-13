@@ -81,12 +81,80 @@ installation and offers a retry; it never starts a compiler on the artist's
 computer. Activation waits for all music, writing, review and export work to
 finish. Failed or cancelled preparation retains reusable verified downloads.
 
-Local builds use ad-hoc signatures for development proof. Public click-to-open
-distribution still requires an appropriate organization Developer ID signature
-and notarization of the complete app, after payload assembly. A developer's
-personal identity must not be used as a substitute. Do not remove quarantine or
-weaken Gatekeeper as an installation step. Signing and real first-install proof
-must be reported separately from source, unit or packaging test success.
+The web preview uses ad-hoc signatures. It has no Developer ID signature or
+notarization, so macOS may block its first launch under default security settings.
+Organization signing and notarization remain a separate delivery improvement;
+a developer's personal identity must not be used as a substitute. No quarantine
+removal or Gatekeeper exception is part of the installation process. Signing
+and real first-install proof are reported separately from packaging test success.
+
+## Manual Actions preview
+
+Open **Actions → Build desktop preview → Run workflow** to build the checked-out
+`main` commit. A version-tag dispatch is also supported when the tag equals
+`v<VERSION>` and its commit belongs to `main`. The workflow checks the exact
+dispatched commit, verifies the tag again before uploading, and rejects source
+changes during the build. It runs only in `Flip-Engineering/riff`, through
+`workflow_dispatch`; pull requests and ordinary pushes do not start it.
+
+The [workflow](../.github/workflows/desktop.yml) uses GitHub's `macos-15` ARM64
+runner and checks its architecture and macOS version before building. GitHub's
+standard ARM64 runner has 7 GB of RAM; native compilation uses two jobs and no
+model weights are downloaded. [GitHub runner reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners).
+
+All actions are pinned to full commit IDs. The control build selects OTP
+28.0.2 and Elixir 1.18.4 with strict version matching, plus Rust 1.89.0. CMake
+4.4.3 comes from a size- and SHA-256-verified PyPI wheel, bound to `sources.json`.
+Xcode and pkg-config come from the runner image. Application tests use the
+runner's full FFmpeg installation, installing it through Homebrew only if absent;
+the smaller shipped media tools are built and checked separately. Actual tool
+versions and the runner image version are saved in the receipts. The image can change,
+so this is a recorded build environment, not a claim that all future binaries
+will be byte-identical. [Pinned setup-beam contract](https://github.com/erlef/setup-beam/blob/54075bcc5e249e4758d363f27d099f55d843f124/README.md).
+
+The build uses the committed scripts in this order: native engine, media tools,
+portable application runtime, private OpenSSL, sanitized control release,
+curated source archive, verified desktop payload, and outer graphical app.
+Control, scheduling, packaging, launcher and application tests must pass. The
+payload checks relocated component startup, verifies every component receipt,
+and includes the local writer libraries. Music and writer model weights remain
+the installer's verified downloads.
+
+Successful runs attach one preview artifact containing the setup `.app` in
+`Riff-Setup-macos-arm64.zip`, which preserves its executable files, the desktop update archive, the source
+archive, component and toolchain receipts, `preview.json`, and `SHA256SUMS`.
+The workflow summary links to that artifact. Diagnostic logs are retained
+separately even if a build fails; incomplete installers are not uploaded as
+successful previews. Preview artifacts expire after 14 days. [Actions artifact
+behavior](https://github.com/actions/upload-artifact/tree/043fb46d1a93c77aae656e7c1c64a875d1fc6a0a).
+
+The build has only `contents: read` permission. By default it ends with the
+Actions artifact and does not change any release or the app's update feed.
+
+To publish, dispatch the exact version tag with **publish** enabled. The separate
+publisher requires a completed, successful `release.yml` run at the same commit
+and an existing stable release with its source asset and the ad-hoc preview
+notice. That release workflow already requires the source CI suite. The
+publisher checks the artifact ID, checksum-list digest, all file hashes, source
+commit, component pins and payload receipt before uploading. The released source
+archive, rebuilt source archive and payload's source receipt must have the same
+digest. Existing assets
+with the same bytes are reused; changed assets are rejected, never overwritten.
+Use a new version for a changed installer or runtime.
+
+Only this publisher receives `contents: write`. It uses the built-in GitHub
+Actions token, so release assets are uploaded by the bot without a personal
+token or signing identity. GitHub still records who dispatched the workflow.
+It attaches the stable installer ZIP, exact versioned desktop payload, payload
+receipt, `desktop-preview.json` and `SHA256SUMS-macos-arm64`. The existing source
+archive and its `SHA256SUMS` remain intact. Published assets become available to
+the website and desktop updater; the updater checks GitHub's asset digest and
+the payload manifest. The workflow never creates a release itself.
+
+The signature check verifies the ad-hoc package and identifies its limits in
+the artifact and release notes. CI does not run the graphical installer, model
+download or music generation; it does not replace the separate hardware,
+installation and listening receipts.
 
 ## Validation
 

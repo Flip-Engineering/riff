@@ -9,6 +9,7 @@ import sys
 import tarfile
 import tempfile
 import threading
+import time
 from types import SimpleNamespace
 import unittest
 from unittest.mock import MagicMock, patch
@@ -18,6 +19,8 @@ import urllib.request
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import install
 from maintenance import Maintenance
+from studio_core import Generator, Store
+from admission_fixture import FixtureAdmission
 
 
 def payload_fixture(root, version="0.5.4"):
@@ -113,8 +116,13 @@ class DesktopUpdateTests(unittest.TestCase):
         self.library.mkdir(parents=True)
         (self.library / "keep-song").write_text("existing recording")
         self.payload, self.archive, self.release = payload_fixture(self.root)
+        self.maintenances, self.generators = [], []
 
     def tearDown(self):
+        for maintenance in self.maintenances:
+            maintenance.close()
+        for generator in self.generators:
+            generator.close()
         self.temporary.cleanup()
 
     def unchanged(self):
@@ -216,17 +224,16 @@ class DesktopUpdateTests(unittest.TestCase):
         self.unchanged()
 
     def maintenance(self):
-        generator = MagicMock()
-        generator.model_gate = threading.Lock()
-        generator.writer_gate = threading.Lock()
-        generator.has_active_work.return_value = False
-        generator.quiesce.return_value = True
-        generator.store.db.return_value.__enter__.return_value.execute.return_value.fetchone.return_value = [0]
+        store = Store(self.library, self.install_root / "workspace/outputs")
+        generator = Generator(store, admission=FixtureAdmission(),
+            command_builder=MagicMock(side_effect=AssertionError("Use a fixture command for native generation.")))
+        self.generators.append(generator)
         app = self.root / "running-app"; app.mkdir(exist_ok=True)
         (app / "VERSION").write_text("0.5.3")
         (app / "sources.json").write_text('{"model":{"revision":"old-model"}}')
         with patch.dict(os.environ, {"RIFF_INSTALL_ROOT": str(self.install_root)}), patch("maintenance.DATA", self.library), patch("maintenance.ROOT", app), patch.object(Maintenance, "automatic"):
             value = Maintenance(generator, None)
+        self.maintenances.append(value)
         return value, app
 
     def test_model_changing_desktop_update_prepares_then_activates_without_compilers(self):
@@ -239,11 +246,13 @@ class DesktopUpdateTests(unittest.TestCase):
             self.unchanged()
             self.assertEqual(maintenance.pending["kind"], "desktop")
             self.assertEqual(json.loads((self.library / "pending-update.json").read_text())["runtime_id"], maintenance.pending["runtime_id"])
+            self.assertFalse(maintenance.generator.quiescing)
             self.assertEqual(maintenance.apply_pending(), {"status": "restarting"})
             self.assertEqual(json.loads((self.install_root / "current.json").read_text()), {"version": "0.5.4", "previous": "0.5.3"})
             compile_engine.assert_not_called()
-            maintenance.generator.quiesce.assert_called_once()
-            maintenance.generator.resume.assert_not_called()
+            self.assertTrue(maintenance.generator.quiescing)
+            with self.assertRaisesRegex(ValueError, "updating"):
+                maintenance.generator.inspiration({"idea_engine": "phrases"})
 
     def test_missing_asset_and_activation_failure_preserve_retryable_state(self):
         current_runtime(self.install_root)
@@ -252,6 +261,7 @@ class DesktopUpdateTests(unittest.TestCase):
             maintenance.task = {"status": "running", "action": "update"}
             maintenance.work("update", {})
             self.assertEqual(maintenance.task["status"], "failed")
+            self.assertFalse(maintenance.generator.quiescing)
             self.unchanged()
             compile_engine.assert_not_called()
         with patch("maintenance.DATA", self.library), patch("install.urllib.request.urlopen", return_value=Download(self.archive.read_bytes(), self.release["url"])):
@@ -262,20 +272,157 @@ class DesktopUpdateTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "preflight"):
                 maintenance.apply_pending()
             self.assertEqual((self.library / "pending-update.json").read_bytes(), saved)
-            maintenance.generator.resume.assert_called_once()
+            self.assertFalse(maintenance.generator.quiescing)
             self.unchanged()
 
     def test_busy_or_racing_writer_prevents_any_activation(self):
         maintenance, _ = self.maintenance()
         maintenance.pending = {"version": "0.5.4", "path": str(self.install_root / "releases/0.5.4")}
-        maintenance.generator.quiesce.return_value = False
-        with patch("maintenance.DATA", self.library), patch("install.activate") as activate:
-            with self.assertRaisesRegex(ValueError, "current work"):
-                maintenance.apply_pending()
-            activate.assert_not_called()
-        maintenance.generator.has_active_work.return_value = True
-        with patch("maintenance.DATA", self.library):
+        with maintenance.generator._writer_slot() as writer:
             self.assertTrue(maintenance.busy())
+            # Even a stale idle snapshot cannot let activation overtake a
+            # writer admitted under the real generator's lock.
+            with patch("maintenance.DATA", self.library), patch.object(maintenance, "busy", return_value=False), patch("install.activate") as activate:
+                with self.assertRaisesRegex(ValueError, "current work"):
+                    maintenance.apply_pending()
+                activate.assert_not_called()
+            self.assertFalse(maintenance.generator.quiescing)
+            self.assertFalse(writer["cancelled"].is_set())
+
+    def test_preparation_closes_real_admission_and_reopens_on_every_outcome(self):
+        maintenance, app = self.maintenance()
+        generator = maintenance.generator
+        for outcome in ("done", "failed", "cancelled"):
+            with self.subTest(outcome=outcome):
+                entered, finish = threading.Event(), threading.Event()
+                def prepare(*_args, **_kwargs):
+                    entered.set()
+                    if not finish.wait(5):
+                        raise AssertionError("The test did not release preparation.")
+                    if outcome == "failed":
+                        raise ValueError("Fixture preparation failed")
+                    install.check_cancelled(maintenance.update_cancelled)
+                with patch("maintenance.DATA", self.library), patch("maintenance.ROOT", app), patch("setup_engine.prepare", side_effect=prepare):
+                    maintenance.start("setup", {"backend": "cpu"})
+                    try:
+                        self.assertTrue(entered.wait(5), maintenance.task)
+                        self.assertTrue(generator.quiescing)
+                        with self.assertRaisesRegex(ValueError, "updating"):
+                            generator.submit({"mode": "free"})
+                        with self.assertRaisesRegex(ValueError, "updating"):
+                            generator.inspiration({"mode": "surprise"})
+                        if outcome == "cancelled":
+                            maintenance.cancel()
+                    finally:
+                        finish.set()
+                        maintenance.thread.join(5)
+                    self.assertFalse(maintenance.thread.is_alive())
+                    self.assertEqual(maintenance.task["status"], outcome, maintenance.task)
+                    self.assertFalse(generator.quiescing)
+                    self.assertFalse(generator.has_active_work())
+                    self.assertTrue(generator.inspiration({"idea_engine": "phrases"})["lyrics"])
+                    self.unchanged()
+
+    def test_preparation_publishes_completion_only_after_resuming_admission(self):
+        maintenance, app = self.maintenance()
+        generator = maintenance.generator
+        resuming, finish = threading.Event(), threading.Event()
+        resume = generator.resume
+        def pause_resume():
+            resuming.set()
+            if not finish.wait(5):
+                raise AssertionError("The test did not release admission.")
+            resume()
+        with patch("maintenance.DATA", self.library), patch("maintenance.ROOT", app), patch("setup_engine.prepare"), patch.object(generator, "resume", side_effect=pause_resume):
+            maintenance.start("setup", {"backend": "cpu"})
+            try:
+                self.assertTrue(resuming.wait(5), maintenance.task)
+                self.assertEqual(maintenance.task["status"], "running")
+                self.assertTrue(generator.quiescing)
+                acquired = maintenance.lock.acquire(blocking=False)
+                if acquired:
+                    maintenance.lock.release()
+                self.assertFalse(acquired)
+            finally:
+                finish.set()
+                maintenance.thread.join(5)
+            self.assertFalse(maintenance.thread.is_alive())
+            self.assertEqual(maintenance.task["status"], "done")
+            self.assertFalse(generator.quiescing)
+
+    def test_racing_waiting_writer_preserves_work_and_prevents_preparation(self):
+        maintenance, app = self.maintenance()
+        generator = maintenance.generator
+        generator.admission.gates["writer"].clear()
+        waiting, results = threading.Event(), []
+        reserve = generator.admission.reserve
+        def observe_wait(*args, **kwargs):
+            original = kwargs["on_wait"]
+            def on_wait(reason):
+                original(reason)
+                waiting.set()
+            return reserve(*args, **{**kwargs, "on_wait": on_wait})
+        with patch.object(generator, "writer_ready", return_value=True), patch.object(generator.admission, "reserve", side_effect=observe_wait):
+            writer = threading.Thread(target=lambda: results.append(generator.inspiration({"mode": "surprise"})))
+            writer.start()
+            try:
+                self.assertTrue(waiting.wait(5))
+                session = generator.writer_session
+                self.assertIsNone(generator.writer_process)
+                with patch("maintenance.DATA", self.library), patch("maintenance.ROOT", app), patch.object(maintenance, "busy", return_value=False), patch("setup_engine.prepare") as prepare:
+                    maintenance.start("setup", {"backend": "cpu"})
+                    maintenance.thread.join(5)
+                    self.assertFalse(maintenance.thread.is_alive())
+                    self.assertEqual(maintenance.task["status"], "failed", maintenance.task)
+                    self.assertIn("current work", maintenance.task["message"])
+                    prepare.assert_not_called()
+                self.assertIs(generator.writer_session, session)
+                self.assertFalse(session["cancelled"].is_set())
+                self.assertFalse(generator.quiescing)
+                self.assertTrue(writer.is_alive())
+            finally:
+                if generator.writer_session:
+                    generator.cancel_writing()
+                writer.join(5)
+            self.assertFalse(writer.is_alive())
+            self.assertEqual(results, [{"cancelled": True}])
+            self.unchanged()
+
+    def test_busy_native_review_and_export_preserve_active_work(self):
+        maintenance, _ = self.maintenance()
+        generator = maintenance.generator
+        generator.command_builder = lambda *_: [sys.executable, "-c", "import time; time.sleep(300)"]
+        first = generator.submit({"mode": "free"})["id"]
+        deadline = time.monotonic() + 5
+        while generator.process is None and time.monotonic() < deadline:
+            time.sleep(.01)
+        self.assertIsNotNone(generator.process)
+        process = generator.process
+        second = generator.submit({"mode": "free"})["id"]
+        try:
+            for action in ("setup", "update"):
+                with self.assertRaisesRegex(ValueError, "current takes"):
+                    maintenance.start(action, {})
+            self.assertIsNone(process.poll())
+            self.assertFalse(generator.job_cancelled.is_set())
+            self.assertEqual(generator.store.job(second)["status"], "queued")
+            self.assertFalse(generator.quiescing)
+        finally:
+            generator.cancel(second)
+            generator.cancel(first)
+            generator.close()
+            self.generators.remove(generator)
+        for kind in ("review", "export"):
+            with self.subTest(kind=kind):
+                worker = MagicMock()
+                worker.snapshot.return_value = [{"status": "running"}]
+                worker.busy.return_value = True
+                maintenance.reviews = worker if kind == "review" else None
+                maintenance.video_exports = worker if kind == "export" else None
+                with self.assertRaisesRegex(ValueError, "current takes"):
+                    maintenance.start("update", {})
+                worker.cancel.assert_not_called()
+                worker.close.assert_not_called()
 
     def test_source_install_keeps_its_existing_update_path(self):
         maintenance, app = self.maintenance()

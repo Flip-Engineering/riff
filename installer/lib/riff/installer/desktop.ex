@@ -7,6 +7,7 @@ defmodule Riff.Installer.Desktop do
     if Keyword.get(options, :activation, :launch_agent) == :stage_only do
       {:prepared, installed}
     else
+      release = Keyword.fetch!(options, :release_activation_lock)
       unless :os.type() == {:unix, :darwin}, do: error!("This desktop package needs macOS.")
       check_launcher!(installed)
       config = launch_config(installed, options)
@@ -40,10 +41,10 @@ defmodule Riff.Installer.Desktop do
               )
 
           wait_and_restart(installed, config, state, progress)
-          wait_until_closed(config.url, progress)
+          wait_until_closed(config.url, progress, options)
 
         :closed ->
-          if loaded?(config.domain), do: wait_for_existing(installed, config, progress)
+          if loaded?(config.domain), do: wait_for_existing(installed, config, progress, options)
 
         {:error, _} ->
           error!(
@@ -69,10 +70,15 @@ defmodule Riff.Installer.Desktop do
           )
       })
 
-      launchctl!(["bootstrap", "gui/#{config.uid}", config.path])
-      Transaction.commit!(installed.root)
-      wait_ready(installed, config.url, progress, options)
       AppEntry.install(installed, config.url, options)
+      Transaction.commit!(installed.root)
+
+      # A new launch selects its engine under this same root lock. Keep the
+      # separate setup operation guard, but hand off the root lock before
+      # launchd starts the studio; waiting for HTTP while holding it deadlocks.
+      :ok = release.()
+      launchctl!(["bootstrap", "gui/#{config.uid}", config.path])
+      wait_ready(installed, config.url, progress, options)
       {:ready, %{version: installed.version, url: config.url, root: installed.root}}
     end
   end
@@ -265,7 +271,7 @@ defmodule Riff.Installer.Desktop do
     end
   end
 
-  defp wait_for_existing(installed, config, progress) do
+  defp wait_for_existing(installed, config, progress, options) do
     # An auto-restarted launcher can already be waiting at our activation gate.
     # Only that exact launcher is safe to stop without the HTTP idle handshake.
     if waiting_launcher?(config.domain, Path.join(installed.root, "launcher.py")) do
@@ -277,10 +283,10 @@ defmodule Riff.Installer.Desktop do
       case system(config.url) do
         {:ok, state} ->
           wait_and_restart(installed, config, state, progress)
-          wait_until_closed(config.url, progress)
+          wait_until_closed(config.url, progress, options)
 
         :closed ->
-          wait_for_existing(installed, config, progress)
+          wait_for_existing(installed, config, progress, options)
 
         _ ->
           error!("The current studio did not respond. Its running work has been preserved.")
@@ -300,21 +306,48 @@ defmodule Riff.Installer.Desktop do
     end
   end
 
-  defp wait_until_closed(url, progress) do
+  @doc "After an accepted restart, confirm that the previous studio is no longer listening."
+  def wait_until_closed(url, progress, options \\ []) do
+    timeout =
+      Keyword.get(
+        options,
+        :shutdown_timeout,
+        Application.get_env(:riff_installer, :studio_shutdown_timeout, 30_000)
+      )
+
+    wait_closed_until(url, progress, System.monotonic_time(:millisecond) + timeout)
+  end
+
+  defp wait_closed_until(url, progress, deadline) do
     case system(url) do
       :closed ->
         :ok
 
       {:ok, _} ->
-        progress.(:starting, "Finishing the current session")
-        pause()
-        wait_until_closed(url, progress)
+        wait_closed_again(url, progress, deadline)
+
+      {:error, {:transient, _}} ->
+        # A socket closed/reset during shutdown is not proof that the listener
+        # stopped. Probe again, keeping the activation gate until actual refusal.
+        wait_closed_again(url, progress, deadline)
 
       _ ->
         error!(
           "Riff could not confirm that its previous session ended. Try again to continue setup."
         )
     end
+  end
+
+  defp wait_closed_again(url, progress, deadline) do
+    if System.monotonic_time(:millisecond) >= deadline,
+      do:
+        error!(
+          "Riff did not finish closing its previous session. Its work has been preserved; try setup again."
+        )
+
+    progress.(:starting, "Finishing the current session")
+    pause()
+    wait_closed_until(url, progress, deadline)
   end
 
   defp wait_ready(installed, url, progress, options) do
@@ -350,10 +383,23 @@ defmodule Riff.Installer.Desktop do
 
   defp system(url) do
     case request(:get, url <> "/api/system") do
-      {:ok, 200, %{"version" => _, "engine" => _} = state} -> {:ok, state}
-      {:error, %{reason: :econnrefused}} -> :closed
-      {:error, %{reason: {:econnrefused, _}}} -> :closed
-      _ -> {:error, :unavailable}
+      {:ok, 200, %{"version" => _, "engine" => _} = state} ->
+        {:ok, state}
+
+      {:error, %{reason: :econnrefused}} ->
+        :closed
+
+      {:error, %{reason: {:econnrefused, _}}} ->
+        :closed
+
+      {:error, %{reason: reason}} when reason in [:closed, :econnreset, :timeout] ->
+        {:error, {:transient, reason}}
+
+      {:error, %{reason: {reason, _}}} when reason in [:closed, :econnreset, :timeout] ->
+        {:error, {:transient, reason}}
+
+      _ ->
+        {:error, :unavailable}
     end
   end
 

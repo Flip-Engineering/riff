@@ -37,10 +37,8 @@ class Maintenance:
         self.checker.start()
 
     def busy(self):
-        with self.generator.store.db() as db:
-            queued = db.execute("SELECT count(*) FROM jobs WHERE status IN ('queued','running','cancelling')").fetchone()[0]
         reviews = self.reviews.snapshot() if self.reviews else []
-        return bool(queued or self.generator.has_active_work() or self.generator.writer_gate.locked() or (self.video_exports and self.video_exports.busy()) or any(r["status"] in ("queued", "running", "cancelling") for r in reviews))
+        return bool(self.generator.has_active_work() or (self.video_exports and self.video_exports.busy()) or any(r["status"] in ("queued", "running", "cancelling") for r in reviews))
 
     def snapshot(self):
         with self.lock:
@@ -90,13 +88,17 @@ class Maintenance:
             return dict(self.task)
 
     def work(self, action, payload):
-        gate = False
+        quiesced, status = False, "failed"
         try:
-            runtime = install.desktop_runtime(self.install_root)
             if action != "check":
-                gate = self.generator.model_gate.acquire(blocking=False)
-                if not gate:
-                    raise ValueError("The music engine is in use. Try again when it finishes.")
+                with self.lock:
+                    # A writer or queued take may arrive after start's idle
+                    # check. Quiesce closes admission under the same lock used
+                    # by the generator to claim that work, without stopping it.
+                    if self.busy() or not self.generator.quiesce():
+                        raise ValueError("Finish or cancel the current work before changing the engine.")
+                    quiesced = True
+            runtime = install.desktop_runtime(self.install_root)
             if action == "setup":
                 if runtime:
                     raise ValueError("Open Riff Setup to repair the bundled music engine.")
@@ -129,17 +131,20 @@ class Maintenance:
                     self.progress("Update ready. Restart Riff to use it.")
             else:
                 raise ValueError("Unknown setup action.")
-            with self.lock:
-                self.task["status"] = "done"
+            status = "done"
         except install.UpdateCancelled as exc:
-            with self.lock:
-                self.task.update(status="cancelled", message=str(exc))
+            status = "cancelled"
+            self.progress(str(exc))
         except Exception as exc:
-            with self.lock:
-                self.task.update(status="failed", message=str(exc))
+            self.progress(str(exc))
         finally:
-            if gate:
-                self.generator.model_gate.release()
+            with self.lock:
+                # Reopen before publishing completion. Otherwise restart can
+                # quiesce successfully and then be undone by this worker's
+                # late resume. Activation owns its separate idle boundary.
+                if quiesced:
+                    self.generator.resume()
+                self.task["status"] = status
 
     def update_cancelled(self):
         return self.stopping.is_set() or self.cancelled.is_set()

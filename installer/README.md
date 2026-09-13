@@ -12,7 +12,7 @@ The current desktop runtime includes a replaceable Python compatibility componen
 
 Music sources are read from the payload's hash-verified `app/sources.json`. Every required file is streamed with backpressure and fixed-size hash buffers. Completed files are verified and reused; interrupted `.part` files resume with HTTP ranges after their existing bytes are hashed. A response with the wrong range, length or hash is never promoted to its final filename. Existing mismatched files are retained under an unverified name. Stop affects the operation's own worker and keeps completed downloads.
 
-A bundled Rust port holds the kernel's advisory lock. It is released when its owner exits, so no guessed process lifetime or stale-file deletion decides ownership. Launch metadata changes use a durable prepared/committed journal with fsynced backups. A launcher encountering an abandoned prepared journal restores the complete prior selection before starting. Every installed application version also retains its complete runtime receipt; startup fallback checks the previous application with that version's Python, media, control and writer paths, then restores them together. The current source, runtime and recordings are preserved during preparation.
+A bundled Rust port holds the kernel's advisory locks. They are released when their owner exits, so no guessed process lifetime or stale-file deletion decides ownership. The setup operation guard remains held through startup; the activation lock is released after metadata commits and before launching the studio, so the launcher can select its engine under the same lock without blocking setup's readiness check. Launch metadata changes use a durable prepared/committed journal with fsynced backups. A launcher encountering an abandoned prepared journal restores the complete prior selection before starting. Every installed application version also retains its complete runtime receipt; startup fallback checks the previous application with that version's Python, media, control and writer paths, then restores them together. The current source, runtime and recordings are preserved during preparation.
 
 ## Developer builds
 
@@ -66,6 +66,8 @@ stdin: {"protocol":1,"action":"prepare"|"activate","payload":"/absolute/tree","r
 ```
 
 It emits JSON lines with `type:progress` and a final `type:result`, `status:prepared|activated|error`. Preparation reads the new package's pins, verifies/downloads all required assets, stages components and runs their startup checks. Activation rehashes prepared models, performs no network download, and commits metadata under the root lock. The calling studio must already hold its idle/restart boundary; this path never calls that studio over HTTP or invokes launchctl. GUI activation has a separate explicit external-installer handoff carrying matching gate and pending-update identities.
+
+After the studio accepts a GUI restart, setup tolerates interrupted HTTP connections while waiting for connection refusal to confirm shutdown. The wait is bounded by `:studio_shutdown_timeout` (30 seconds by default, overridable with `:shutdown_timeout` in the internal desktop options). A timeout or permanent HTTP error preserves the current process; it does not authorize stopping it.
 
 ## Acceptance fixtures
 

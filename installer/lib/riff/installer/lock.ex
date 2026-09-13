@@ -2,8 +2,26 @@ defmodule Riff.Installer.Lock do
   @moduledoc "A bundled Rust port holds an OS lock, released even after an installer crash."
   alias Riff.Installer.Download
 
-  def acquire(destination) do
-    path = Download.safe_target!(destination, ".riff-installer.lock")
+  def acquire(destination), do: acquire_named(destination, ".riff-installer.lock")
+
+  @doc "Reserve setup through launch readiness without preventing the launcher's metadata transaction."
+  def acquire_operation(destination), do: acquire_named(destination, ".riff-setup.lock")
+
+  def acquire_installation(destination) do
+    with {:ok, operation} <- acquire_operation(destination) do
+      case acquire(destination) do
+        {:ok, activation} ->
+          {:ok, activation, operation}
+
+        error ->
+          release(operation)
+          error
+      end
+    end
+  end
+
+  defp acquire_named(destination, name) do
+    path = Download.safe_target!(destination, name)
 
     case File.lstat(path) do
       {:ok, %{type: :regular}} -> acquire_port(path)

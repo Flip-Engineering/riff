@@ -52,9 +52,9 @@ defmodule Riff.Installer.Update do
     models = Payload.model_directory(root, manifest)
     writer = Payload.writer_set(payload, root, options)
 
-    lock =
-      case Lock.acquire(root) do
-        {:ok, port} -> port
+    {lock, operation_lock} =
+      case Lock.acquire_installation(root) do
+        {:ok, port, operation} -> {port, operation}
         {:error, message} -> raise Download.Error, reason: :busy, message: message
       end
 
@@ -136,6 +136,7 @@ defmodule Riff.Installer.Update do
       }
     after
       Lock.release(lock)
+      Lock.release(operation_lock)
     end
   end
 
