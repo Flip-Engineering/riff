@@ -1,0 +1,18 @@
+{
+  "version": "0.17.0",
+  "release": "https://github.com/mozilla/sccache/releases/tag/v0.17.0",
+  "platforms": {
+    "macos-arm64": {
+      "url": "https://github.com/mozilla/sccache/releases/download/v0.17.0/sccache-v0.17.0-aarch64-apple-darwin.tar.gz",
+      "bytes": 6595370,
+      "sha256": "0c560bfba31aef5bdfb4fb3d2677f6e61d71c5c00952f2a83344f47aa31f00f1",
+      "member": "sccache-v0.17.0-aarch64-apple-darwin/sccache"
+    },
+    "linux-x86_64": {
+      "url": "https://github.com/mozilla/sccache/releases/download/v0.17.0/sccache-v0.17.0-x86_64-unknown-linux-musl.tar.gz",
+      "bytes": 9561816,
+      "sha256": "67c4a96dd237c1f518f6b36083f270f9976d516f1e57fce891755ea782e50006",
+      "member": "sccache-v0.17.0-x86_64-unknown-linux-musl/sccache"
+    }
+  }
+}
