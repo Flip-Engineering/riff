@@ -19,8 +19,8 @@ os.environ["RIFF_HOME"] = workspace.name
 os.environ.pop("RIFF_INSTALL_ROOT", None)
 from reviews import Reviews
 from studio import StudioServer
-from studio_core import Generator, Store, PRESETS
-from test_reviews import FakeKeychain, fake_listener
+from studio_core import Generator, Store, PRESETS, validate_recipe
+from test_reviews import FakeKeychain, fake_listener, historical_review
 from test_studio import fixture_audio, recipe
 from maintenance import Maintenance
 from paths import MODELS
@@ -76,13 +76,24 @@ with tempfile.TemporaryDirectory(prefix="riff-review-browser-") as folder:
     reviews = Reviews(store, keys, fake_listener)
     reviews.models_cache = [{"id": "fixture/audio-model", "name": "Fixture listener"}]
     reviews.models = lambda refresh=False: reviews.models_cache
+    history = []
+    if os.environ.get("RIFF_HISTORICAL_REVIEW_FIXTURE"):
+        for seed, old_seed in (("0", "1729"), ("9223372036854775807", "")):
+            source = recipe(title="Saved seed " + seed, seed=seed)
+            historical_audio = store.outputs / ("history-" + seed + ".wav")
+            fixture_audio(historical_audio)
+            historical_track_id = store.add_track(historical_audio, source, {})
+            generation = validate_recipe(recipe(title="Earlier recommendation", seed=old_seed, steps=37))
+            review_id = historical_review(store, historical_track_id, source, generation)
+            history.append({"track_id": historical_track_id, "review_id": review_id, "seed": seed})
     maintenance = Maintenance(generator, reviews)
     server = StudioServer(("127.0.0.1", 0), store, generator, reviews, maintenance)
     def stop(signum, frame):
         threading.Thread(target=server.shutdown, daemon=True).start()
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
-    print(json.dumps({"url": f"http://127.0.0.1:{server.server_port}", "track_id": track_id}), flush=True)
+    print(json.dumps({"url": f"http://127.0.0.1:{server.server_port}", "track_id": track_id,
+                      "history": history}), flush=True)
     try:
         server.serve_forever()
     finally:

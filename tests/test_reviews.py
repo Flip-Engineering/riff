@@ -62,6 +62,20 @@ Path(sys.argv[1]).write_text(json.dumps(result))
     return [sys.executable, "-c", script, str(output)]
 
 
+def historical_review(store, track_id, source, generation):
+    """Insert saved provider bytes without passing through current normalization."""
+    review_id = uuid.uuid4().hex
+    with store.db() as db:
+        db.execute("""INSERT INTO reviews
+            (id,track_id,created,status,model,focus,keep_lyrics,source_recipe,
+             notes,summary,revision,generation)
+            VALUES(?,?,1,'done','fixture/old-producer','Retain the motif',1,?,
+                   '0:00 A saved observation.','An earlier recommended take.',?,?)""",
+            (review_id, track_id, json.dumps(source, indent=2),
+             json.dumps({"seed": generation.get("seed", "")}), json.dumps(generation, indent=2)))
+    return review_id
+
+
 class ReviewTests(StudioFixture):
     def setUp(self):
         super().setUp()
@@ -75,6 +89,38 @@ class ReviewTests(StudioFixture):
 
     def connect(self):
         return self.reviews.configure({"enabled": True, "api_key": "test-secret-value", "model": "custom/audio-model"})
+
+    def test_historical_complete_takes_retain_source_seed_on_read_without_rewriting_rows(self):
+        for seed in (0, "0", 9223372036854775807, "9223372036854775807"):
+            for proposed_seed in ("", "1729"):
+                with self.subTest(seed=seed, proposed_seed=proposed_seed):
+                    source = recipe(seed=seed)
+                    generation = validate_recipe(recipe(seed=proposed_seed, steps=37,
+                        refinement={"semantic_top_p": .82}))
+                    review_id = historical_review(self.store, self.track_id, source, generation)
+                    with self.store.db() as db:
+                        before = dict(db.execute("SELECT * FROM reviews WHERE id=?", (review_id,)).fetchone())
+                    expected = {**generation, "seed": str(seed)}
+                    self.assertEqual(self.reviews.get(review_id)["generation"], expected)
+                    for rows in (self.reviews.list(), self.reviews.list(self.track_id)):
+                        self.assertEqual(next(row for row in rows if row["id"] == review_id)["generation"], expected)
+                    # A returned draft remains mutable without changing future reads or history.
+                    edited = self.reviews.get(review_id)["generation"]
+                    edited["seed"] = "7"
+                    self.assertEqual(validate_recipe(edited)["seed"], "7")
+                    self.assertEqual(self.reviews.get(review_id)["generation"], expected)
+                    with self.store.db() as db:
+                        after = dict(db.execute("SELECT * FROM reviews WHERE id=?", (review_id,)).fetchone())
+                    self.assertEqual(after, before)
+
+    def test_historical_legacy_or_unrecorded_seed_is_not_invented(self):
+        generation = validate_recipe(recipe(seed="1729"))
+        for source in ({}, {"seed": ""}, {"seed": None}):
+            review_id = historical_review(self.store, self.track_id, source, generation)
+            self.assertEqual(self.reviews.get(review_id)["generation"], generation)
+        for legacy in ({}, {"seed": "1729"}):
+            review_id = historical_review(self.store, self.track_id, recipe(seed="0"), legacy)
+            self.assertEqual(self.reviews.get(review_id)["generation"], legacy)
 
     def test_settings_store_only_nonsecret_preferences_and_removal_disconnects(self):
         with self.assertRaises(ValueError):

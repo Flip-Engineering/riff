@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright";
@@ -11,7 +11,7 @@ import { chromium } from "playwright";
 const server = spawn(process.env.RIFF_PYTHON || "python3", [
   "-u",
   "tests/review_browser_server.py",
-]);
+], { env: { ...process.env, RIFF_HISTORICAL_REVIEW_FIXTURE: "1" } });
 let diagnostics = "";
 server.stderr.on("data", (chunk) => {
   diagnostics += chunk;
@@ -319,6 +319,42 @@ try {
   check(
     "Remove key and disconnect; closing settings clears an unsaved password",
   );
+
+  for (const historical of fixture.history) {
+    await page.goto(`${fixture.url}/?recording=${historical.track_id}#studio`);
+    await page.locator("#producer-panel").waitFor({ state: "visible" });
+    if (!await page.locator("#producer-panel").evaluate(panel => panel.open))
+      await page.locator("#producer-panel > summary").click();
+    await doneReviews(1);
+    const saved = await page.evaluate(async ({ track_id, review_id }) => {
+      const [one, history] = await Promise.all([
+        fetch(`/api/reviews/${review_id}`).then(response => response.json()),
+        fetch(`/api/tracks/${track_id}/reviews`).then(response => response.json()),
+      ]);
+      return { one, history: history.reviews };
+    }, historical);
+    assert.equal(saved.one.generation.seed, historical.seed);
+    assert.equal(saved.history[0].generation.seed, historical.seed);
+    await page.locator(`[data-use-review="${historical.review_id}"]`).click();
+    assert.equal(await page.locator("#seed").inputValue(), historical.seed);
+    const exportButton = page.locator(`[data-export-review="${historical.review_id}"]`);
+    await exportButton.locator("..").locator("summary").click();
+    const downloaded = page.waitForEvent("download");
+    await exportButton.click();
+    const download = await downloaded;
+    const exported = JSON.parse(readFileSync(await download.path(), "utf8"));
+    assert.equal(exported.seed, historical.seed);
+    assert.equal(exported.review_id, historical.review_id);
+    const queued = page.waitForResponse(response =>
+      response.url().endsWith("/api/generations") && response.request().method() === "POST");
+    await page.locator(`[data-generate-review="${historical.review_id}"]`).click();
+    const job = await (await queued).json();
+    assert.equal(job.recipe.seed, historical.seed);
+    assert.equal(job.recipe.parent_track_id, historical.track_id);
+    assert.equal(job.recipe.review_id, historical.review_id);
+    await page.waitForFunction(id => state.tracks.some(track => track.id === id), job.id);
+  }
+  check("Saved older recommendations retain zero and full-precision source seeds in history, editing, downloads and the queue");
   assert.deepEqual(errors, []);
   writeFileSync(
     "test-results/reviews.json",
