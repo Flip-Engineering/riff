@@ -109,11 +109,20 @@ try {
   await page.emulateMedia({ reducedMotion: "no-preference" });
   await page.locator("#play").click();
   await page.waitForFunction(() => audio.currentTime > .3 && soundAnimation !== null);
+  await page.evaluate(() => {
+    window.artworkPaused = new Promise(resolve => audio.addEventListener("pause", () => {
+      // The final pause handler redraws at the settled audio clock. A RAF can
+      // stop first, before the media task delivers that final frame.
+      requestAnimationFrame(resolve);
+    }, { once: true }));
+  });
   await page.locator("#play").click();
-  await page.waitForFunction(() => soundAnimation === null);
+  await page.evaluate(() => window.artworkPaused);
+  await page.waitForFunction(() => audio.paused && soundAnimation === null);
   const frozen = await page.locator("#sound-field").evaluate(canvas => canvas.toDataURL());
   await page.waitForTimeout(120);
-  assert.equal(await page.locator("#sound-field").evaluate(canvas => canvas.toDataURL()), frozen);
+  assert((await page.locator("#sound-field").evaluate(canvas => canvas.toDataURL())) === frozen,
+    "The artwork remains frozen after the final pause frame");
   await page.evaluate(() => { audio.currentTime = 2; });
   await page.waitForFunction(previous => document.querySelector("#sound-field").toDataURL() !== previous, frozen);
   console.log("PASS Original seed geometry and palette preserved; playback animates, pause freezes, seek redraws");
