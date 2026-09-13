@@ -99,7 +99,10 @@ defmodule Riff.CachedNativeBuild do
         unless final.sha256 == identity.sha256,
           do: raise("Native source or compiler configuration changed during the build")
 
-        stats = if cache.enabled, do: statistics(cache), else: %{}
+        stats =
+          if cache.enabled,
+            do: statistics(cache),
+            else: %{backend: "disabled", counters: %{}}
 
         receipt = %{
           "schema" => "riff.native-cache-build.v1",
@@ -111,8 +114,10 @@ defmodule Riff.CachedNativeBuild do
           "cache_enabled" => cache.enabled,
           "cache_mode" => cache.mode,
           "cache_status" => cache.reason,
+          "cache_backend" => stats.backend,
+          "cache_service_version" => if(cache.enabled, do: "v2", else: nil),
           "tool" => if(cache.enabled, do: cache.tool.receipt, else: nil),
-          "statistics" => stats,
+          "statistics" => stats.counters,
           "build_milliseconds" => elapsed,
           "build_exit_status" => result
         }
@@ -149,8 +154,7 @@ defmodule Riff.CachedNativeBuild do
   defp start_cache(app, workspace, owned, identity) do
     mode = Cache.cache_mode(System.get_env())
 
-    if System.get_env("ACTIONS_RESULTS_URL") in [nil, ""] or
-         System.get_env("ACTIONS_RUNTIME_TOKEN") in [nil, ""] do
+    if not Cache.github_cache_available?(System.get_env()) do
       %{
         enabled: false,
         mode: "DISABLED",
@@ -182,13 +186,26 @@ defmodule Riff.CachedNativeBuild do
           System.cmd(tool.path, ["--start-server"], env: environment, stderr_to_stdout: true)
 
         if status == 0 do
-          %{
+          active = %{
             enabled: true,
             mode: mode,
             reason: "Verified compiler-object cache",
             environment: environment,
             tool: tool
           }
+
+          if statistics(active).backend == "github-actions" do
+            active
+          else
+            System.cmd(tool.path, ["--stop-server"], env: environment, stderr_to_stdout: true)
+
+            %{
+              enabled: false,
+              mode: "DISABLED",
+              reason: "GitHub cache storage is unavailable; compiling normally",
+              environment: []
+            }
+          end
         else
           System.cmd(tool.path, ["--stop-server"], env: environment, stderr_to_stdout: true)
 
@@ -209,16 +226,14 @@ defmodule Riff.CachedNativeBuild do
            stderr_to_stdout: true
          ) do
       {text, 0} ->
-        # The statistics object excludes cache endpoints, credentials and paths.
+        # Record writes as well as reads; successful compilation alone does not
+        # prove objects reached the remote cache. Storage labels expose no paths.
         text
         |> :json.decode()
-        |> Map.get("stats", %{})
-        |> Map.take(
-          ~w(compile_requests requests_executed cache_hits cache_misses cache_errors cache_timeouts non_cacheable_compilations compilation_failures)
-        )
+        |> Cache.cache_statistics()
 
       _ ->
-        %{"unavailable" => true}
+        %{backend: "unknown", counters: %{"unavailable" => true}}
     end
   end
 end

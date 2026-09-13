@@ -92,7 +92,7 @@ jobs:
           script: |
             const token = process.env.ACTIONS_RUNTIME_TOKEN;
             if (token) core.setSecret(token);
-            for (const name of ['ACTIONS_RESULTS_URL', 'ACTIONS_RUNTIME_TOKEN']) {
+            for (const name of ['ACTIONS_RESULTS_URL', 'ACTIONS_RUNTIME_TOKEN', 'ACTIONS_CACHE_SERVICE_V2']) {
               if (process.env[name]) core.exportVariable(name, process.env[name]);
             }
       - run: elixir scripts/build_cached_native.exs --backend ${{ matrix.backend }} --build-only --jobs 2
@@ -126,7 +126,7 @@ jobs:
           script: |
             const token = process.env.ACTIONS_RUNTIME_TOKEN;
             if (token) core.setSecret(token);
-            for (const name of ['ACTIONS_RESULTS_URL', 'ACTIONS_RUNTIME_TOKEN']) {
+            for (const name of ['ACTIONS_RESULTS_URL', 'ACTIONS_RUNTIME_TOKEN', 'ACTIONS_CACHE_SERVICE_V2']) {
               if (process.env[name]) core.exportVariable(name, process.env[name]);
             }
       - run: |

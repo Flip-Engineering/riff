@@ -1,0 +1,55 @@
+{
+  "basedirs": [],
+  "cache_location": "ghac, name: sccache-v0.17.0, prefix: /sccache/",
+  "cache_size": null,
+  "max_cache_size": null,
+  "stats": {
+    "cache_errors": {
+      "adv_counts": {},
+      "counts": {}
+    },
+    "cache_hits": {
+      "adv_counts": {},
+      "counts": {}
+    },
+    "cache_misses": {
+      "adv_counts": {
+        "c [clang]": 1
+      },
+      "counts": {
+        "C/C++": 1
+      }
+    },
+    "cache_read_errors": 0,
+    "cache_read_hit_duration": {
+      "nanos": 0,
+      "secs": 0
+    },
+    "cache_timeouts": 0,
+    "cache_write_duration": {
+      "nanos": 0,
+      "secs": 0
+    },
+    "cache_write_errors": 1,
+    "cache_writes": 0,
+    "compilations": 1,
+    "compile_fails": 0,
+    "compile_requests": 1,
+    "compiler_write_duration": {
+      "nanos": 16634334,
+      "secs": 0
+    },
+    "dist_compiles": {},
+    "dist_errors": 0,
+    "forced_recaches": 0,
+    "multi_level": null,
+    "non_cacheable_compilations": 0,
+    "not_cached": {},
+    "requests_executed": 1,
+    "requests_not_cacheable": 0,
+    "requests_not_compile": 0,
+    "requests_unsupported_compiler": 0
+  },
+  "use_preprocessor_cache_mode": false,
+  "version": "0.17.0"
+}

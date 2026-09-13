@@ -24,7 +24,12 @@ semantics. The namespace uses `SCCACHE_C_CUSTOM_CACHE_BUSTER`.
 Only a push to `Flip-Engineering/riff`'s `main` branch writes the GitHub cache.
 Pull requests, tags, and other invocations use `READ_ONLY`; the workflows never
 use `pull_request_target`. GitHub's branch cache scopes remain an additional
-boundary. Each invocation owns a separate Unix socket and cache configuration;
+boundary. The Node action forwards the runtime-selected v2 service flag as well
+as the cache URL and token. Without that complete context, the driver compiles uncached
+instead of sending legacy requests to the v2 service. It also confirms that the
+started cache actually selected GitHub storage.
+
+Each invocation owns a separate Unix socket and cache configuration;
 it does not use or stop an existing developer cache daemon.
 
 Missing GitHub cache access, an unavailable tool download, or a cache service
@@ -36,6 +41,9 @@ starts with fresh configuration and link outputs.
 
 The uploaded `native-cache-*` receipts report actual cache status, object hit/miss
 statistics, native source and toolchain identities, and elapsed build time.
+They distinguish the selected backend and service version, cache writes, and
+write errors. Compilation success and read-miss counts alone do not prove remote
+persistence; a later run must demonstrate actual hits.
 `build_milliseconds` includes the normal second configure, compile and link but
 excludes initial source fetch/configuration, tool download and post-build identity
 verification. Compare the same metric and backend when measuring cold and warm
@@ -53,3 +61,5 @@ References:
 - [GitHub cache backend](https://github.com/mozilla/sccache/blob/v0.17.0/docs/GHA.md)
 - [GitHub cache scope](https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching)
 - [CMake File API](https://cmake.org/cmake/help/latest/manual/cmake-file-api.7.html)
+
+- [Pinned GitHub cache protocol selection](https://github.com/apache/opendal/blob/v0.55.0/core/src/services/ghac/core.rs#L397-L425)

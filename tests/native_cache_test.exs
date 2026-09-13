@@ -449,6 +449,78 @@ defmodule Riff.NativeCacheTest do
     assert again =~ "fresh native build directory"
   end
 
+  test "runtime credentials without a service flag never contact the legacy cache", %{root: root} do
+    setup_driver_fixture(root, "int main() { return 0; }\n")
+
+    {text, result} =
+      System.cmd(
+        "elixir",
+        [
+          Path.join(root, "scripts/build_cached_native.exs"),
+          "--backend",
+          "cpu",
+          "--compile-only",
+          "--jobs",
+          "2"
+        ],
+        env: [
+          {"RIFF_HOME", root},
+          {"ACTIONS_RESULTS_URL", "https://cache.invalid/"},
+          {"ACTIONS_RUNTIME_TOKEN", "fixture-token"},
+          {"ACTIONS_CACHE_SERVICE_V2", nil}
+        ],
+        stderr_to_stdout: true
+      )
+
+    assert result == 0, text
+    receipt = Cache.json(Path.join(root, "native-cache-receipts/build.json"))
+    refute receipt["cache_enabled"]
+    assert receipt["cache_backend"] == "disabled"
+    assert receipt["cache_service_version"] == :null
+    refute File.exists?(Path.join(root, ".compiler-cache-tool"))
+    [binary] = Path.wildcard(Path.join(root, "engines/*/build/bin/audiocpp_cli"))
+    assert {"", 0} == System.cmd(binary, [])
+  end
+
+  test "GitHub v2 storage requires the complete runner context" do
+    environment = %{
+      "ACTIONS_RESULTS_URL" => "https://cache.invalid/",
+      "ACTIONS_RUNTIME_TOKEN" => "fixture-token",
+      "ACTIONS_CACHE_SERVICE_V2" => "True"
+    }
+
+    assert Cache.github_cache_available?(environment)
+
+    for name <- Map.keys(environment),
+        do: refute(Cache.github_cache_available?(Map.delete(environment, name)))
+
+    refute Cache.github_cache_available?(
+             Map.put(environment, "ACTIONS_CACHE_SERVICE_V2", "false")
+           )
+
+    refute Cache.github_cache_available?(
+             Map.put(environment, "GITHUB_SERVER_URL", "https://enterprise.invalid")
+           )
+  end
+
+  test "actual failed-write statistics stay visible without publishing storage details" do
+    # Captured from pinned sccache 0.17.0 against a local fixture which returned
+    # cache misses for reads and rejected writes. Read-error counters stayed zero.
+    raw = Cache.json(Path.join(@repo, "tests/fixtures/native-cache-write-failure.json"))
+    result = Cache.cache_statistics(raw)
+    assert result.backend == "github-actions"
+    assert result.counters["cache_write_errors"] == 1
+    assert result.counters["cache_writes"] == 0
+    assert result.counters["cache_read_errors"] == 0
+    assert result.counters["cache_errors"]["counts"] == %{}
+
+    private = Map.put(raw, "cache_location", "local: /fixture/private/cache")
+    safe = Cache.cache_statistics(private)
+    assert safe.backend == "unknown"
+    refute inspect(safe) =~ "/fixture/private"
+    refute Map.has_key?(safe.counters, "cache_location")
+  end
+
   test "a native compile failure stays failed when the remote cache is absent", %{root: root} do
     setup_driver_fixture(root, "#error intentional_compile_failure\n")
 

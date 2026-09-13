@@ -334,6 +334,29 @@ defmodule Riff.NativeCache do
        else: "READ_ONLY"
   end
 
+  def github_cache_available?(environment) do
+    Enum.all?(~w(ACTIONS_RESULTS_URL ACTIONS_RUNTIME_TOKEN), &(environment[&1] not in [nil, ""])) and
+      String.downcase(environment["ACTIONS_CACHE_SERVICE_V2"] || "") in ~w(true on 1) and
+      Map.get(environment, "GITHUB_SERVER_URL", "https://github.com") == "https://github.com"
+  end
+
+  def cache_statistics(data) do
+    backend =
+      case data["cache_location"] do
+        "ghac," <> _ -> "github-actions"
+        _ -> "unknown"
+      end
+
+    counters =
+      data
+      |> Map.get("stats", %{})
+      |> Map.take(
+        ~w(compile_requests requests_executed cache_hits cache_misses cache_errors cache_read_errors cache_timeouts cache_writes cache_write_errors non_cacheable_compilations compile_fails)
+      )
+
+    %{backend: backend, counters: counters}
+  end
+
   def platform do
     case {:os.type(), :erlang.system_info(:system_architecture) |> to_string()} do
       {{:unix, :darwin}, architecture} ->
