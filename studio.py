@@ -3,6 +3,8 @@
 import argparse
 from contextlib import nullcontext
 import fcntl
+import hashlib
+import html
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import mimetypes
@@ -35,6 +37,19 @@ TRACK_REVIEWS_ROUTE = re.compile(r"/api/tracks/([a-f0-9]{32})/reviews")
 REVIEW_ROUTE = re.compile(r"/api/reviews/([a-f0-9]{32})(?:/(cancel))?")
 
 
+def studio_identity(web, version):
+    """Identify the shipped page independently of the first state poll."""
+    digest = hashlib.sha256(version.encode("utf-8"))
+    for file in sorted(path for path in web.rglob("*") if path.is_file()):
+        digest.update(file.relative_to(web).as_posix().encode("utf-8") + b"\0")
+        file_digest = hashlib.sha256()
+        with file.open("rb") as source:
+            while block := source.read(64 * 1024):
+                file_digest.update(block)
+        digest.update(file_digest.digest())
+    return {"version": version, "build": digest.hexdigest()}
+
+
 def byte_range(value, size):
     if not value:
         return 0, size - 1, False
@@ -63,6 +78,9 @@ class StudioServer(ThreadingHTTPServer):
         self.maintenance = maintenance
         self.restart_requested = False
         self.network_access = read_access(store.data_root)
+        self.studio_identity = studio_identity(WEB, (ROOT / "VERSION").read_text().strip())
+        self.studio_index = (WEB / "index.html").read_text().replace(
+            "__RIFF_STUDIO_BUILD__", html.escape(self.studio_identity["build"], quote=True)).encode("utf-8")
         super().__init__(address, Handler)
         self.video_exports = VideoExports(store)
         if maintenance:
@@ -135,6 +153,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if path == "/api/state":
                 state = self.server.store.snapshot()
+                state["studio"] = self.server.studio_identity
                 state["live"] = self.server.generator.status()
                 state["writing"] = self.server.generator.writing_status()
                 state["reviews"] = self.server.reviews.snapshot() if self.server.reviews else []
@@ -205,12 +224,21 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 files = {"/": "index.html", "/app.js": "app.js", "/explore.js": "explore.js", "/review.js": "review.js",
                          "/artwork.js": "artwork.js", "/visualizer.js": "visualizer.js", "/video.js": "video.js", "/video-encoder.js": "video-encoder.js", "/style.css": "style.css",
-                         "/theme.js": "theme.js", "/suite.css": "suite.css", "/controls.js": "controls.js",
+                         "/theme.js": "theme.js", "/suite.css": "suite.css", "/controls.js": "controls.js", "/updates.js": "updates.js",
                          "/flip-face.svg": "flip-face.svg", "/score.js": "score.js", "/compare.js": "compare.js",
                          "/vendor/abcjs-basic-min.js": "vendor/abcjs-basic-min.js",
                          "/icon.svg": "icon.svg", "/manifest.webmanifest": "manifest.webmanifest"}
                 if path not in files:
                     raise KeyError("Page not found.")
+                if path == "/":
+                    self.send_response(200)
+                    self.send_header("Content-Type", "text/html; charset=utf-8")
+                    self.send_header("Content-Length", str(len(self.server.studio_index)))
+                    self.send_header("Cache-Control", "no-store")
+                    self.end_headers()
+                    if self.command != "HEAD":
+                        self.wfile.write(self.server.studio_index)
+                    return
                 file = WEB / files[path]
                 content_type = mimetypes.guess_type(file)[0] or "application/octet-stream"
                 if file.suffix == ".webmanifest":

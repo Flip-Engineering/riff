@@ -3,7 +3,7 @@
   const dialog = $("#score-dialog"), source = $("#score-source"), abc = $("#abc");
   let tunes = [], selectedNote = null, audioContext = null, voices = [], finishTimer = null;
   let pendingPlan = null, planInput = "", knownPlans = "", undo = [];
-  let proposal = null;
+  let proposal = null, revising = false;
   let writtenSeconds = 0, auditionParts = new Set(), partSignature = "";
   let candidate = null, restoring = false, lastDraft = scoreFields();
   const useScore = document.createElement("button");
@@ -252,6 +252,8 @@
   });
   $("#stop-score").addEventListener("click", stop);
   $("#revise-score").addEventListener("click", async () => {
+    revising = true;
+    window.RiffUpdate?.render(state);
     $("#revise-score").disabled = true; $("#stop-score-edit").hidden = false;
     $("#score-edit-status").textContent = "Writing a score revision…";
     try {
@@ -264,10 +266,10 @@
       ABCJS.renderAbc("score-proposal-notation", result.abc, { responsive: "resize", foregroundColor: "currentColor" });
       $("#score-edit-status").textContent = "Suggested edit ready";
     } catch (error) { $("#score-edit-status").textContent = error.message; }
-    finally { $("#revise-score").disabled = false; $("#stop-score-edit").hidden = true; }
+    finally { revising = false; $("#revise-score").disabled = false; $("#stop-score-edit").hidden = true; window.RiffUpdate?.render(state); }
   });
-  $("#apply-score-proposal").addEventListener("click", () => { if (proposal) replace(proposal.abc); $("#score-proposal").hidden = true; proposal = null; });
-  $("#dismiss-score-proposal").addEventListener("click", () => { $("#score-proposal").hidden = true; proposal = null; });
+  $("#apply-score-proposal").addEventListener("click", () => { if (proposal) replace(proposal.abc); $("#score-proposal").hidden = true; proposal = null; window.RiffUpdate?.render(state); });
+  $("#dismiss-score-proposal").addEventListener("click", () => { $("#score-proposal").hidden = true; proposal = null; window.RiffUpdate?.render(state); });
   $("#stop-score-edit").addEventListener("click", async () => {
     try { await api("/api/inspiration/cancel", "POST", {}); }
     catch (error) { $("#score-edit-status").textContent = error.message; }
@@ -320,7 +322,8 @@
     $("#score-open-player").hidden = !(selected?.recipe?.symbolic_plan?.artifact_id || selected?.recipe?.symbolic_plan?.abc || selected?.recipe?.abc);
     syncDraft();
   }
-  window.RiffScore = { update, open, syncDraft };
+  window.RiffScore = { update, open, syncDraft,
+    refreshWait: () => revising ? "Your score is still being written." : proposal ? "Use or dismiss the score suggestion to refresh." : "" };
   let width = 0;
   new ResizeObserver(() => {
     const next = $("#score-notation").clientWidth;

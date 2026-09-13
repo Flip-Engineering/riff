@@ -91,6 +91,7 @@ async function shuffleIdea(part = "all", fromCompass = false) {
     return;
   }
   ideaBusy = true;
+  window.RiffUpdate?.render(state);
   ideaEngine = before.idea_engine;
   ideaCancelled = false;
   $("#stop-writing").hidden = before.idea_engine === "phrases";
@@ -171,6 +172,7 @@ async function shuffleIdea(part = "all", fromCompass = false) {
     const pending = compassPending; compassPending = null;
     if (!ideaCancelled && pending && pending === JSON.stringify(formRecipe()))
       queueMicrotask(() => shuffleIdea("sound", true));
+    window.RiffUpdate?.render(state);
   }
 }
 

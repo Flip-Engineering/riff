@@ -1033,6 +1033,7 @@ async function refresh() {
   const added = next.tracks.filter((track) => !latestTrackIds.has(track.id));
   const oldJobs = new Map(state.jobs.map((job) => [job.id, job.status]));
   state = next;
+  window.RiffUpdate?.render(next);
   renderWriting();
   window.RiffControls?.render(next);
   window.RiffScore?.update(next);
@@ -1049,7 +1050,8 @@ async function refresh() {
   }
   renderQueue();
   if (firstLoad) {
-    let preferred = new URL(location.href).searchParams.get("recording");
+    window.RiffUpdate?.restoreFields();
+    let preferred = window.RiffUpdate?.preferredTrack() || new URL(location.href).searchParams.get("recording");
     try {
       preferred ||= localStorage.getItem("riff.selected");
     } catch {}
@@ -1058,6 +1060,7 @@ async function refresh() {
       state.tracks.find((t) => !t.archived);
     if (first) await selectTrack(first.id);
     firstLoad = false;
+    await window.RiffUpdate?.restoreContext();
   } else if (added.length) {
     notify(`“${added[0].title}” is ready to listen.`);
     if (audio.paused && !$("#producer-panel").open && !$("#take-comparison").open && !$("dialog[open]"))
@@ -1104,13 +1107,14 @@ const example = {
   abc: "",
 };
 try {
-  const stored = JSON.parse(localStorage.getItem("riff.draft") || "null");
+  const stored = window.RiffUpdate?.draft() || JSON.parse(localStorage.getItem("riff.draft") || "null");
   fillRecipe(stored || example);
   if (stored) $("#draft-status").textContent = "Draft restored";
 } catch {
-  fillRecipe(example);
+  fillRecipe(window.RiffUpdate?.draft() || example);
   $("#draft-status").textContent = "Draft in this tab";
 }
+window.RiffUpdate?.restoreFields();
 $("#cover-art").innerHTML = artContent("reed0f_cobalt8d82");
 renderWaveform();
 renderPlayerInfo();

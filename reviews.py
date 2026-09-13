@@ -13,7 +13,7 @@ import uuid
 
 from keychain import Keychain
 from studio_core import ROOT
-from review_recipe import recommended_generation
+from review_recipe import recommended_generation, source_seed
 
 
 class Reviews:
@@ -94,6 +94,11 @@ class Reviews:
         item = dict(row)
         for name in ("source_recipe", "revision", "generation", "usage"):
             item[name] = json.loads(item[name])
+        # Historical recommendations may predate seed retention. Present an
+        # editable take without rewriting the original saved review.
+        seed = source_seed(item["source_recipe"])
+        if isinstance(item["generation"], dict) and item["generation"].get("mode") and seed is not None:
+            item["generation"] = {**item["generation"], "seed": seed}
         item["keep_lyrics"] = bool(item["keep_lyrics"])
         return item
 

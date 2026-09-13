@@ -4,6 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#1c1216" />
+    <meta name="riff-studio-build" content="__RIFF_STUDIO_BUILD__" />
     <meta
       name="description"
       content="Riff is a music studio. Write a verse, find its sound, and keep the takes you love."
@@ -17,6 +18,7 @@
     <script src="/explore.js" defer></script>
     <script src="/artwork.js" defer></script>
     <script src="/visualizer.js" defer></script>
+    <script src="/updates.js" defer></script>
     <script src="/app.js" defer></script>
     <script src="/compare.js" defer></script>
     <script src="/video.js" defer></script>
@@ -69,6 +71,11 @@
         </button>
       </div>
     </header>
+
+    <section id="studio-update" class="studio-update" aria-label="Studio update" hidden>
+      <div><p id="studio-update-heading">Riff was updated</p><p id="studio-update-hint" class="control-hint" role="status"></p></div>
+      <button type="button" class="secondary-button" id="refresh-studio" aria-describedby="studio-update-hint">Refresh studio</button>
+    </section>
 
     <main id="main" tabindex="-1">
       <section

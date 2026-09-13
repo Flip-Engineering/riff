@@ -46,6 +46,13 @@ button:focus-visible, a:focus-visible, summary:focus-visible { outline: 2px soli
 .footer-tagline { color: var(--quiet); text-decoration: none; }
 .footer-tagline:hover { color: var(--blue); }
 .app-header { background: var(--fog); }
+.studio-update { position: sticky; top: 78px; z-index: 9; background: var(--fog); display: flex; align-items: center; justify-content: space-between; gap: 20px; margin: 0 auto; padding: 14px 0; width: min(1320px, calc(100% - 64px)); border-bottom: 1px solid var(--line); }
+.studio-update p { margin: 0; }
+.studio-update .control-hint { margin-top: 4px; }
+#studio-update-heading { font-size: 13px; font-weight: 600; }
+.studio-update button { flex-shrink: 0; }
+@media (max-width: 760px) { .studio-update { top: 76px; } }
+@media (max-width: 600px) { .studio-update { width: calc(100% - 32px); gap: 12px; flex-wrap: wrap; } }
 .icon-button { color: var(--quiet); }
 .nav-button.active, a { color: var(--blue); }
 .generate-button, .play-button { color: var(--on-accent); }

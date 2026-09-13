@@ -13,7 +13,7 @@ import unittest
 import wave
 from unittest.mock import patch
 
-from studio import StudioServer, byte_range
+from studio import StudioServer, byte_range, studio_identity
 from studio_core import CONTEXT, Generator, Store, observe_generation, validate_recipe
 from admission_fixture import FixtureAdmission
 
@@ -498,6 +498,31 @@ class HttpTests(StudioFixture):
         self.assertEqual(int(headers["Content-Length"]), self.audio.stat().st_size)
         self.assertEqual(self.request("GET", path, headers={"Range": "bytes=999999-"})[0], 416)
         self.assertEqual(self.request("GET", path, headers={"Range": "bytes=-8"})[2], self.audio.read_bytes()[-8:])
+
+    def test_loaded_page_has_server_build_before_any_state_poll(self):
+        status, headers, body = self.request("GET", "/")
+        self.assertEqual(status, 200)
+        self.assertEqual(headers["Cache-Control"], "no-store")
+        self.assertEqual(int(headers["Content-Length"]), len(body))
+        self.assertNotIn(b"__RIFF_STUDIO_BUILD__", body)
+        state = json.loads(self.request("GET", "/api/state")[2])
+        self.assertIn(f'name="riff-studio-build" content="{state["studio"]["build"]}"'.encode(), body)
+        self.assertEqual(self.request("HEAD", "/")[1]["Content-Length"], str(len(body)))
+        self.assertEqual(self.request("HEAD", "/")[2], b"")
+        self.assertEqual(self.request("GET", "/updates.js")[0], 200)
+
+    def test_build_changes_for_asset_bytes_and_version_but_not_mtime(self):
+        with tempfile.TemporaryDirectory() as folder:
+            web = Path(folder)
+            (web / "index.html").write_text("page")
+            (web / "video.js").write_text("original encoder")
+            original = studio_identity(web, "1.0.0")
+            (web / "video.js").touch()
+            self.assertEqual(studio_identity(web, "1.0.0"), original)
+            (web / "video.js").write_text("updated encoder")
+            self.assertNotEqual(studio_identity(web, "1.0.0")["build"], original["build"])
+            (web / "video.js").write_text("original encoder")
+            self.assertNotEqual(studio_identity(web, "1.0.1")["build"], original["build"])
 
     def test_storage_failure_returns_retryable_json_and_reading_recovers(self):
         with patch.object(self.store, "snapshot", side_effect=sqlite3.OperationalError("database or disk is full")):

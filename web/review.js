@@ -170,7 +170,7 @@
     const recipe = {
       ...review.source_recipe, ...review.revision,
       title: review.revision.title || `${currentTrack.title} — revision`,
-      seed: "", parent_track_id: review.track_id, review_id: review.id,
+      seed: String(review.source_recipe.seed ?? review.revision.seed ?? ""), parent_track_id: review.track_id, review_id: review.id,
     };
     if (review.keep_lyrics) recipe.lyrics = review.source_recipe.lyrics;
     else if (typeof review.revision.lyrics === "string") {
