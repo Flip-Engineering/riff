@@ -8,7 +8,7 @@ def describe():
     recipe["required"] = []
     recipe["properties"]["performance_source"] = {
         "type": "string", "pattern": "^(?:[a-f0-9]{32})?$",
-        "description": "Empty for new music, or a library track ID with performance_available=true. Reuses that take's saved performance codes and duration."}
+        "description": "Empty for new music, or a library track or completed-stage job ID with performance_available=true. Reuses that take's saved performance codes and duration."}
     for name in ("parent_track_id", "review_id"):
         recipe["properties"][name] = {"type": "string", "pattern": "^(?:[a-f0-9]{32})?$",
                                       "description": "Optional source reference to retain the iteration's ancestry."}

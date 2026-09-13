@@ -1,0 +1,118 @@
+--- a/src/models/yue2/ar_runtime.cpp
++++ b/src/models/yue2/ar_runtime.cpp
+@@ -561,14 +561,18 @@
+                     ggml_cast(ctx.get(), value_value.tensor, GGML_TYPE_F16),
+                     value_value.shape,
+                     GGML_TYPE_F16);
+-                auto * key = ggml_cpy(ctx.get(), key_value.tensor, ggml_dup_tensor(ctx.get(), key_value.tensor));
+-                auto * value = ggml_cpy(ctx.get(), value_value.tensor, ggml_dup_tensor(ctx.get(), value_value.tensor));
++                // Write the retained snapshot directly. A second graph-owned
++                // copy would duplicate every layer's complete K/V sequence.
++                auto retained_key = core::make_tensor(state_build, GGML_TYPE_F16, layer.key->shape);
++                auto retained_value = core::make_tensor(state_build, GGML_TYPE_F16, layer.value->shape);
++                auto * key = ggml_cpy(ctx.get(), key_value.tensor, retained_key.tensor);
++                auto * value = ggml_cpy(ctx.get(), value_value.tensor, retained_value.tensor);
+                 ggml_set_output(key);
+                 ggml_set_output(value);
+                 keys.push_back(key);
+                 values.push_back(value);
+-                key_values.push_back(core::make_tensor(state_build, GGML_TYPE_F16, layer.key->shape));
+-                value_values.push_back(core::make_tensor(state_build, GGML_TYPE_F16, layer.value->shape));
++                key_values.push_back(retained_key);
++                value_values.push_back(retained_value);
+             }
+             graph = ggml_new_graph_custom(ctx.get(), 65536, false);
+             for (auto * key : keys) {
+@@ -576,16 +580,16 @@
+             }
+             for (auto * value : values) {
+                 ggml_build_forward_expand(graph, value);
++            }
++            state_buffer = ggml_backend_alloc_ctx_tensors(state_ctx.get(), owner.execution.backend());
++            if (state_buffer == nullptr) {
++                throw std::runtime_error("failed to allocate Yue2 AR prefix-state cache");
+             }
+             gallocr = ggml_gallocr_new(ggml_backend_get_default_buffer_type(owner.execution.backend()));
+             if (gallocr == nullptr ||
+                 !ggml_gallocr_reserve(gallocr, graph) ||
+                 !ggml_gallocr_alloc_graph(gallocr, graph)) {
+                 throw std::runtime_error("failed to allocate Yue2 AR prefix-state graph");
+-            }
+-            state_buffer = ggml_backend_alloc_ctx_tensors(state_ctx.get(), owner.execution.backend());
+-            if (state_buffer == nullptr) {
+-                throw std::runtime_error("failed to allocate Yue2 AR prefix-state cache");
+             }
+             position_values = engine::modules::qwen_position_ids(steps);
+             mask_values = engine::modules::qwen_causal_prefill_mask_values(1, steps);
+@@ -596,17 +600,35 @@
+         }
+ 
+         ~PrefixStateGraph() {
+-            core::release_backend_graph_resources(owner->execution.backend(), graph);
+-            if (gallocr != nullptr) {
+-                ggml_gallocr_free(gallocr);
+-            }
++            release_compute();
+             if (state_buffer != nullptr) {
+                 ggml_backend_buffer_free(state_buffer);
+             }
+         }
+ 
++        void release_compute() {
++            if (graph == nullptr) return;
++            // The NAR stage owns a separate F16 snapshot. Finish its device
++            // writes before releasing the full causal prefill computation.
++            ggml_backend_synchronize(owner->execution.backend());
++            core::release_backend_graph_resources(owner->execution.backend(), graph);
++            const size_t graph_bytes = gallocr ? ggml_gallocr_get_buffer_size(gallocr, 0) : 0;
++            if (gallocr) ggml_gallocr_free(gallocr);
++            gallocr = nullptr;
++            graph = nullptr;
++            input = positions = attention_mask = nullptr;
++            keys.clear();
++            values.clear();
++            ctx.reset();
++            const size_t mask_bytes = mask_values.capacity() * sizeof(ggml_fp16_t);
++            std::vector<ggml_fp16_t>().swap(mask_values);
++            std::vector<int32_t>().swap(position_values);
++            engine::debug::timing_log_scalar("yue2.ar.prefix_state.released_graph_bytes", graph_bytes);
++            engine::debug::timing_log_scalar("yue2.ar.prefix_state.released_mask_bytes", mask_bytes);
++        }
++
+         bool matches(int64_t s) const noexcept {
+-            return steps == s;
++            return graph != nullptr && steps == s;
+         }
+ 
+         runtime::TransformerKVState run(const std::vector<int32_t> & tokens) {
+@@ -629,16 +651,12 @@
+ 
+         Yue2ArDevicePrefixState run_device(const std::vector<int32_t> & tokens) {
+             compute(tokens);
+-            const auto copy_start = Clock::now();
+-            for (size_t layer = 0; layer < keys.size(); ++layer) {
+-                ggml_backend_tensor_copy(keys[layer], key_values[layer].tensor);
+-                ggml_backend_tensor_copy(values[layer], value_values[layer].tensor);
+-            }
+-            engine::debug::timing_log_scalar("yue2.ar.prefix_state.device_copy_ms", engine::debug::elapsed_ms(copy_start));
++            engine::debug::timing_log_scalar("yue2.ar.prefix_state.device_copy_ms", 0.0);
+             Yue2ArDevicePrefixState out;
+             out.current_end = steps;
+             out.keys = key_values;
+             out.values = value_values;
++            release_compute();
+             return out;
+         }
+ 
+--- a/src/models/yue2/nar_runtime.cpp
++++ b/src/models/yue2/nar_runtime.cpp
+@@ -683,6 +683,9 @@
+         double solve_ms = 0.0;
+         double append_ms = 0.0;
+         for (const auto & [begin, end] : ranges) {
++            // Drop the previous acoustic graph before its borrowed AR snapshot
++            // is replaced by the next chunk's conditioning.
++            graph.reset();
+             const auto token_start = Clock::now();
+             std::vector<int32_t> ar_tokens = prefix;
+             ar_tokens.reserve(prefix.size() + static_cast<size_t>(end - begin) + 1);

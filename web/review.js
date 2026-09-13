@@ -5,8 +5,7 @@
     signature = "",
     requests = [],
     refreshing = false;
-  let revisionUndo = null,
-    submitting = false;
+  let submitting = false;
   const panel = $("#producer-panel");
   $("#review-settings-open").hidden = false;
 
@@ -160,7 +159,7 @@
       ${take.lyrics ? `<details><summary>Lyrics${review.keep_lyrics ? " · kept" : ""}</summary><pre dir="auto">${esc(take.lyrics)}</pre></details>` : ""}
       ${take.abc ? `<details data-review-score="${review.id}"><summary>Score</summary><div class="review-score-preview" aria-label="Recommended score"></div></details>` : ""}
       <details><summary>Generation recipe</summary><pre class="review-recipe-json">${esc(JSON.stringify(take, null, 2))}</pre><button type="button" class="text-button" data-export-review="${review.id}">Download recipe</button></details>
-      <div class="review-take-actions"><button type="button" class="secondary-button solid" data-generate-review="${review.id}">${take.render_mode === "plan" ? "Compose this score" : take.performance_source ? "Render this performance" : "Generate this take"}</button><button type="button" class="text-button" data-use-review="${review.id}">Edit in studio</button></div></section>`;
+      <div class="review-take-actions"><button type="button" class="secondary-button solid" data-generate-review="${review.id}">${take.render_mode === "plan" ? "Compose this score" : take.render_mode === "performance" ? "Create this performance" : take.performance_source ? "Render this performance" : "Generate this take"}</button><button type="button" class="text-button" data-use-review="${review.id}">Edit in studio</button></div></section>`;
   }
 
   function takeRecipe(review) {
@@ -249,11 +248,7 @@
         );
         if (!review) return;
         const recipe = takeRecipe(review);
-        revisionUndo = formRecipe();
-        fillRecipe(recipe);
-        saveDraft();
-        showView("studio");
-        $("#revision-undo").hidden = false;
+        openRecipe(recipe);
         $("#title").focus();
         notify("The proposed take is on your writing desk.");
       }
@@ -279,23 +274,6 @@
       errorMessage("#review-error", error.message);
     }
   });
-  const undo = document.createElement("button");
-  undo.type = "button";
-  undo.id = "revision-undo";
-  undo.className = "text-button";
-  undo.textContent = "Undo revision";
-  undo.hidden = true;
-  $("#draft-status").before(undo);
-  undo.addEventListener("click", () => {
-    if (revisionUndo) {
-      fillRecipe(revisionUndo);
-      saveDraft();
-      undo.hidden = true;
-      revisionUndo = null;
-      notify("Your previous draft is back.");
-    }
-  });
-
   async function render(track, snapshot) {
     panel.hidden = !track;
     if (!track) return;

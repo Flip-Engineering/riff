@@ -42,8 +42,10 @@ def sysctl_int(name):
 
 def build_command(*, lyrics, style, max_seconds, steps, cot, seed, threads, output,
                   backend=None, abc="", mode="lyrics", cfg_scale=1., temperature=1., refinement=None, render_mode="music",
-                  performance_file=None, semantic_only=False):
+                  performance_file=None, semantic_only=False, solver="midpoint"):
     """Shared native invocation for the command line and Riff studio."""
+    if solver not in ("midpoint", "ab2"):
+        raise ValueError("Choose midpoint or ab2 for acoustic synthesis.")
     settings = platform_runtime.settings()
     config_path = Path(settings["model_root"]) / "sidecars/yue2-vae-config.json"
     config = json.loads(config_path.read_text()) if config_path.exists() else {}
@@ -64,6 +66,7 @@ def build_command(*, lyrics, style, max_seconds, steps, cot, seed, threads, outp
         "--request-option", f"semantic_max_tokens={token_limit}",
         "--request-option", f"semantic_min_tokens={min(200, token_limit)}",
         "--request-option", f"num_inference_steps={steps}",
+        "--request-option", "ode_method=" + solver,
         "--seed", str(seed), "--out", str(output), "--log", "--metrics",
     ]
     if style:
@@ -86,6 +89,15 @@ def build_command(*, lyrics, style, max_seconds, steps, cot, seed, threads, outp
     return command
 
 
+def require_solver(solver, binary):
+    """An older/custom engine must not silently ignore an explicit AB2 request."""
+    if solver == "ab2":
+        result = subprocess.run([str(binary), "--family", "yue2", "--model", platform_runtime.settings()["model_root"], "--help"],
+                                capture_output=True, text=True, timeout=10)
+        if result.returncode or "ode_method" not in result.stdout or "ab2" not in result.stdout:
+            raise ValueError("Update the music engine in Studio settings to use multistep synthesis.")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--lyrics", type=Path, default=ROOT / "lyrics.txt", help="UTF-8 lyrics file")
@@ -96,6 +108,7 @@ def main():
     modes.add_argument("--surprise", action="store_true", help="Generate original phrase-bank lyrics and a musical direction locally")
     parser.add_argument("--max-seconds", type=float, default=30, help="Preview duration ceiling (default 30); may cut off a song")
     parser.add_argument("--steps", type=int, default=32, help="Acoustic solver steps (32 upstream default; 8 for a quick preview)")
+    parser.add_argument("--solver", choices=("midpoint", "ab2"), default="midpoint", help="Acoustic integration method; ab2 reuses previous velocity estimates for fewer model passes")
     parser.add_argument("--guidance", type=float, default=1., help="Guidance scale, 0–20; 1 keeps a single generation branch")
     parser.add_argument("--temperature", type=float, default=1., help="Semantic sampling temperature, 0–5")
     parser.add_argument("--cot", choices=("off", "melody", "full"), default="off")
@@ -137,10 +150,12 @@ def main():
                             cfg_scale=args.guidance, temperature=args.temperature,
                             refinement=json.loads(args.refinement.read_text()) if args.refinement else {},
                             render_mode="plan" if args.plan_only else "music",
-                            performance_file=args.performance, semantic_only=args.performance_only)
+                            performance_file=args.performance, semantic_only=args.performance_only, solver=args.solver)
     if args.dry_run:
         print(json.dumps(command, indent=2))
         return
+    if not args.plan_only and not args.performance_only:
+        require_solver(args.solver, command[0])
     if not BINARY.is_file():
         parser.error("build the executable with ./build.sh first")
     output.parent.mkdir(parents=True, exist_ok=True)

@@ -61,6 +61,18 @@
     "patches/cache-upload-memory.patch": {
       "bytes": 6900,
       "sha256": "6959d777b1907adfd02f439f69dd9ad7749dfce3dfea0e4cd19bb5a58b721cb9"
+    },
+    "patches/synthesis-cache-release.patch": {
+      "bytes": 6099,
+      "sha256": "929a969b8c42790e951c92c5e3c306b00052cf1575825531290c5ceade971c50"
+    },
+    "patches/metal-acoustic-attention.patch": {
+      "bytes": 20187,
+      "sha256": "9622d39c9980d379a6e714212fd49d7a84d7e38f296d93bdc2f9615cdf0a0de4"
+    },
+    "patches/yue2-acoustic-solver.patch": {
+      "bytes": 10426,
+      "sha256": "13d9ebd60d5f5f310849ed666366942deb7ad7c0abf80a72e13cbb03149e643c"
     }
   },
   "writer": {

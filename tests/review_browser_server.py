@@ -62,6 +62,8 @@ with tempfile.TemporaryDirectory(prefix="riff-review-browser-") as folder:
     def command(recipe, output):
         if os.environ.get("RIFF_QUEUE_FIXTURE") and recipe.get("style") == "queue fixture hold":
             return [sys.executable, "-c", "import time\nwhile True: time.sleep(1)"]
+        if recipe.get("render_mode") == "performance":
+            return [sys.executable, "-c", "import pathlib,sys,json;p=pathlib.Path(sys.argv[1]);p.write_bytes(bytes([7,0,0,0])*300);p.with_suffix('.i32.json').write_text(json.dumps(dict(frames=300,truncated=False)))", str(output.with_suffix(".codes.i32"))]
         if recipe.get("render_mode") == "plan":
             return [sys.executable, "-c", "import pathlib,sys;pathlib.Path(sys.argv[1]).write_text('{\"tokens\":[42],\"truncated\":false}')", str(output.with_suffix(".plan.json"))]
         return [sys.executable, "-c", "import shutil,sys;shutil.copyfile(sys.argv[1],sys.argv[2])", str(audio), str(output)]

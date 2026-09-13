@@ -195,13 +195,7 @@ class Handler(BaseHTTPRequestHandler):
                     del track["file"]
                     self.json_response(200, track)
             elif (match := JOB_ROUTE.fullmatch(path)) and not match[2]:
-                with self.server.store.db() as db:
-                    job = db.execute("SELECT * FROM jobs WHERE id=?", (match[1],)).fetchone()
-                if not job:
-                    raise KeyError("Take not found.")
-                job = dict(job)
-                job["recipe"] = json.loads(job["recipe"])
-                self.json_response(200, job)
+                self.json_response(200, self.server.store.job(match[1]))
             else:
                 files = {"/": "index.html", "/app.js": "app.js", "/explore.js": "explore.js", "/review.js": "review.js",
                          "/artwork.js": "artwork.js", "/visualizer.js": "visualizer.js", "/video.js": "video.js", "/style.css": "style.css",

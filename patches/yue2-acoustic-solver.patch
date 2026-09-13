@@ -1,0 +1,236 @@
+--- /dev/null
++++ b/include/engine/models/yue2/flow_solver.h
+@@ -0,0 +1,70 @@
++#pragma once
++
++#include <cmath>
++#include <cstdint>
++#include <stdexcept>
++#include <string>
++#include <utility>
++#include <vector>
++
++namespace engine::models::yue2 {
++
++enum class Yue2OdeMethod { Midpoint, AdamsBashforth2 };
++
++inline Yue2OdeMethod parse_ode_method(const std::string & value) {
++    if (value == "midpoint") return Yue2OdeMethod::Midpoint;
++    if (value == "ab2") return Yue2OdeMethod::AdamsBashforth2;
++    throw std::invalid_argument("Yue2 ode_method must be midpoint or ab2");
++}
++
++// Integrate dx/dt = velocity(x,t) from noise at t=1 to audio latents at t=0.
++// AB2 keeps second-order accuracy with one evaluation per step after a
++// midpoint startup. It has a different stability region from midpoint.
++// Every chunk starts its own history; velocity may contain a full neural model.
++template <typename Velocity, typename Progress>
++std::vector<float> integrate_flow(
++    std::vector<float> state,
++    int64_t steps,
++    Yue2OdeMethod method,
++    Velocity && velocity,
++    Progress && progress) {
++    if (steps < 1) throw std::invalid_argument("Yue2 solver steps must be positive");
++    if (method != Yue2OdeMethod::Midpoint && method != Yue2OdeMethod::AdamsBashforth2) {
++        throw std::invalid_argument("Unknown Yue2 acoustic solver");
++    }
++    const float dt = 1.0F / static_cast<float>(steps);
++    std::vector<float> previous;
++    std::vector<float> mid(state.size());
++    auto evaluate = [&](const std::vector<float> & input, float t) {
++        auto result = velocity(input, t);
++        if (result.size() != state.size()) {
++            throw std::runtime_error("Yue2 acoustic velocity shape mismatch");
++        }
++        return result;
++    };
++    for (int64_t step = 0; step < steps; ++step) {
++        const float t = 1.0F - static_cast<float>(step) * dt;
++        auto first = evaluate(state, t);
++        if (method == Yue2OdeMethod::AdamsBashforth2 && !previous.empty()) {
++            for (size_t i = 0; i < state.size(); ++i) {
++                state[i] -= (1.5F * first[i] - 0.5F * previous[i]) * dt;
++            }
++        } else {
++            for (size_t i = 0; i < state.size(); ++i) {
++                mid[i] = state[i] - first[i] * (dt / 2.0F);
++            }
++            const auto second = evaluate(mid, t - dt / 2.0F);
++            for (size_t i = 0; i < state.size(); ++i) state[i] -= second[i] * dt;
++        }
++        for (float value : state) {
++            if (!std::isfinite(value)) {
++                throw std::runtime_error("Yue2 acoustic solver diverged; increase steps or use midpoint");
++            }
++        }
++        if (method == Yue2OdeMethod::AdamsBashforth2) previous = std::move(first);
++        progress(step + 1);
++    }
++    return state;
++}
++
++}  // namespace engine::models::yue2
+--- a/include/engine/models/yue2/types.h
++++ b/include/engine/models/yue2/types.h
+@@ -1,4 +1,6 @@
+ #pragma once
++
++#include "engine/models/yue2/flow_solver.h"
+ 
+ #include <cstdint>
+ #include <string>
+@@ -56,6 +58,7 @@
+     Yue2SamplingConfig abc;
+     Yue2SamplingConfig semantic;
+     int64_t ode_steps = 32;
++    Yue2OdeMethod ode_method = Yue2OdeMethod::Midpoint;
+     int64_t context = kContextTokens;
+ };
+ 
+--- a/src/models/yue2/assets.cpp
++++ b/src/models/yue2/assets.cpp
+@@ -90,9 +90,10 @@
+         out.semantic = parse_sampling(*semantic, out.semantic);
+     }
+     out.ode_steps = json::optional_i64(root, "ode_steps", out.ode_steps);
++    out.ode_method = parse_ode_method(json::optional_string(root, "ode_method", "midpoint"));
+     out.context = json::optional_i64(root, "context", out.context);
+     if (out.ode_steps <= 0 || out.context != kContextTokens) {
+-        throw std::runtime_error("Yue2 generation config requires positive midpoint steps and context=24576");
++        throw std::runtime_error("Yue2 generation config requires positive solver steps and context=24576");
+     }
+     return out;
+ }
+--- a/src/models/yue2/request.cpp
++++ b/src/models/yue2/request.cpp
+@@ -93,6 +93,9 @@
+             throw std::runtime_error("Yue2 cfg_scale must be in [0,20]");
+         }
+         out.cfg_scale = *value;
++    }
++    if (const auto value = runtime::find_option(options, {"ode_method"})) {
++        out.generation.ode_method = parse_ode_method(*value);
+     }
+     out.generation.ode_steps =
+         runtime::parse_positive_i64_option(options, {"num_inference_steps"}, out.generation.ode_steps);
+--- a/src/models/yue2/session.cpp
++++ b/src/models/yue2/session.cpp
+@@ -165,6 +165,7 @@
+         {"cot", "off|melody|full", "Planning mode.", false, "off"},
+         {"seed", "int", "Generation seed.", false, "0"},
+         {"cfg_scale", "float", "Classifier-free guidance scale.", false, "1.0", "0.0", "20.0"},
++        {"ode_method", "midpoint|ab2", "Acoustic flow solver. AB2 reuses the previous velocity after midpoint startup.", false, "midpoint"},
+         {"num_inference_steps", "int", "NAR ODE steps.", false, "10", "1"},
+     };
+     out.session_options = {
+--- a/include/engine/models/yue2/nar_runtime.h
++++ b/include/engine/models/yue2/nar_runtime.h
+@@ -32,7 +32,8 @@
+         const std::vector<float> & noise,
+         uint64_t seed,
+         int64_t ode_steps,
+-        int64_t context);
++        int64_t context,
++        Yue2OdeMethod method = Yue2OdeMethod::Midpoint);
+ 
+     void release_runtime_graphs();
+ 
+--- a/src/models/yue2/pipeline.cpp
++++ b/src/models/yue2/pipeline.cpp
+@@ -235,7 +235,8 @@
+             noise,
+             seed,
+             generation.ode_steps,
+-            generation.context);
++            generation.context,
++            generation.ode_method);
+     }
+ 
+     runtime::AudioBuffer decode_audio(const std::vector<float> & latents, int64_t frames) {
+--- a/src/models/yue2/nar_runtime.cpp
++++ b/src/models/yue2/nar_runtime.cpp
+@@ -602,35 +602,29 @@
+         const std::vector<float> & noise,
+         int64_t ode_steps,
+         int64_t completed_frames,
+-        int64_t total_frames) {
+-        auto state = noise;
++        int64_t total_frames,
++        Yue2OdeMethod method) {
+         const auto total_start = Clock::now();
+         const auto & config = assets->config.model;
+-        const int64_t frames = static_cast<int64_t>(state.size()) / config.latent_dim;
++        const int64_t frames = static_cast<int64_t>(noise.size()) / config.latent_dim;
+         graph = std::make_unique<Graph>(*this, frames, ar_state);
+         auto & chunk_graph = *graph;
+-        const float dt = 1.0F / static_cast<float>(ode_steps);
+         HostVelocityTiming host_timing;
+-        double host_update_ms = 0.0;
++        double evaluation_ms = 0.0;
+         engine::debug::timing_log_scalar("yue2.nar.progress", static_cast<double>(completed_frames) / total_frames);
+-        for (int64_t step = 0; step < ode_steps; ++step) {
+-            const float t = 1.0F - static_cast<float>(step) * dt;
+-            const auto first = velocity(chunk_graph, ar_state, state, logit_clamped(t), host_timing);
+-            const auto mid_start = Clock::now();
+-            std::vector<float> mid(state.size(), 0.0F);
+-            for (size_t i = 0; i < state.size(); ++i) {
+-                mid[i] = state[i] - first[i] * (dt / 2.0F);
+-            }
+-            host_update_ms += engine::debug::elapsed_ms(mid_start);
+-            const auto second = velocity(chunk_graph, ar_state, mid, logit_clamped(t - dt / 2.0F), host_timing);
+-            const auto update_start = Clock::now();
+-            for (size_t i = 0; i < state.size(); ++i) {
+-                state[i] -= second[i] * dt;
+-            }
+-            host_update_ms += engine::debug::elapsed_ms(update_start);
+-            const double completed = completed_frames + static_cast<double>(frames) * (step + 1) / ode_steps;
+-            engine::debug::timing_log_scalar("yue2.nar.progress", completed / total_frames);
+-        }
++        const auto solve_start = Clock::now();
++        auto state = integrate_flow(noise, ode_steps, method,
++            [&](const std::vector<float> & input, float t) {
++                const auto start = Clock::now();
++                auto result = velocity(chunk_graph, ar_state, input, logit_clamped(t), host_timing);
++                evaluation_ms += engine::debug::elapsed_ms(start);
++                return result;
++            },
++            [&](int64_t completed_steps) {
++                const double completed = completed_frames + static_cast<double>(frames) * completed_steps / ode_steps;
++                engine::debug::timing_log_scalar("yue2.nar.progress", completed / total_frames);
++            });
++        const double host_update_ms = engine::debug::elapsed_ms(solve_start) - evaluation_ms;
+         engine::debug::timing_log_scalar("yue2.nar.chunk.frames", frames);
+         engine::debug::timing_log_scalar("yue2.nar.chunk.ode_steps", ode_steps);
+         engine::debug::timing_log_scalar("yue2.nar.chunk.velocity_runs", chunk_graph.runs);
+@@ -651,7 +645,8 @@
+         const std::vector<float> & noise,
+         uint64_t seed,
+         int64_t ode_steps,
+-        int64_t context) {
++        int64_t context,
++        Yue2OdeMethod method) {
+         const auto total_start = Clock::now();
+         const auto & config = assets->config.model;
+         const auto ranges = chunk_ranges(static_cast<int64_t>(codec.size()), static_cast<int64_t>(prefix.size()), context);
+@@ -706,7 +701,7 @@
+             auto ar_state = prefill_state(ar_tokens);
+             prefill_ms += engine::debug::elapsed_ms(prefill_start);
+             const auto solve_start = Clock::now();
+-            auto chunk = solve_chunk(ar_state, noise, ode_steps, begin, static_cast<int64_t>(codec.size()));
++            auto chunk = solve_chunk(ar_state, noise, ode_steps, begin, static_cast<int64_t>(codec.size()), method);
+             solve_ms += engine::debug::elapsed_ms(solve_start);
+             const auto append_start = Clock::now();
+             out.insert(out.end(), chunk.begin(), chunk.end());
+@@ -751,8 +746,9 @@
+     const std::vector<float> & noise,
+     uint64_t seed,
+     int64_t ode_steps,
+-    int64_t context) {
+-    return impl_->synthesize(prefix, codec, prefill_state, noise, seed, ode_steps, context);
++    int64_t context,
++    Yue2OdeMethod method) {
++    return impl_->synthesize(prefix, codec, prefill_state, noise, seed, ode_steps, context, method);
+ }
+ 
+ void Yue2NarRuntime::release_runtime_graphs() {

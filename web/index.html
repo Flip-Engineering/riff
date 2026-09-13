@@ -89,6 +89,7 @@
           <section class="writing-desk" aria-labelledby="compose-heading">
             <div class="panel-heading">
               <h2 id="compose-heading">New recording</h2>
+              <button type="button" id="revision-undo" class="text-button" hidden>Undo revision</button>
               <span id="draft-status" class="quiet-text"
                 >Your writing space</span
               >
@@ -183,7 +184,7 @@
               />
               <div id="performance-context" class="performance-context" hidden>
                 <p id="performance-caption"></p>
-                <p class="control-hint">Keep the phrasing and length while exploring sound, seed and solver detail.</p>
+                <p class="control-hint">Keep the phrasing and length. Explore its sound, or begin a fresh performance.</p>
                 <button type="button" id="fresh-performance" class="text-button">Create a fresh performance instead</button>
               </div>
               <div id="words-space">
@@ -432,8 +433,7 @@
                 </fieldset>
               </div>
               <p class="control-hint" id="quality-hint">
-                A quick first listen. Choose extra room for the full
-                arrangement.
+                A quick first listen.
               </p>
               <details class="creative-controls">
                 <summary>
@@ -449,6 +449,11 @@
                       step="1"
                       value="8"
                     />
+                  </div>
+                  <div id="solver-control">
+                    <label for="solver">Synthesis method</label>
+                    <select id="solver" aria-describedby="solver-hint"><option value="midpoint">Midpoint</option><option value="ab2">Multistep · AB2</option></select>
+                    <p id="solver-hint" class="control-hint"></p>
                   </div>
                   <div>
                     <label for="guidance">Guidance</label
@@ -484,7 +489,7 @@
                   </div>
                   <div>
                     <label for="render-mode">Output</label>
-                    <select id="render-mode"><option value="music">Music</option><option value="plan">Editable score</option></select>
+                    <select id="render-mode"><option value="music">Music</option><option value="performance">Performance to render later</option><option value="plan">Editable score</option></select>
                   </div>
                 </div>
                 <p class="control-hint">

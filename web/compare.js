@@ -30,8 +30,11 @@
         const right = field === "abc" ? b.recipe.abc || b.recipe.symbolic_plan?.abc || "" : b.recipe[field] || "";
         if (left !== right) changes.push([label, field === "lyrics" ? "Rewritten" : field === "abc" ? "Different composition" : "New musical direction"]);
       }
-      for (const [field, label] of [["seed", "Seed"], ["cfg_scale", "Guidance"], ["temperature", "Variation"], ["steps", "Detail"], ["max_seconds", "Length"], ["cot", "Planning"]]) {
-        if (a.recipe[field] !== b.recipe[field]) changes.push([label, `${a.recipe[field] ?? "Default"} → ${b.recipe[field] ?? "Default"}`]);
+      for (const [field, label] of [["seed", "Seed"], ["cfg_scale", "Guidance"], ["temperature", "Variation"], ["steps", "Detail"], ["solver", "Synthesis method"], ["max_seconds", "Length"], ["cot", "Planning"]]) {
+        const left = field === "solver" ? a.recipe.solver || "midpoint" : a.recipe[field];
+        const right = field === "solver" ? b.recipe.solver || "midpoint" : b.recipe[field];
+        const display = value => field === "solver" ? value === "ab2" ? "Multistep" : "Midpoint" : value ?? "Default";
+        if (left !== right) changes.push([label, `${display(left)} → ${display(right)}`]);
       }
       if (JSON.stringify(a.recipe.refinement || {}) !== JSON.stringify(b.recipe.refinement || {})) changes.push(["Fine tuning", "Sampling controls changed"]);
       $("#compare-changes").innerHTML = changes.length ? `<dl>${changes.map(([label, value]) => `<div><dt>${esc(label)}</dt><dd>${esc(value)}</dd></div>`).join("")}</dl>` : '<p class="quiet-text">The musical inputs are the same.</p>';

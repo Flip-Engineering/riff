@@ -43,7 +43,7 @@ def listen(settings):
         "language, genre, structure, and instruments remain open to their direction. Carry over "
         "generation settings unless a change serves this iteration, and keep a short study "
         "within the requested preview scope. Preserve any useful sampling overrides. "
-        "You can recommend a fresh performance, a score-only composition, or a re-render of "
+        "You can recommend music, a performance saved for later rendering, a score-only composition, or a re-render of "
         "the supplied saved performance when performance_track_id is available. These use "
         "Riff's same generation queue and editable inputs. Reuse retains the performance's "
         "phrasing and duration; adjust acoustic direction, solver detail or seed. Music sampling "

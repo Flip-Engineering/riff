@@ -43,8 +43,12 @@ The application license does not change the model's terms.
   the full draft. Duration and quality shortcuts stay editable.
 - **Compare takes.** Switch A/B at the same listening position, loop a passage,
   and see which musical inputs changed. Reorder waiting takes with keyboard controls.
+- **Shape a performance.** Save its phrasing and score before rendering audio,
+  or return to a completed stage after an interruption. Explore acoustic variations
+  from the same performance, with an editable draft and undo.
 - **Granular control.** Melody/chord planning, supplied ABC, guidance, seeds,
-  semantic and planning sampling, repetition controls, and acoustic solver steps.
+  semantic and planning sampling, repetition controls, acoustic solver steps,
+  and a multistep synthesis method that reuses earlier velocity estimates.
   Blank optional controls retain the runtime defaults.
 - **Listening and library.** Playback, seeking, a measured waveform, sculptural seed
   artwork with an immersive sound view, favorites, notes, search, reversible archiving,
@@ -98,11 +102,14 @@ python3 run.py --free --steps 8 --max-seconds 28
 The optional Apple Silicon writer is installed with `./setup-writer.sh` using
 `uv`. OpenRouter writing and phrase suggestions work on both supported platforms.
 
-Q4 weights, memory mapping, short previews, and one native inference process at
-a time keep memory modest. Earlier 12–30 second M4 previews measured around
-2.7 GiB of process footprint; long songs and stronger guidance need substantially
-more. The engine exits after each take. [Validation](docs/validation.md) separates
-measured inference from build and browser checks.
+Q4 weights, memory mapping, direct cache writes and explicit graph lifetimes
+reduce native inference memory. Earlier 12–30 second M4 previews measured around
+2.7 GiB of process footprint. A 201.5-second saved-performance render measured
+3.39 GB after the synthesis cache rewrite, down from 6.59 GB with identical audio.
+Fresh generation also includes semantic sampling and needs more memory; its full
+input baseline measured 10.41 GB. The engine exits after each take.
+[Validation](docs/validation.md) records the settings and separates inference
+measurements from build and browser checks.
 
 See [contributing](CONTRIBUTING.md), [design](DESIGN.md), and
 [third-party notices](NOTICE.md).

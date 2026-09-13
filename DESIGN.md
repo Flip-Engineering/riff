@@ -78,3 +78,13 @@ keeps keyboard focus visible, and preserves drafts during generation and setup.
 Asynchronous refreshes must not overwrite a control someone has just changed.
 Notation hit targets include space around small glyphs so notes are practical to
 select, rather than only visually rendered.
+
+A performance can also exist before a recording. The output choice lets the artist
+compose its phrasing now and return to sound later. History opens completed and
+recovered performances into the same draft, with a single undo action. The score,
+performance and acoustic rendering remain connected through the ordinary queue
+and producer recipe.
+
+The living form carries delayed sound through its existing contours. Pressure
+opens and compresses their spacing; signed samples bend the surface and move its
+light. Its opening stays quiet, with only the corner wordmark inside the artwork.

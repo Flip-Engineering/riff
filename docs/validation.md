@@ -24,6 +24,68 @@ Short previews are the default development workflow; their measurements are not 
 RAM guarantee for a full song. Process peaks are sampled and can miss the final
 interval. Linux process metrics exclude GPU memory.
 
+### Native synthesis changes in 0.5.0
+
+A full-input native run completed 5,038 performance frames and 201.5187 seconds
+of stereo audio through the ordinary queue at 10,409,618,136 bytes peak process
+footprint. It used the Q4 model, F16 VAE and one midpoint solver step. This proves
+the complete pipeline on the 16 GB M4; one step is an engineering comparison,
+not a finished musical rendition.
+
+Re-rendering that saved performance with identical conditioning and seed measured:
+
+| Measurement | Previous engine | Direct retained cache |
+| --- | ---: | ---: |
+| Peak process footprint | 6,585,949,408 bytes | 3,387,855,720 bytes |
+| Acoustic-stage footprint | 6,585,949,408 bytes | 2,625,442,160 bytes |
+| Complete render wall time | 146.91 seconds | 177.43 seconds |
+
+The native code stream and decoded PCM were byte-identical. The rewrite writes
+the retained F16 conditioning cache directly and frees the completed prefill
+graph before acoustic synthesis. It removes duplicate K/V tensors rather than
+reducing the performance length or solver count. These sequential wall times
+varied with device conditions and do not establish an overall speedup; the memory
+result is separate from throughput. The 3.39 GB peak describes saved-code
+re-rendering, not fresh semantic generation or whole-system memory.
+
+Operator profiling identified attention and quantized projections as the largest
+acoustic costs. A specialized Metal F16 attention kernel reuses K/V loads across
+16 queries. The existing path remains for masked attention, other head dimensions
+and query counts below 4,096. Shorter-query benchmarks favored the original tile. A warmed, alternating comparison using the same graph and
+allocations measured 359.10 ms versus 352.53 ms for 5,040 queries and 18,929 keys,
+about 2% faster for that operator. All output floats matched exactly, including
+tests at 37, 128 and 202 queries and partial final tiles. The final dispatcher retains the earlier tile for these shorter shapes. Run the reproducible
+comparison with `python scripts/check_native_attention.py --build PATH`; set
+`GGML_METAL_WIDE_ATTENTION_DISABLE=1` to select the earlier kernel. The check reports
+a skip if Metal execution is unavailable.
+
+### Acoustic computation and multistep integration
+
+For performance length F, conditioning length P and model width D, each acoustic
+network evaluation contains attention proportional to F(P+F)D and projections
+proportional to FD², repeated across transformer layers. Midpoint requires 2S
+network evaluations for S steps. The optional second-order Adams–Bashforth solver
+requires S+1, using midpoint for its first step and reusing the previous velocity
+thereafter. It reduces the number of expensive network calls; it does not change
+the attention algorithm's quadratic dependence on performance length.
+
+A 32-second saved-performance comparison at 16 steps measured 32 versus 17
+network evaluations. Acoustic graph computation fell from 37.33 to 19.73 seconds;
+the complete native render fell from 49.08 to 31.81 seconds. A 32-step AB2 render
+used 33 evaluations and took 49.96 seconds. All three retained identical semantic
+codes and duration, with different PCM. A blinded direct-audio Gemini 3.8 Flash
+comparison found no clear audible differences and reported uncertain confidence.
+A second 28-second chant study used the same 32-versus-17 evaluation counts; its complete render measured 45.59 versus 27.36 seconds. Its blinded Gemini review also reported no material audible difference. These two reviews are study-specific listening evidence, not general quality equivalence.
+Midpoint remains the default; the artist and producer can select either method.
+
+The actual native integrator is tested against analytic constant, time-dependent
+and exponential ODEs, including backward integration, second-order convergence,
+evaluation counts, progress, invalid shapes and non-finite output. Run
+`python scripts/check_native_solver.py --build PATH` without model weights.
+The [linear multistep derivation](https://arxiv.org/abs/1610.08417) describes the
+underlying method family; Riff's audio measurements assess this implementation
+on YuE2 separately.
+
 ## Application checks
 
 - Python 3.9 and 3.14 import/startup preflight, without model files.
@@ -72,6 +134,11 @@ interval. Linux process metrics exclude GPU memory.
   performance or compose a score through normal queue validation, preserving
   the draft and ancestry. Browser checks cover written score duration and
   individual voice audition.
+- Performance-only generation and completed stages from interrupted renders can
+  be opened from history and rendered through the same queue. Recovery preserves
+  partial files without offering them as complete performances. Tests cover exact
+  code hashes, source lineage, actual duration, original job status, score retention,
+  shared draft undo and keyboard focus across history refreshes.
 - A real 28-second recording was played, sought, and exported through private
   Tailscale HTTPS at 1280×990 and 24 fps. The MP4 contains H.264 video and the
   complete AAC-encoded recording; the artwork includes only the riff wordmark.
@@ -95,6 +162,11 @@ interval. Linux process metrics exclude GPU memory.
   frames were inspected across four mineral palettes and the Surface range. A
   headed 240-frame drawing measurement averaged 1.25 ms, with 1.40 ms at p95, at
   1280×990; no model inference was running during this measurement.
+- The integrated v0.5.0 candidate passed all 89 Python tests and the complete browser suite, including synthesis-method selection, persistence, producer recipes and older-engine rejection.
+  Delayed waveform pressure now changes contour spacing, curvature and material
+  light together. Actual playback frames were inspected across four mineral
+  palettes. Existing mesh, aperture, silence, seeking, reduced-motion, Canvas
+  fallback and full/passage MP4 checks pass with the shared renderer.
 - Installed v0.4.1 exercised an actual Gemini 3.8 Flash saved-performance proposal
   through the UI and native queue, preserving the open draft, source ID and review
   ancestry. A complete 32-second MP4 exported through private HTTPS in 27.90 seconds

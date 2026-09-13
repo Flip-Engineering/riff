@@ -103,8 +103,11 @@ def validate_recipe(payload):
     if abc and cot == "off":
         raise ValueError("Select melody or melody and chords to use an ABC score.")
     render_mode = text("render_mode", "music")
-    if render_mode not in ("music", "plan") or (render_mode == "plan" and cot == "off"):
+    if render_mode not in ("music", "plan", "performance") or (render_mode == "plan" and cot == "off"):
         raise ValueError("Choose melody or melody and chords to compose a score.")
+    solver = text("solver", "midpoint")
+    if solver not in ("midpoint", "ab2"):
+        raise ValueError("Choose the midpoint or multistep acoustic solver.")
     def number(name, default, lower, upper):
         raw = payload.get(name, default)
         if isinstance(raw, bool):
@@ -132,7 +135,7 @@ def validate_recipe(payload):
             "energy": idea["energy"] if payload.get("energy") is not None else None,
             "texture": idea["texture"] if payload.get("texture") is not None else None,
             "theme": payload.get("theme", "anywhere"),
-            "max_seconds": seconds, "steps": steps, "cot": cot, "seed": str(seed),
+            "max_seconds": seconds, "steps": steps, "solver": solver, "cot": cot, "seed": str(seed),
             "refinement": model_options.validate(payload.get("refinement", {}), seconds), "render_mode": render_mode,
             "performance_source": "", **origin}
 
@@ -174,6 +177,7 @@ def recipe_from_metrics(metrics):
     return {"title": "Across the bay", "lyrics": "" if instrumental else opts.get("lyrics", ""), "style": opts.get("style", ""),
             "mode": "instrumental" if instrumental else "lyrics",
             "seed": str(opts.get("seed", "831001")), "steps": int(opts.get("num_inference_steps", 8)),
+            "solver": opts.get("ode_method", "midpoint"),
             "cot": opts.get("cot", "off"), "max_seconds": int(opts.get("semantic_max_tokens", 750)) / TOKEN_RATE,
             "abc": opts.get("abc", "")}
 
@@ -240,24 +244,92 @@ class Store:
             raise KeyError("The audio file is missing from the library folder.")
         return path
 
-    def performance_path(self, track_id):
-        track = self.track(track_id)
-        saved = track["recipe"].get("performance") or {}
-        path = self.audio_path(track_id).with_suffix(".codes.i32").resolve()
+    def job(self, job_id):
+        with self.db() as db:
+            row = db.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()
+        if row is None:
+            raise KeyError("Generation not found.")
+        job = dict(row)
+        job["recipe"] = json.loads(job["recipe"])
+        return job
+
+    def library_path(self, path):
+        path = Path(path).resolve()
         if not path.is_relative_to(self.outputs):
             raise ValueError("Performance data is outside the library.")
+        return path
+
+    def performance_record(self, source_id):
+        try:
+            record = self.track(source_id)
+            path = self.outputs / record["file"]
+        except KeyError:
+            record = self.job(source_id)
+            if record["status"] not in ("performed", "done", "cancelled", "interrupted", "failed"):
+                raise ValueError("This performance is still being created.")
+            path = self.outputs / "riff" / (record["id"] + ".wav")
+        return record, self.library_path(path.with_suffix(".codes.i32"))
+
+    def performance_path(self, source_id):
+        record, path = self.performance_record(source_id)
+        saved = record["recipe"].get("performance") or {}
         if not saved or not path.is_file():
-            raise ValueError("This take has no saved performance. Generate a new take to capture one.")
-        if path.stat().st_size != saved["frames"] * 4 or hashlib.sha256(path.read_bytes()).hexdigest() != saved["sha256"]:
+            raise ValueError("This take has no saved performance. Generate a new performance to capture one.")
+        frames = saved.get("frames")
+        if type(frames) is not int or frames < 1 or path.stat().st_size != frames * 4 or hashlib.sha256(path.read_bytes()).hexdigest() != saved.get("sha256"):
             raise ValueError("The saved performance has changed. Choose another take.")
         return path
+
+    def capture_artifacts(self, job_id, recipe):
+        """Capture completed native stages, including after an interrupted render."""
+        recipe = dict(recipe)
+        output = self.outputs / "riff" / (job_id + ".wav")
+        plan_path = self.library_path(output.with_suffix(".plan.json"))
+        # read_plan also writes a decoded score beside the native token file.
+        self.library_path(plan_path.with_suffix(".abc"))
+        plan = read_plan(plan_path, Path(engine.platform_runtime.settings()["model_root"]) / "sidecars/yue2-qwen.tiktoken")
+        if plan:
+            recipe["symbolic_plan"] = plan
+        codes = self.library_path(output.with_suffix(".codes.i32"))
+        metadata = self.library_path(codes.with_suffix(codes.suffix + ".json"))
+        if codes.is_file() and metadata.is_file():
+            saved = json.loads(metadata.read_text())
+            if type(saved.get("frames")) is not int or saved["frames"] < 1 or codes.stat().st_size != saved["frames"] * 4:
+                raise ValueError("The engine returned incomplete performance data.")
+            performance = {"frames": saved["frames"], "truncated": bool(saved.get("truncated")),
+                           "sha256": hashlib.sha256(codes.read_bytes()).hexdigest()}
+            if recipe.get("performance") and recipe["performance"]["sha256"] != performance["sha256"]:
+                raise ValueError("The saved performance has changed.")
+            if recipe.get("performance_source"):
+                self.performance_path(recipe["performance_source"])
+                source, _ = self.performance_record(recipe["performance_source"])
+                performance["truncated"] = bool(source["recipe"]["performance"].get("truncated"))
+            recipe["performance"] = performance
+        return recipe
+
+    def recover_jobs(self):
+        with self.db() as db:
+            interrupted = list(db.execute("SELECT id,recipe FROM jobs WHERE status IN ('running','cancelling')"))
+        for row in interrupted:
+            recipe = json.loads(row["recipe"])
+            try:
+                recipe = self.capture_artifacts(row["id"], recipe)
+                message = "Rendering was interrupted. Your performance is ready to finish." if recipe.get("performance") else "This take was interrupted. Your draft is saved."
+            except (ValueError, KeyError, OSError, TypeError):
+                # Partial or invalid files are preserved, never offered as a
+                # completed performance or allowed to stop studio startup.
+                recipe.pop("performance", None)
+                message = "This take was interrupted. Your draft is saved."
+            with self.db() as db:
+                db.execute("UPDATE jobs SET status='interrupted',recipe=?,error=?,finished=? WHERE id=?",
+                           (json.dumps(recipe), message, time.time(), row["id"]))
 
     def prepare_performance(self, recipe):
         source_id = recipe.get("performance_source")
         if not source_id:
             return recipe
         self.performance_path(source_id)
-        source = self.track(source_id)["recipe"]
+        source = self.performance_record(source_id)[0]["recipe"]
         recipe = dict(recipe)
         # A generated score must accompany reused codes. The semantic stage is
         # skipped, so it cannot reconstruct an omitted composition this time.
@@ -351,8 +423,13 @@ class Store:
     def snapshot(self):
         with self.db() as db:
             rows = db.execute("SELECT * FROM tracks ORDER BY created DESC, id DESC").fetchall()
-            jobs = [dict(row) for row in db.execute("SELECT id,title,created,status,error,started,finished,track_id,queue_position FROM jobs ORDER BY created, id")]
+            jobs = [dict(row) for row in db.execute("SELECT id,title,created,status,error,started,finished,track_id,queue_position,recipe FROM jobs ORDER BY created, id")]
             presets = [dict(row) for row in db.execute("SELECT * FROM presets ORDER BY rowid")]
+        for job in jobs:
+            recipe = json.loads(job.pop("recipe"))
+            saved = recipe.get("performance") or {}
+            job["performance_available"] = bool(saved) and job["status"] in ("performed", "done", "cancelled", "interrupted", "failed")
+            job["performance_seconds"] = saved.get("frames", 0) / TOKEN_RATE
         tracks = []
         for row in rows:
             recipe, audio = json.loads(row["recipe"]), json.loads(row["audio"])
@@ -380,18 +457,21 @@ class Generator:
         self.writer_gate = threading.Lock()
         self.live = None
         self.monitor = engine.platform_runtime.ProcessMemory()
-        with store.db() as db:
-            db.execute("UPDATE jobs SET status='interrupted',error='The studio closed during this take. Start a new take to try again.',finished=? WHERE status IN ('running','cancelling')", (time.time(),))
+        store.recover_jobs()
         self.thread = threading.Thread(target=self.work, name="riff-generator", daemon=True)
         self.thread.start()
 
     def native_command(self, recipe, output):
+        if recipe.get("render_mode", "music") == "music":
+            engine.require_solver(recipe.get("solver", "midpoint"), engine.platform_runtime.settings()["binary"])
         return engine.build_command(lyrics=recipe["lyrics"], style=recipe["style"], max_seconds=recipe["max_seconds"],
                                     steps=recipe["steps"], cot=recipe["cot"], seed=int(recipe["seed"]),
                                     threads=engine.platform_runtime.settings()["threads"], output=output, abc=recipe["abc"],
                                     mode=recipe.get("mode", "lyrics"), cfg_scale=recipe.get("cfg_scale", 1.),
                                     temperature=recipe.get("temperature", 1.), refinement=recipe.get("refinement", {}),
                                     render_mode=recipe.get("render_mode", "music"),
+                                    solver=recipe.get("solver", "midpoint"),
+                                    semantic_only=recipe.get("render_mode") == "performance",
                                     performance_file=self.store.performance_path(recipe["performance_source"]) if recipe.get("performance_source") else None)
 
     @staticmethod
@@ -581,7 +661,7 @@ class Generator:
         output = directory / f"{job_id}.wav"
         log_path = self.store.data_root / f"{job_id}.log"
         started, peak = time.monotonic(), 0
-        returncode, failure, track_id, planned = None, "", None, False
+        returncode, failure, track_id, planned, performed = None, "", None, False, False
         command = []
         try:
             if recipe.get("lyrics_source") == "pending":
@@ -631,20 +711,8 @@ class Generator:
             if self.monitor.libproc:
                 metrics["macos_lifetime_peak_footprint_bytes_observed"] = peak
             output.with_suffix(".metrics.json").write_text(json.dumps(metrics, indent=2) + "\n")
-            plan = read_plan(output.with_suffix(".plan.json"),
-                             Path(engine.platform_runtime.settings()["model_root"]) / "sidecars/yue2-qwen.tiktoken")
-            if plan:
-                recipe["symbolic_plan"] = plan
-            codes = output.with_suffix(".codes.i32")
-            metadata = codes.with_suffix(codes.suffix + ".json")
-            if codes.is_file() and metadata.is_file():
-                saved = json.loads(metadata.read_text())
-                if type(saved.get("frames")) is not int or saved["frames"] < 1 or codes.stat().st_size != saved["frames"] * 4:
-                    raise ValueError("The engine returned incomplete performance data.")
-                recipe["performance"] = {"frames": saved["frames"], "truncated": bool(saved.get("truncated")),
-                                         "sha256": hashlib.sha256(codes.read_bytes()).hexdigest()}
-                if recipe.get("performance_source"):
-                    recipe["performance"]["truncated"] = bool(self.store.track(recipe["performance_source"])["recipe"]["performance"].get("truncated"))
+            recipe = self.store.capture_artifacts(job_id, recipe)
+            plan = recipe.get("symbolic_plan")
             with self.store.db() as db:
                 db.execute("UPDATE jobs SET recipe=? WHERE id=?", (json.dumps(recipe), job_id))
             with self.store.db() as db:
@@ -656,6 +724,10 @@ class Generator:
                     planned = bool(plan and plan["abc"])
                     if not planned:
                         failure = "No score was returned. Update the music engine in Studio settings and try again."
+                elif recipe.get("render_mode") == "performance":
+                    performed = bool(recipe.get("performance"))
+                    if not performed:
+                        failure = "No performance was returned. Check the generation log for details."
                 elif not output.is_file():
                     failure = "The engine finished without an audio file. Try a new seed."
                 else:
@@ -673,7 +745,7 @@ class Generator:
                 try:
                     with self.store.db() as db:
                         row = db.execute("SELECT status FROM jobs WHERE id=?", (job_id,)).fetchone()
-                        status = "done" if track_id else "planned" if planned else "interrupted" if self.stop.is_set() else (
+                        status = "done" if track_id else "performed" if performed else "planned" if planned else "interrupted" if self.stop.is_set() else (
                             "cancelled" if row[0] == "cancelling" else "failed" if failure or not track_id else "done")
                         if status == "cancelled":
                             failure = ""

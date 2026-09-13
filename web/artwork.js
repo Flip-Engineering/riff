@@ -41,7 +41,7 @@ const RiffArtwork = (() => {
       }
     }
     const item = { palette, phase: (h % 1000) / 159, twist: .28 + (h % 37) / 110,
-      vertices: new Float32Array(rings * steps * 3), projected: new Float32Array(rings * steps * 2),
+      vertices: new Float32Array(rings * steps * 3), stress: new Float32Array(rings * steps), projected: new Float32Array(rings * steps * 2),
       faces, shades, edges };
     // Retain the existing artwork cache footprint rather than a frame history.
     if (cache.size >= 24) cache.delete(cache.keys().next().value);
@@ -74,28 +74,35 @@ const RiffArtwork = (() => {
         return fields.get(trace);
       };
       const first = fieldAt(before), next = fieldAt(after);
+      // The delayed pressure travels through the same contours as the signed
+      // signal. Their endpoints stay attached while the material opens within.
+      const pressure = arrival - attack + resonance * .6;
+      const layer = f + Math.sin(2 * Math.PI * f) * pressure * .055;
       for (let point = 0; point < steps; point++) {
-        const t = point / steps * Math.PI * 2;
+        const angle = point / steps * Math.PI * 2;
         const position = (point / steps + phase / (Math.PI * 2)) % 1;
         const signal = fieldSample(first, position) * (1 - blend) + fieldSample(next, position) * blend;
-        // The original seed contour is the plan view of this acoustic shell.
+        const t = angle + fold * signal * .028 + fold * pressure * .045;
+        // One connected acoustic shell: sound changes curvature, spacing and
+        // material tension together instead of overlaying a separate trace.
         const strain = middle * 6 * Math.sin(3 * t - time * 1.4 + phase)
           + arrival * 7 * Math.sin(2 * t + phase + f * 4) + resonance * 12 + signal * (5 + 7 * fold);
-        const radius = (100 + f * 60.75 + 12 * Math.sin(3 * t + phase) * f) * (1 + bass * .095) + strain;
+        const radius = (100 + layer * 60.75 + 12 * Math.sin(3 * t + phase) * layer) * (1 + bass * .095) + strain;
         const x = Math.cos(t) * radius;
-        const y = (Math.sin(t) * (68 + f * 35.1) + 30 * Math.sin(2 * t + phase) * f) * (1 + bass * .065)
+        const y = (Math.sin(t) * (68 + layer * 35.1) + 30 * Math.sin(2 * t + phase) * layer) * (1 + bass * .065)
           + Math.sin(t) * signal * 6 * fold;
         const wave = middle * 4 * Math.sin(3 * t + phase - time * 1.2 + f * 2)
           + air * 1.2 * Math.sin(15 * t - time * 5.5 + f * 8)
           + attack * 4 * Math.sin(6 * t - time * 3.8 + f * 13)
           + crest * .7 * Math.sin(27 * t - time * 6 + f * 15)
           + signal * (8 + 14 * fold);
-        const z = -22 + f * 40 + fold * (22 + 22 * Math.sin(2 * t + phase))
+        const z = -22 + layer * 40 + fold * (22 + 22 * Math.sin(2 * t + phase))
           + 10 * Math.sin(3 * t + phase) * f + (.28 + fold * .72) * wave + arrival * 7 * fold;
         const ry = y * ct - z * st, rz = y * st + z * ct;
         const rx = x * cy + rz * sy, depth = -x * sy + rz * cy;
         const tx = rx * cz - ry * sz, ty = rx * sz + ry * cz;
         const index = ring * steps + point, perspective = 630 / (630 - depth);
+        g.stress[index] = clamp(signal * 1.8 + pressure * .7, -1, 1) * fold;
         v[index * 3] = tx; v[index * 3 + 1] = ty; v[index * 3 + 2] = depth;
         p[index * 2] = 220 + tx * perspective * .93;
         p[index * 2 + 1] = 143 + ty * perspective * .93;
@@ -134,14 +141,17 @@ const RiffArtwork = (() => {
       layout(location=0) in vec3 position;
       layout(location=1) in vec3 normal;
       layout(location=2) in vec2 uv;
+      layout(location=3) in float stress;
+      out float surfaceStress;
       out vec3 surfaceNormal;
       out vec2 surfaceUV;
-      void main() { gl_Position=vec4(position,1.0); surfaceNormal=normal; surfaceUV=uv; }
+      void main() { gl_Position=vec4(position,1.0); surfaceNormal=normal; surfaceUV=uv; surfaceStress=stress; }
     `);
     const fragment = compile(gl.FRAGMENT_SHADER, `#version 300 es
       precision highp float;
       in vec3 surfaceNormal;
       in vec2 surfaceUV;
+      in float surfaceStress;
       uniform vec3 ink;
       uniform vec3 paper;
       uniform vec3 warm;
@@ -151,14 +161,14 @@ const RiffArtwork = (() => {
         vec3 n=normalize(surfaceNormal); if(n.z<0.0) n=-n;
         float diffuse=max(0.0,dot(n,normalize(vec3(-0.42,-0.63,0.65))));
         float sheen=pow(max(0.0,dot(n,normalize(vec3(-0.22,-0.34,0.91)))),32.0);
-        float light=clamp(0.24+0.67*diffuse+0.26*sheen,0.0,1.0);
+        float light=clamp(0.22+0.67*diffuse+0.30*sheen+surfaceStress*0.055,0.0,1.0);
         float grazing=pow(1.0-abs(n.z),2.0);
         vec3 material=mix(ink*0.48,paper*1.035,light);
         material=mix(material,warm,0.19*grazing+0.10*sheen);
         float band=surfaceUV.y*39.0;
         float distance=abs(fract(band+0.5)-0.5);
         float openSide=smoothstep(-0.3,0.8,sin(surfaceUV.x*6.2831853));
-        float presence=clamp(surfacePresence*1.45-openSide*0.42,0.0,1.0);
+        float presence=clamp(surfacePresence*1.45-openSide*0.42+surfaceStress*0.085,0.0,1.0);
         float width=mix(0.022,0.51,pow(presence,2.1));
         float coverage=1.0-smoothstep(width,width+fwidth(band)*0.8,distance);
         if(coverage<0.05) discard;
@@ -172,10 +182,10 @@ const RiffArtwork = (() => {
     if (!gl.getProgramParameter(program, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(program));
     gl.useProgram(program);
     const buffer = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
-    const data = new Float32Array(rings * steps * 8);
+    const data = new Float32Array(rings * steps * 9);
     gl.bufferData(gl.ARRAY_BUFFER, data.byteLength, gl.DYNAMIC_DRAW);
-    for (const [location, size, offset] of [[0, 3, 0], [1, 3, 12], [2, 2, 24]]) {
-      gl.enableVertexAttribArray(location); gl.vertexAttribPointer(location, size, gl.FLOAT, false, 32, offset);
+    for (const [location, size, offset] of [[0, 3, 0], [1, 3, 12], [2, 2, 24], [3, 1, 32]]) {
+      gl.enableVertexAttribArray(location); gl.vertexAttribPointer(location, size, gl.FLOAT, false, 36, offset);
     }
     const indices = new Uint16Array((rings - 1) * steps * 6);
     let cursor = 0;
@@ -195,7 +205,7 @@ const RiffArtwork = (() => {
       if (canvas.width !== width || canvas.height !== height) { canvas.width = width; canvas.height = height; }
       const v = g.vertices, p = g.projected;
       for (let ring = 0; ring < rings; ring++) for (let point = 0; point < steps; point++) {
-        const index = ring * steps + point, row = index * 8;
+        const index = ring * steps + point, row = index * 9;
         const before = (ring * steps + (point + steps - 1) % steps) * 3;
         const after = (ring * steps + (point + 1) % steps) * 3;
         const inner = (Math.max(0, ring - 1) * steps + point) * 3;
@@ -206,6 +216,7 @@ const RiffArtwork = (() => {
         data[row + 2] = -v[index * 3 + 2] / 300;
         data[row + 3] = uy * vz - uz * vy; data[row + 4] = uz * vx - ux * vz; data[row + 5] = ux * vy - uy * vx;
         data[row + 6] = point / steps; data[row + 7] = ring / (rings - 1);
+        data[row + 8] = g.stress[index];
       }
       gl.viewport(0, 0, width, height); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
       for (const name of Object.keys(uniforms)) gl.uniform3fv(uniforms[name], rgb(g.palette[name]).map(v => v / 255));

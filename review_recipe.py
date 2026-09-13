@@ -5,7 +5,7 @@ import model_options
 from studio_core import validate_recipe
 
 FIELDS = ("title", "lyrics", "style", "abc", "mode", "cot", "max_seconds",
-          "steps", "cfg_scale", "temperature", "seed", "refinement", "performance_source", "render_mode")
+          "steps", "solver", "cfg_scale", "temperature", "seed", "refinement", "performance_source", "render_mode")
 
 
 def generation_context(source):
@@ -77,6 +77,8 @@ def response_schema(source, keep_lyrics):
         "max_seconds": {"type": "number", "minimum": 1 / model_options.TOKEN_RATE,
                         "description": "Requested duration limit in seconds. Keep the artist's preview scope."},
         "steps": {"type": "integer", "minimum": 1, "description": "Acoustic solver steps."},
+        "solver": {"type": "string", "enum": ["midpoint", "ab2"],
+                   "description": "Acoustic integration method. Midpoint is the model default, with two network evaluations per step. AB2 is a second-order multistep method using steps+1 evaluations per chunk. It is faster at the same step count, with potentially different acoustic detail. Preserve the source method unless changing it serves the artist's request."},
         "cfg_scale": {"type": "number", "minimum": 0, "maximum": 20,
                       "description": "Semantic classifier-free guidance for music-token generation. A value of 1 uses a single conditioning branch."},
         "temperature": {"type": "number", "minimum": 0, "maximum": 5, "description": "Semantic sampling temperature."},
@@ -86,8 +88,8 @@ def response_schema(source, keep_lyrics):
                        "description": "YuE2 sampling overrides. Omitted controls use runtime defaults."},
         "performance_source": {"type": "string", "enum": [""] + ([source["performance_track_id"]] if source.get("performance_track_id") else []),
                                "description": "Empty for a fresh performance. Use the supplied track ID to re-synthesize its saved performance codes with revised acoustic conditioning, solver steps or seed. Retains phrasing and length; not suitable for new words or a new composition."},
-        "render_mode": {"type": "string", "enum": ["music", "plan"],
-                        "description": "music renders a take; plan composes an editable score without audio and requires cot melody or full and empty performance_source."},
+        "render_mode": {"type": "string", "enum": ["music", "plan", "performance"],
+                        "description": "music renders a take; performance saves music codes to render later without audio; plan composes an editable score without audio and requires cot melody or full and empty performance_source."},
     }
     if keep_lyrics:
         properties["lyrics"]["description"] = "Riff preserves the source lyrics. This field may be empty when Keep lyrics is enabled."
@@ -103,10 +105,10 @@ def response_schema(source, keep_lyrics):
 def recommended_generation(value, source, keep_lyrics):
     if isinstance(value, dict):
         # Recommendations made by earlier installed producers remain runnable.
-        value = {"performance_source": "", "render_mode": "music", **value}
+        value = {"performance_source": "", "render_mode": "music", "solver": "midpoint", **value}
     if not isinstance(value, dict) or set(value) != set(FIELDS):
         raise ValueError("The review did not return a complete generation recipe. Review again to retry.")
-    for key in ("title", "lyrics", "style", "abc", "mode", "cot", "seed", "performance_source", "render_mode"):
+    for key in ("title", "lyrics", "style", "abc", "mode", "cot", "seed", "performance_source", "render_mode", "solver"):
         if not isinstance(value[key], str):
             raise ValueError(f"The recommended {key} must be text.")
     for key in ("max_seconds", "cfg_scale", "temperature"):
