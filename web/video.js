@@ -4,6 +4,88 @@ let videoExport = null;
 let videoPreviewRevision = 0;
 const videoPresets = { "4k": [3840, 2160, 60], studio: [2560, 1980, 60], portrait: [2160, 3840, 60], square: [2160, 2160, 60] };
 
+async function createVideoFrameEncoder(canvas, signal) {
+  let worker = null, pending = null, stopped = null, failure = null, sequence = 0;
+  const cancelled = () => new DOMException("Export cancelled.", "AbortError");
+  const settle = (id, value, error) => {
+    if (pending?.id !== id) return;
+    const current = pending; pending = null;
+    if (error) current.reject(error); else current.resolve(value);
+  };
+  const wait = start => {
+    if (stopped) return Promise.reject(stopped);
+    if (pending) return Promise.reject(new Error("A video frame is still being drawn."));
+    return new Promise((resolve, reject) => {
+      const id = ++sequence;
+      pending = { id, resolve, reject };
+      try { start(id); } catch (error) { settle(id, null, error); }
+    });
+  };
+  const releaseWorker = () => { worker?.terminate(); worker = null; };
+  const close = () => {
+    stopped ||= cancelled();
+    if (pending) settle(pending.id, null, stopped);
+    releaseWorker();
+    signal.removeEventListener("abort", close);
+  };
+  signal.addEventListener("abort", close, { once: true });
+  if (signal.aborted) close();
+  try {
+    if (typeof Worker === "function" && typeof OffscreenCanvas === "function" &&
+        typeof createImageBitmap === "function" && OffscreenCanvas.prototype.convertToBlob) {
+      if (stopped) throw stopped;
+      worker = new Worker("/video-encoder.js");
+      worker.onmessage = ({ data }) => {
+        const error = data.error ? new Error("The browser could not encode this video frame.") : null;
+        settle(data.id, data, error);
+      };
+      worker.onerror = event => {
+        event.preventDefault();
+        failure = new Error("The browser could not open its video encoder.");
+        if (pending) settle(pending.id, null, failure);
+      };
+      worker.onmessageerror = () => {
+        failure = new Error("The browser could not read this video frame.");
+        if (pending) settle(pending.id, null, failure);
+      };
+      const ready = await wait(id => worker.postMessage({ type: "init", id, width: canvas.width, height: canvas.height }));
+      if (!ready.ready) releaseWorker();
+    }
+  } catch (error) {
+    releaseWorker();
+    if (stopped) { close(); throw stopped; }
+    // Older browsers or an unavailable worker can still use the canvas encoder.
+  }
+  if (stopped) throw stopped;
+  return {
+    async encode() {
+      if (stopped) throw stopped;
+      if (!worker) {
+        return wait(id => canvas.toBlob(async image => {
+          if (pending?.id !== id) return;
+          try {
+            if (!image) throw new Error("The browser could not draw this video frame.");
+            // Keep one request in byte storage, never a growing browser Blob store.
+            settle(id, await image.arrayBuffer());
+          } catch (error) { settle(id, null, error); }
+        }, "image/png"));
+      }
+      if (failure) throw failure;
+      const bitmap = await wait(id => createImageBitmap(canvas).then(value => {
+        if (pending?.id !== id) { value.close(); return; }
+        settle(id, value);
+      }, error => settle(id, null, error)));
+      if (stopped) { bitmap.close(); throw stopped; }
+      try {
+        const result = await wait(id => worker.postMessage({ type: "frame", id, bitmap }, [bitmap]));
+        if (!(result.frame instanceof ArrayBuffer)) throw new Error("The browser could not encode this video frame.");
+        return result.frame;
+      } finally { bitmap.close(); }
+    },
+    close,
+  };
+}
+
 function updateVideoPicture() {
   const values = ["width", "height", "fps"].map(key => Number($("#video-" + key).value));
   $("#video-preset").value = Object.keys(videoPresets).find(key => videoPresets[key].every((value, i) => value === values[i])) || "custom";
@@ -137,7 +219,7 @@ async function createVideo(event) {
   $("#video-progress").hidden = false;
   $("#video-progress").value = 0;
   $("#video-status").textContent = "Preparing the artwork…";
-  let complete = false;
+  let complete = false, encoder = null;
   try {
     const range = videoPassage();
     if (!Number.isFinite(range.start_seconds) || !Number.isFinite(range.end_seconds) ||
@@ -158,17 +240,13 @@ async function createVideo(event) {
     canvas.height = job.height;
     const context = canvas.getContext("2d", { alpha: false });
     if (!context) throw new Error("The browser could not open a drawing canvas.");
+    encoder = await createVideoFrameEncoder(canvas, operation.controller.signal);
     const preview = $("#video-preview"), previewContext = preview.getContext("2d");
     for (let index = 0; index < job.frames; index++) {
       if (operation.cancelled) return;
       const seconds = job.source_start + index / job.fps;
       drawSeedArtwork(context, job.width, job.height, track.recipe.seed, seconds, motionAt(motion, seconds), appearance);
-      let image = await new Promise(resolve => canvas.toBlob(resolve, "image/png"));
-      if (!image) throw new Error("The browser could not draw this video frame.");
-      // Keep the upload in ordinary byte storage and release the canvas Blob.
-      // Long exports must not accumulate request bodies in the browser's Blob store.
-      const frame = await image.arrayBuffer();
-      image = null;
+      const frame = await encoder.encode();
       await sendVideoFrame(operation, job, index, frame);
       // Reuse the completed frame for the progress preview; no parallel audio playback.
       previewContext.setTransform(1, 0, 0, 1, 0, 0);
@@ -196,6 +274,7 @@ async function createVideo(event) {
       $("#video-status").textContent = "Export stopped.";
     }
   } finally {
+    encoder?.close();
     if (!complete && operation.id) {
       try {
         operation.stopping ||= api(`/api/video-exports/${operation.id}/cancel`, "POST", {});
