@@ -2,6 +2,18 @@
 let videoTrack = null;
 let videoExport = null;
 let videoPreviewRevision = 0;
+const videoPresets = { "4k": [3840, 2160, 60], studio: [2560, 1980, 60], portrait: [2160, 3840, 60], square: [2160, 2160, 60] };
+
+function updateVideoPicture() {
+  const values = ["width", "height", "fps"].map(key => Number($("#video-" + key).value));
+  $("#video-preset").value = Object.keys(videoPresets).find(key => videoPresets[key].every((value, i) => value === values[i])) || "custom";
+  const canvas = $("#video-preview");
+  if (values[0] > 0 && values[1] > 0) {
+    canvas.width = 880;
+    canvas.height = Math.round(880 * values[1] / values[0]);
+  }
+  updateVideoPassage();
+}
 
 function videoTime(seconds) {
   const ticks = Math.round(seconds * 1000), fraction = ticks % 1000;
@@ -198,6 +210,14 @@ async function createVideo(event) {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
+  $("#video-preset").addEventListener("change", () => {
+    const values = videoPresets[$("#video-preset").value];
+    if (values) for (const [i, key] of ["width", "height", "fps"].entries()) $("#video-" + key).value = values[i];
+    else $("#video-options").open = true;
+    updateVideoPicture();
+  });
+  for (const key of ["width", "height", "fps"]) $("#video-" + key).addEventListener("input", updateVideoPicture);
+  updateVideoPicture();
   $("#download-video").addEventListener("click", openVideoExport);
   $("#video-form").addEventListener("submit", createVideo);
   for (const id of ["video-selection", "video-start", "video-end"]) $("#" + id).addEventListener("input", updateVideoPassage);

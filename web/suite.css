@@ -74,6 +74,7 @@ button:focus-visible, a:focus-visible, summary:focus-visible { outline: 2px soli
 .study-controls > summary { padding: 0; }
 .study-fields { margin-top: 16px; justify-content: space-between; font-size: 12px; }
 .study-controls .secondary-button { margin-top: 14px; }
+.study-excerpt { margin: 12px 0; padding-left: 12px; border-left: 2px solid var(--line); white-space: pre-wrap; font-size: 13px; line-height: 1.6; color: var(--quiet); }
 .recipe-actions { padding: 9px 0 18px; }
 .file-action { cursor: pointer; position: relative; overflow: hidden; }
 .file-action input { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; }

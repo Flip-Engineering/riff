@@ -11,7 +11,7 @@ import time
 import uuid
 import wave
 
-MOTION_VERSION = 3
+MOTION_VERSION = 4
 WAVEFORM_POINTS = 64  # Half the contour's 128 vertices; detail remains legible at cover size.
 
 
@@ -22,7 +22,7 @@ def lowpass_coefficients(frequency, sample_rate):
     return b0, 2 * b0, b0, 2 * (k * k - 1) * scale, (1 - math.sqrt(2) * k + k * k) * scale
 
 
-def motion_envelope(path, fps=24):
+def motion_envelope(path, fps=60):
     """Stream energy, stereo image and transients; retain no decoded audio."""
     result, waveforms = [], []
     with wave.open(str(path), "rb") as source:
@@ -156,7 +156,7 @@ class VideoExports:
     def start(self, track_id, options):
         if not shutil.which("ffmpeg"):
             raise ValueError("MP4 export needs FFmpeg. Install FFmpeg, then export again.")
-        width, height, fps = options.get("width", 1280), options.get("height", 990), options.get("fps", 24)
+        width, height, fps = options.get("width", 3840), options.get("height", 2160), options.get("fps", 60)
         if any(type(v) is not int or v < 2 or v % 2 for v in (width, height)):
             raise ValueError("Video width and height must be positive even pixel counts.")
         if type(fps) not in (int, float) or not math.isfinite(fps) or fps <= 0:
@@ -181,7 +181,7 @@ class VideoExports:
                 "-f", "image2pipe", "-framerate", str(fps), "-i", "pipe:0",
                 "-ss", str(start), "-t", str(duration), "-i", str(audio),
                 "-map", "0:v:0", "-map", "1:a:0", "-c:v", "libx264", "-preset", "veryfast",
-                "-threads", "2", "-crf", "18", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k",
+                "-threads", "2", "-crf", "16", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "320k",
                 "-movflags", "+faststart", str(self.output / (export_id + ".part.mp4")),
             ], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=log)
         except Exception:

@@ -178,6 +178,16 @@ on YuE2 separately.
   ancestry. A complete 32-second MP4 exported through private HTTPS in 27.90 seconds
   with matching audio duration and no browser or frame-delivery errors.
 
+- v0.5.2 repairs a hidden-score submission in Direct mode. Actual 8-second Direct
+  and 6-second study generations completed with `cot=off` and no ABC argument,
+  while preserving the score draft. Browser tests also cover selected lyrics,
+  stale selections, score-only transitions, independent study controls and errors.
+- MP4 now defaults to 3840×2160 at 60 fps. A real 32-second export produced 1,920
+  H.264 frames and complete 31.9987-second AAC audio, preserving the studio draft.
+  This first high-resolution run took 412.36 seconds; export is not real-time.
+  Same-seed artwork comparison rejected an overly dark first material candidate;
+  revised lighting retains contour legibility with internal mineral hue variation.
+
 Browser/provider fixtures validate interface behavior; they do not establish model
 quality. Musical reviews use direct audio requests to the explicitly selected
 OpenRouter model. Review notes are subjective observations, separate from measured

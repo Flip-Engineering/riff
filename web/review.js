@@ -153,7 +153,7 @@
     if (!take?.mode) return "";
     const planning = { off: "Direct", melody: "Melody", full: "Melody + harmony" }[take.cot];
     return `<section class="review-take"><p class="review-take-label">Recommended take</p><h3>${esc(take.title)}</h3>
-      <div class="review-take-settings"><span>${esc(take.max_seconds)} seconds</span><span>${esc(take.steps)} steps</span><span>${esc(planning)}</span><span>Guidance ${esc(take.cfg_scale)}</span></div>
+      <div class="review-take-settings"><span>${esc(take.max_seconds)} seconds</span><span>${esc(take.steps)} steps</span><span>${take.solver === "ab2" ? "Multistep AB2" : "Midpoint"}</span><span>${esc(planning)}</span><span>Guidance ${esc(take.cfg_scale)}</span></div>
       ${take.performance_source ? '<p class="control-hint">Reuses this take’s saved performance and phrasing.</p>' : take.render_mode === "plan" ? '<p class="control-hint">Composes an editable score.</p>' : ""}
       <p class="review-take-direction">${esc(take.style)}</p>
       ${take.lyrics ? `<details><summary>Lyrics${review.keep_lyrics ? " · kept" : ""}</summary><pre dir="auto">${esc(take.lyrics)}</pre></details>` : ""}

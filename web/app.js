@@ -187,7 +187,8 @@ function formRecipe() {
     solver: $("#solver").value,
     cot: $("#planning").value,
     seed: $("#seed").value.trim(),
-    abc: $("#abc").value,
+    abc: $("#planning").value === "off" ? "" : $("#abc").value,
+    abc_draft: $("#abc").value,
     refinement: { ...draftRefinement },
     mode: $("[name=creation-mode]:checked").value,
     lyrics_source: draftLyricsSource,
@@ -348,7 +349,7 @@ function fillRecipe(recipe, variation = false) {
   $("#duration").value = recipe.max_seconds || 30;
   $("#planning").value = recipe.cot || "off";
   $("#seed").value = variation ? "" : recipe.seed || "";
-  $("#abc").value = recipe.abc || "";
+  $("#abc").value = recipe.cot === "off" ? recipe.abc_draft ?? recipe.abc ?? "" : recipe.abc ?? "";
   draftRefinement = { ...(recipe.refinement || {}) };
   window.RiffControls?.fill(draftRefinement);
 
@@ -363,6 +364,10 @@ $("#generation-form").addEventListener("change", saveDraft);
 $("#render-mode").addEventListener("change", () => {
   if ($("#render-mode").value === "plan" && $("#planning").value === "off") $("#planning").value = "full";
   if ($("#render-mode").value === "plan") delete draftOrigin.performance_source;
+  saveDraft(); renderQueue();
+});
+$("#planning").addEventListener("change", () => {
+  if ($("#planning").value === "off" && $("#render-mode").value === "plan") $("#render-mode").value = "music";
   saveDraft(); renderQueue();
 });
 $("#fresh-performance").addEventListener("click", () => {

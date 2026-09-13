@@ -545,8 +545,10 @@
               <details class="study-controls">
                 <summary>Try a sound study</summary>
                 <div class="study-fields"><span id="audition-selection">Whole draft</span><button type="button" class="text-button" id="clear-audition-selection">Use whole draft</button></div>
-                <p class="control-hint">Select a passage in your lyrics to audition it. Your full draft stays open.</p>
-                <div class="advanced-grid"><div><label for="audition-length">Study length (seconds)</label><input id="audition-length" type="number" min="0.04" step="any" value="28" /></div><div><label for="audition-steps">Study solver steps</label><input id="audition-steps" type="number" min="1" step="1" value="8" /></div></div>
+                <p class="control-hint">Try the opening, or select lyrics for a new performance of those lines. A selected passage gets its own score when planning is enabled. Your full draft stays open.</p>
+                <blockquote id="audition-excerpt" class="study-excerpt" hidden></blockquote>
+                <div class="advanced-grid"><div><label for="audition-length">Study length (seconds)</label><input id="audition-length" form="study-form" type="number" min="0.04" step="any" value="28" required /></div><div><label for="audition-steps">Study solver steps</label><input id="audition-steps" form="study-form" type="number" min="1" step="1" value="8" required /></div></div>
+                <p id="study-error" class="form-error" role="alert" hidden></p>
                 <button type="button" class="secondary-button" id="audition">Generate study</button>
               </details>
               <div class="recipe-actions"><label class="text-button file-action">Open recipe<input type="file" id="import-recipe" accept=".json,application/json" /></label><button type="button" class="text-button" id="export-draft">Save recipe</button></div>
@@ -898,6 +900,7 @@
         About Riff
       </button>
     </footer>
+    <form id="study-form"></form>
     <audio id="audio" preload="metadata"></audio>
     <div id="toast" class="toast" role="status" hidden></div>
 
@@ -912,7 +915,8 @@
           <div class="video-times"><label for="video-start">From<input id="video-start" type="text" inputmode="decimal" value="0:00" aria-describedby="video-time-hint" /></label><label for="video-end">To<input id="video-end" type="text" inputmode="decimal" value="0:00" aria-describedby="video-time-hint" /></label></div>
           <div class="video-passage-hint"><span id="video-time-hint" class="control-hint">Minutes:seconds, or seconds.</span><button type="button" id="video-use-passage" class="text-button">Use marked passage</button></div>
         </div>
-        <details id="video-options"><summary>Video settings</summary><div class="video-dimensions"><div><label for="video-width">Width</label><input type="number" id="video-width" min="2" step="2" value="1280" required /></div><div><label for="video-height">Height</label><input type="number" id="video-height" min="2" step="2" value="990" required /></div><div><label for="video-fps">Frames / second</label><input type="number" id="video-fps" min="0.01" step="any" value="24" required /></div></div></details>
+        <div class="video-selection"><label for="video-preset">Picture</label><select id="video-preset"><option value="4k">4K landscape · 60 fps</option><option value="studio">Studio framing · 2560 × 1980 · 60 fps</option><option value="portrait">4K portrait · 60 fps</option><option value="square">Square · 2160 × 2160 · 60 fps</option><option value="custom">Custom</option></select></div>
+        <details id="video-options"><summary>Video settings</summary><div class="video-dimensions"><div><label for="video-width">Width</label><input type="number" id="video-width" min="2" step="2" value="3840" required /></div><div><label for="video-height">Height</label><input type="number" id="video-height" min="2" step="2" value="2160" required /></div><div><label for="video-fps">Frames / second</label><input type="number" id="video-fps" min="0.01" step="any" value="60" required /></div></div></details>
         <progress id="video-progress" max="1" value="0" aria-label="Video export progress" hidden></progress>
         <p id="video-status" class="control-hint" role="status">MP4 · animated artwork and audio</p>
         <p id="video-error" class="form-error" role="alert" hidden></p>
@@ -1202,9 +1206,11 @@
     <dialog id="sound-view-dialog" class="sound-view-dialog" aria-label="Immersive sound view">
       <canvas id="sound-view-canvas" aria-label="Seed artwork moving with the music"></canvas>
       <div class="sound-view-controls">
-        <details class="sound-appearance"><summary>Shape &amp; motion</summary><div class="sound-appearance-fields">
+        <details class="sound-appearance"><summary>Shape &amp; light</summary><div class="sound-appearance-fields">
           <label for="sound-surface">Surface <span>Lines <input type="range" id="sound-surface" min="0" max="1" step="0.01" value="0.72" /> Solid</span></label>
           <label for="sound-motion">Movement <span>Still <input type="range" id="sound-motion" min="0" max="2" step="0.01" value="1" /> Expressive</span></label>
+          <label for="sound-color">Color <span>Quiet <input type="range" id="sound-color" min="0" max="1" step="0.01" value="0.7" /> Varied</span></label>
+          <label for="sound-texture">Texture <span>Smooth <input type="range" id="sound-texture" min="0" max="1" step="0.01" value="0.48" /> Woven</span></label>
         </div></details>
         <div class="sound-view-transport"><button type="button" id="sound-view-play" class="icon-button" aria-label="Play recording"><span data-icon="play"></span></button><input type="range" id="sound-view-seek" min="0" max="1" step="0.01" value="0" aria-label="Seek in immersive sound view" /><button type="button" id="close-sound-view" class="icon-button" aria-label="Close immersive sound view"><span data-icon="close"></span></button></div>
       </div>

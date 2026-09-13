@@ -1,12 +1,12 @@
 /* A seeded, folded surface. Poster, playback and film use the same geometry. */
 const RiffArtwork = (() => {
   const palettes = [
-    { paper: "#dfe7f4", ink: "#4d70b4", shadow: "#a9bedc", warm: "#b9cba9" },
-    { paper: "#e5e1ee", ink: "#7970a3", shadow: "#c3b6d6", warm: "#a9b4ce" },
-    { paper: "#e1e7e1", ink: "#6a8a7e", shadow: "#adbfba", warm: "#d2c1a0" },
-    { paper: "#eae1df", ink: "#90757d", shadow: "#c7b5bb", warm: "#b7bfc2" },
+    { paper: "#dfe7f4", ink: "#526eab", accent: "#648f87", glow: "#b9a6ce" },
+    { paper: "#e5e1ee", ink: "#79679d", accent: "#5f8e95", glow: "#b3c7bd" },
+    { paper: "#e1e7e1", ink: "#527e70", accent: "#79749e", glow: "#b1ced0" },
+    { paper: "#eae1df", ink: "#956c7c", accent: "#5e8286", glow: "#c0becf" },
   ];
-  const defaults = Object.freeze({ surface: .72, motion: 1 });
+  const defaults = Object.freeze({ surface: .72, motion: 1, color: .7, texture: .48 });
   const cache = new Map(), rings = 40, steps = 128;
   let surfaceRenderer;
   const clamp = (x, low = 0, high = 1) => Math.max(low, Math.min(high, Number(x) || 0));
@@ -23,14 +23,19 @@ const RiffArtwork = (() => {
     const key = String(seed ?? "");
     if (cache.has(key)) return cache.get(key);
     const h = seedHash(key), palette = palettes[h % palettes.length];
-    const ink = rgb(palette.ink), paper = rgb(palette.paper), warm = rgb(palette.warm);
+    const ink = rgb(palette.ink), paper = rgb(palette.paper), accent = rgb(palette.accent);
     const shades = [], edges = [];
-    for (let i = 0; i <= 100; i++) {
-      const light = i / 100;
-      const material = light < .38 ? mix(ink, [22, 31, 33], (.38 - light) * 1.25)
-        : mix(ink, paper, (light - .38) / .62);
-      shades.push(color(mix(material, warm, Math.max(0, light - .65) * .35)));
-      edges.push(color(mix(material, light > .72 ? paper : ink, .38)));
+    // A small material lookup also gives Canvas the same chromatic depth.
+    for (let tint = 0; tint <= 16; tint++) {
+      const body = mix(ink, accent, tint / 16), lights = [], ridges = [];
+      for (let i = 0; i <= 100; i++) {
+        const light = i / 100;
+        const material = light < .32 ? mix(body, [23, 30, 39], (.32 - light) * 1.6)
+          : mix(body, paper, (light - .32) * .88);
+        lights.push(color(material));
+        ridges.push(color(mix(material, light > .72 ? paper : body, .32)));
+      }
+      shades.push(lights); edges.push(ridges);
     }
     const faces = [];
     for (let ring = 0; ring < rings - 1; ring++) {
@@ -55,6 +60,8 @@ const RiffArtwork = (() => {
     const level = clamp(motion[0]), bass = clamp(motion[1]), middle = clamp(motion[2]), air = clamp(motion[3]);
     const balance = clamp(motion[4], -1, 1), spread = clamp(motion[5]), attack = clamp(motion[6]), crest = clamp(motion[7]);
     const time = Number.isFinite(seconds) ? seconds : 0;
+    g.sound = [bass, middle, air, attack];
+    g.lightPhase = phase + Math.sin(time * .19) * level * .24;
     const tilt = .59 + balance * .17 + bass * .06;
     const yaw = -.25 + spread * .15 + middle * .035 * Math.sin(time * .45);
     const turn = g.twist - .22 + level * .025 * Math.sin(time * .32);
@@ -120,6 +127,9 @@ const RiffArtwork = (() => {
       const glint = Math.pow(Math.max(0, nx * -.22 + ny * -.34 + nz * .91), 26);
       const cavity = .07 * Math.sin(face.ring / (rings - 1) * Math.PI);
       face.shade = Math.round(clamp(.2 + light * .65 + glint * (.26 + air * .15) - cavity) * 100);
+      const angle = face.a % steps / steps * Math.PI * 2;
+      face.chromatic = .5 + .5 * Math.sin(Math.cos(angle) * 2.1 + Math.sin(angle) * 1.6
+        + face.ring / (rings - 1) * 3.2 + g.lightPhase + g.stress[face.a] * .8);
       face.depth = (v[a + 2] + v[b + 2] + v[face.c * 3 + 2] + v[d + 2]) / 4;
     }
     g.faces.sort((a, b) => a.depth - b.depth);
@@ -145,35 +155,57 @@ const RiffArtwork = (() => {
       out float surfaceStress;
       out vec3 surfaceNormal;
       out vec2 surfaceUV;
-      void main() { gl_Position=vec4(position,1.0); surfaceNormal=normal; surfaceUV=uv; surfaceStress=stress; }
+      out vec3 materialCoordinate;
+      void main() {
+        gl_Position=vec4(position,1.0); surfaceNormal=normal; surfaceUV=uv; surfaceStress=stress;
+        // Circular coordinates keep color and fibres continuous at the seam.
+        materialCoordinate=vec3(cos(uv.x*6.2831853),sin(uv.x*6.2831853),uv.y);
+      }
     `);
     const fragment = compile(gl.FRAGMENT_SHADER, `#version 300 es
       precision highp float;
       in vec3 surfaceNormal;
       in vec2 surfaceUV;
       in float surfaceStress;
+      in vec3 materialCoordinate;
       uniform vec3 ink;
       uniform vec3 paper;
-      uniform vec3 warm;
+      uniform vec3 accent;
+      uniform vec3 glow;
+      uniform vec4 sound;
+      uniform vec2 materialAmount;
+      uniform float lightPhase;
       uniform float surfacePresence;
       out vec4 pixel;
       void main() {
         vec3 n=normalize(surfaceNormal); if(n.z<0.0) n=-n;
         float diffuse=max(0.0,dot(n,normalize(vec3(-0.42,-0.63,0.65))));
-        float sheen=pow(max(0.0,dot(n,normalize(vec3(-0.22,-0.34,0.91)))),32.0);
-        float light=clamp(0.22+0.67*diffuse+0.30*sheen+surfaceStress*0.055,0.0,1.0);
+        vec3 c=materialCoordinate;
+        float flow=c.x*2.1+c.y*1.6+c.z*3.2+lightPhase+surfaceStress*0.8;
+        float veil=0.5+0.5*sin(flow);
+        float fibrePhase=c.z*980.0+sin(c.x*9.0+c.y*7.0+c.z*14.0)*2.4+surfaceStress*3.0;
+        float fibre=sin(fibrePhase)*exp(-0.5*pow(fwidth(fibrePhase),2.0));
+        float weave=sin(c.x*73.0+c.y*51.0+c.z*33.0)*sin(c.y*93.0-c.x*29.0);
+        float texture=materialAmount.y*(fibre*0.6+weave*0.2);
+        float sheen=pow(max(0.0,dot(n,normalize(vec3(-0.22+sound.y*0.13,-0.34,0.91)))),
+          24.0+18.0*materialAmount.y);
+        float light=clamp(0.22+0.64*diffuse+surfaceStress*0.065+texture*0.035,0.0,1.0);
         float grazing=pow(1.0-abs(n.z),2.0);
-        vec3 material=mix(ink*0.48,paper*1.035,light);
-        material=mix(material,warm,0.19*grazing+0.10*sheen);
+        vec3 pigment=mix(ink,accent,veil*materialAmount.x);
+        vec3 material=mix(pigment*0.48,paper*1.015,light*0.91);
+        float transmission=grazing*(0.12+sound.x*0.09)+max(0.0,surfaceStress)*0.09;
+        material=mix(material,mix(pigment,glow,0.46),transmission);
+        vec3 pearl=mix(paper,glow,(0.22+0.23*veil)*materialAmount.x);
+        material=mix(material,pearl,sheen*(0.34+sound.z*0.20)*(1.0-texture*0.24));
         float band=surfaceUV.y*39.0;
         float distance=abs(fract(band+0.5)-0.5);
-        float openSide=smoothstep(-0.3,0.8,sin(surfaceUV.x*6.2831853));
+        float openSide=smoothstep(-0.3,0.8,c.y);
         float presence=clamp(surfacePresence*1.45-openSide*0.42+surfaceStress*0.085,0.0,1.0);
         float width=mix(0.022,0.51,pow(presence,2.1));
         float coverage=1.0-smoothstep(width,width+fwidth(band)*0.8,distance);
         if(coverage<0.05) discard;
         float trace=1.0-smoothstep(0.01,0.01+fwidth(band)*1.2,distance);
-        material=mix(material,mix(ink*0.55,paper,light*0.5),trace*0.56);
+        material=mix(material,mix(pigment*0.46,pearl,light*0.50),trace*(0.50+materialAmount.y*0.12));
         pixel=vec4(material,coverage);
       }
     `);
@@ -197,8 +229,10 @@ const RiffArtwork = (() => {
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, gl.createBuffer());
     gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices, gl.STATIC_DRAW);
     gl.enable(gl.DEPTH_TEST); gl.enable(gl.BLEND); gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA); gl.clearColor(0, 0, 0, 0);
-    const uniforms = Object.fromEntries(["ink", "paper", "warm"].map(name => [name, gl.getUniformLocation(program, name)]));
+    const uniforms = Object.fromEntries(["ink", "paper", "accent", "glow"].map(name => [name, gl.getUniformLocation(program, name)]));
     const presence = gl.getUniformLocation(program, "surfacePresence");
+    const sound = gl.getUniformLocation(program, "sound"), amount = gl.getUniformLocation(program, "materialAmount");
+    const phase = gl.getUniformLocation(program, "lightPhase");
     return (context, g, scale) => {
       if (gl.isContextLost()) return false;
       const width = Math.ceil(440 * scale), height = Math.ceil(340 * scale);
@@ -221,6 +255,7 @@ const RiffArtwork = (() => {
       gl.viewport(0, 0, width, height); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
       for (const name of Object.keys(uniforms)) gl.uniform3fv(uniforms[name], rgb(g.palette[name]).map(v => v / 255));
       gl.uniform1f(presence, g.presence);
+      gl.uniform4fv(sound, g.sound); gl.uniform2f(amount, g.color, g.texture); gl.uniform1f(phase, g.lightPhase);
       gl.bindBuffer(gl.ARRAY_BUFFER, buffer); gl.bufferSubData(gl.ARRAY_BUFFER, 0, data);
       gl.drawElements(gl.TRIANGLES, indices.length, gl.UNSIGNED_SHORT, 0);
       context.drawImage(canvas, 0, 0, 440, 340);
@@ -266,6 +301,8 @@ const RiffArtwork = (() => {
     }
     const g = scene(seed, seconds, motion), { palette: c, projected: p } = g;
     g.presence = clamp(appearance.surface ?? defaults.surface);
+    g.color = clamp(appearance.color ?? defaults.color);
+    g.texture = clamp(appearance.texture ?? defaults.texture);
     const scale = Math.min(width / 440, height / 340);
     context.save();
     context.setTransform(1, 0, 0, 1, 0, 0); context.globalAlpha = 1;
@@ -279,15 +316,17 @@ const RiffArtwork = (() => {
     context.lineJoin = "round";
     if (!drawSurface(context, g, scale)) for (const face of g.faces) {
       const a = face.a * 2, b = face.b * 2, cc = face.c * 2, d = face.d * 2;
+      const tint = Math.round(face.chromatic * g.color * 16);
       context.beginPath(); context.moveTo(p[a], p[a + 1]); context.lineTo(p[b], p[b + 1]);
       context.lineTo(p[cc], p[cc + 1]); context.lineTo(p[d], p[d + 1]); context.closePath();
       context.globalAlpha = g.presence;
-      context.fillStyle = g.shades[face.shade]; if (g.presence) context.fill();
+      context.fillStyle = g.shades[tint][face.shade]; if (g.presence) context.fill();
       // Fill shared raster edges; the separate contour is the fine physical ridge.
-      context.strokeStyle = g.shades[face.shade]; context.lineWidth = .3; if (g.presence) context.stroke();
+      context.strokeStyle = g.shades[tint][face.shade]; context.lineWidth = .3; if (g.presence) context.stroke();
       context.globalAlpha = 1;
       context.beginPath(); context.moveTo(p[a], p[a + 1]); context.lineTo(p[d], p[d + 1]);
-      context.strokeStyle = g.edges[face.shade]; context.lineWidth = face.ring % 5 === 0 ? .6 : .34;
+      context.strokeStyle = g.edges[tint][face.shade];
+      context.lineWidth = (face.ring % 5 === 0 ? .48 : .30) + g.texture * .14;
       context.stroke();
     }
     context.setTransform(1, 0, 0, 1, 0, 0);

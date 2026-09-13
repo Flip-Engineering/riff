@@ -27,7 +27,8 @@ class MotionTests(StudioFixture):
     def test_opposite_stereo_channels_retain_energy_and_silence_stays_still(self):
         data = motion_envelope(self.audio)
         self.assertEqual(data["duration"], .1)
-        self.assertEqual(len(data["frames"]), 3)
+        self.assertEqual(data["fps"], 60)
+        self.assertEqual(len(data["frames"]), 6)
         self.assertTrue(all(frame[0] > 0 for frame in data["frames"]))
         self.assertTrue(all(frame[5] > 0 for frame in data["frames"]))
         self.assertTrue(any(abs(point) > .01 for frame in data["waveforms"] for point in frame))
@@ -35,8 +36,8 @@ class MotionTests(StudioFixture):
         with wave.open(str(self.audio), "wb") as output:
             output.setparams((2, 2, 48000, 0, "NONE", ""))
             output.writeframes(bytes(4800 * 4))
-        self.assertEqual(motion_envelope(self.audio)["frames"], [[0.0] * 8] * 3)
-        self.assertEqual(motion_envelope(self.audio)["waveforms"], [[0.0] * WAVEFORM_POINTS] * 3)
+        self.assertEqual(motion_envelope(self.audio)["frames"], [[0.0] * 8] * 6)
+        self.assertEqual(motion_envelope(self.audio)["waveforms"], [[0.0] * WAVEFORM_POINTS] * 6)
 
     def test_waveform_retains_signed_signal_and_relative_dynamics(self):
         import wave

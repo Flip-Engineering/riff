@@ -107,23 +107,51 @@
     catch (error) { notify(error.message); }
   });
 
-  let selection = "";
+  let selection = null, studySubmitting = false;
+  function studySelection() {
+    const lyrics = $("#lyrics").value;
+    return selection && selection.draft === lyrics && !["free", "instrumental"].includes(creationMode())
+      ? lyrics.slice(selection.start, selection.end).trim() : "";
+  }
+  function showStudySelection() {
+    const text = studySelection();
+    $("#audition-selection").textContent = text ? "Selected lines" : "Whole draft";
+    $("#audition-excerpt").textContent = text;
+    $("#audition-excerpt").hidden = !text;
+  }
   for (const id of ["lyrics", "writing-pad"]) $("#" + id).addEventListener("select", (event) => {
     if (id === "writing-pad" && expandedField !== $("#lyrics")) return;
-    selection = event.target.value.slice(event.target.selectionStart, event.target.selectionEnd).trim();
-    $("#audition-selection").textContent = selection ? "Selected lines" : "Whole draft";
+    selection = { draft: event.target.value, start: event.target.selectionStart, end: event.target.selectionEnd };
+    showStudySelection();
   });
-  $("#clear-audition-selection").addEventListener("click", () => { selection = ""; $("#audition-selection").textContent = "Whole draft"; });
+  $("#generation-form").addEventListener("input", showStudySelection);
+  $("#clear-audition-selection").addEventListener("click", () => { selection = null; showStudySelection(); });
   $("#audition").addEventListener("click", async () => {
+    if (studySubmitting) return;
     const recipe = formRecipe();
     recipe.performance_source = "";
     recipe.render_mode = "music";
-    if (selection) { recipe.lyrics = selection; recipe.mode = "lyrics"; }
+    const passage = studySelection();
+    if (passage) {
+      recipe.lyrics = passage; recipe.mode = "lyrics"; recipe.lyrics_source = "provided";
+      // A complete score is not the notation for an arbitrary lyric excerpt.
+      // The chosen planning mode can compose a score for the selected passage.
+      recipe.abc = "";
+    }
     recipe.title = (recipe.title || "Untitled") + " — study";
     recipe.max_seconds = Number($("#audition-length").value);
     recipe.steps = Number($("#audition-steps").value);
-    try { await api("/api/generations", "POST", recipe); await refresh(); notify("Sound study queued"); }
-    catch (error) { errorMessage("#form-error", error.message); }
+    if (Number.isFinite(recipe.refinement.semantic_min_tokens))
+      recipe.refinement.semantic_min_tokens = Math.min(recipe.refinement.semantic_min_tokens, Math.floor(recipe.max_seconds * 25));
+    errorMessage("#study-error");
+    if (!$("#audition-length").reportValidity() || !$("#audition-steps").reportValidity()) return;
+    studySubmitting = true; $("#audition").disabled = true; $("#audition").textContent = "Queuing study…";
+    try {
+      const job = await api("/api/generations", "POST", recipe);
+      await refresh(); notify(`“${job.recipe.title}” is on its way.`);
+      $("#queue-panel").scrollIntoView({ behavior: "smooth", block: "nearest" });
+    } catch (error) { errorMessage("#study-error", error.message); }
+    finally { studySubmitting = false; $("#audition").disabled = false; $("#audition").textContent = "Generate study"; }
   });
   $("#import-recipe").addEventListener("change", async (event) => {
     const file = event.target.files[0];

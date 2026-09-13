@@ -41,7 +41,7 @@ def describe():
             "export_download": {"method": "GET", "path": "/api/video-exports/{export_id}/download"},
         },
         "performance": {
-            "inputs": ["performance_source", "style", "abc", "cot", "lyrics", "steps", "seed"],
+            "inputs": ["performance_source", "style", "abc", "cot", "lyrics", "steps", "solver", "seed"],
             "behavior": "Retains saved music codes, phrasing and duration. Acoustic conditioning, solver steps and seed may be revised. Music sampling settings are skipped. Use a fresh performance to change words or composition.",
         },
     }

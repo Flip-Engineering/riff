@@ -9,7 +9,7 @@ const motionCache = new Map();
 let soundAppearance = { ...RiffArtwork.defaults };
 try {
   const saved = JSON.parse(localStorage.getItem("riff.soundAppearance") || "{}");
-  for (const [key, maximum] of [["surface", 1], ["motion", 2]]) {
+  for (const [key, maximum] of [["surface", 1], ["motion", 2], ["color", 1], ["texture", 1]]) {
     if (Number.isFinite(saved[key])) soundAppearance[key] = Math.max(0, Math.min(maximum, saved[key]));
   }
 } catch {}
@@ -103,7 +103,7 @@ function synchronizeSoundField() {
 
 document.addEventListener("DOMContentLoaded", () => {
   const immersive = $("#sound-view-dialog");
-  for (const key of ["surface", "motion"]) {
+  for (const key of ["surface", "motion", "color", "texture"]) {
     const control = $("#sound-" + key);
     control.value = soundAppearance[key];
     control.addEventListener("input", () => {
