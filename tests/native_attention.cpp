@@ -39,6 +39,13 @@ int main(int argc, char ** argv) {
     auto output=ggml_flash_attn_ext(ctx,q,kp,vp,nullptr,1/std::sqrt(128.f),0,0);
     ggml_flash_attn_ext_set_prec(output, GGML_PREC_F32);
     ggml_set_output(output);
+    if (!ggml_backend_supports_op(backend, output)) {
+        std::puts("SKIP: selected Metal device does not support flash attention.");
+        ggml_backend_buffer_free(buffer);
+        ggml_free(ctx);
+        ggml_backend_free(backend);
+        return 77;
+    }
     auto graph = ggml_new_graph_custom(ctx, 128, false);
     ggml_build_forward_expand(graph, output);
     auto alloc=ggml_gallocr_new(ggml_backend_get_default_buffer_type(backend));

@@ -59,6 +59,12 @@ comparison with `python scripts/check_native_attention.py --build PATH`; set
 `GGML_METAL_WIDE_ATTENTION_DISABLE=1` to select the earlier kernel. The check reports
 a skip if Metal execution is unavailable.
 
+The macOS CI runner exposes an Apple Paravirtual Metal device without SIMD-group
+matrix multiplication. The benchmark queries support for the actual attention
+operation before executing; this virtual device receives an explicit skip, while
+the real M4 runs every numerical case. Native compilation and the analytic solver
+checks still run on CI. Failed benchmark processes retain their diagnostics.
+
 ### Acoustic computation and multistep integration
 
 For performance length F, conditioning length P and model width D, each acoustic

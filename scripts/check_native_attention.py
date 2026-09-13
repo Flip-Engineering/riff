@@ -38,7 +38,13 @@ def main():
         for queries, keys in ((37, 93), (128, 256), (202, 509), (512, 1021), (802, 1901), (1402, 3299), (4103, 8193), (5040, 18929)):
             output = work/'result.f32'
             result = subprocess.run([str(benchmark), str(queries), str(keys), str(args.repetitions), str(output)],
-                                    text=True, capture_output=True, check=True)
+                                    text=True, capture_output=True)
+            if result.returncode == 77:
+                print(result.stdout.strip())
+                return
+            if result.returncode:
+                sys.stderr.write(result.stderr)
+                result.check_returncode()
             old, wide = Path(str(output)+'.0').read_bytes(), Path(str(output)+'.1').read_bytes()
             if len(old) != queries * 16 * 128 * 4 or old != wide:
                 raise AssertionError(f'Attention outputs differ for {queries} queries and {keys} keys')
