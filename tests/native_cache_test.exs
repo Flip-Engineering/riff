@@ -49,7 +49,7 @@ defmodule Riff.NativeCacheTest do
 
     File.write!(
       Path.join(native, "CMakeLists.txt"),
-      "cmake_minimum_required(VERSION 3.17)\nproject(cache_fixture C CXX ASM)\nadd_executable(fixture main.cpp extra.c empty.s)\n"
+      "cmake_minimum_required(VERSION 3.17)\nproject(cache_fixture C CXX)\nadd_subdirectory(assembly)\nadd_executable(fixture main.cpp extra.c $<TARGET_OBJECTS:fixture_asm>)\n"
     )
 
     File.write!(
@@ -58,7 +58,14 @@ defmodule Riff.NativeCacheTest do
     )
 
     File.write!(Path.join(native, "extra.c"), "int answer(void) { return 42; }\n")
-    File.write!(Path.join(native, "empty.s"), ".text\n")
+    File.mkdir_p!(Path.join(native, "assembly"))
+
+    File.write!(
+      Path.join(native, "assembly/CMakeLists.txt"),
+      "enable_language(ASM)\nadd_library(fixture_asm OBJECT empty.s)\n"
+    )
+
+    File.write!(Path.join(native, "assembly/empty.s"), ".text\n")
     Cache.query!(build)
     arguments = ["-S", native, "-B", build, "-DCMAKE_BUILD_TYPE=Release"]
     {_, 0} = System.cmd(cmake, arguments, stderr_to_stdout: true)
@@ -102,6 +109,12 @@ defmodule Riff.NativeCacheTest do
     for tool <- baseline.descriptor["namespace"]["toolchains"] do
       assert tool["executable"]["sha256"] == Cache.hash_file(tool["compiler"]["path"])
     end
+
+    assembler =
+      Enum.find(baseline.descriptor["namespace"]["toolchains"], &(&1["language"] == "ASM"))
+
+    refute Map.has_key?(assembler["compiler"], "id")
+    refute Map.has_key?(assembler["compiler"], "version")
 
     [cmake | args] = configuration["configuration"]
 
