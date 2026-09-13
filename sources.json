@@ -73,7 +73,16 @@
     "patches/yue2-acoustic-solver.patch": {
       "bytes": 10426,
       "sha256": "13d9ebd60d5f5f310849ed666366942deb7ad7c0abf80a72e13cbb03149e643c"
+    },
+    "patches/yue2-score-replay.patch": {
+      "bytes": 16958,
+      "sha256": "451fe770247e2f425d8c9a0293f4922d283dfb5246584af8c37c8c688e03558b"
     }
+  },
+  "native_capabilities": {
+    "feature.yue2.score_tokens": "1",
+    "format.yue2.score_tokens": "riff.yue2.score-tokens.v1",
+    "format.yue2.prefix": "riff.yue2.prefix.v1"
   },
   "writer": {
     "repo": "Qwen/Qwen3-0.6B-MLX-4bit",

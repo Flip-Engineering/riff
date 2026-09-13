@@ -1,4 +1,5 @@
 Code.require_file("support.exs", __DIR__)
+Code.require_file("../scripts/native_capabilities.exs", __DIR__)
 alias Riff.Desktop.Build, as: B
 
 {options, [], []} =
@@ -87,6 +88,9 @@ B.run!("/usr/bin/strip", ["-x", binary])
 B.run!("/usr/bin/codesign", ["--force", "--sign", "-", binary])
 B.inspect_macos!(Path.join(output, "bin"))
 
+capabilities =
+  Riff.Native.Capabilities.verify!(binary, Map.fetch!(manifest, "native_capabilities"), output)
+
 B.json_write(Path.join(output, "engine.json"), %{
   "runtime_commit" => revision,
   "engine_fingerprint" => fingerprint,
@@ -95,6 +99,7 @@ B.json_write(Path.join(output, "engine.json"), %{
   "source_export" => "verified-index",
   "platform" => "macos-arm64",
   "backend" => "metal",
+  "capabilities" => capabilities,
   "model_gpu_execution_validated" => false
 })
 

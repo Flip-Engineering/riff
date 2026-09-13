@@ -1,0 +1,399 @@
+--- a/app/cli/main.cpp
++++ b/app/cli/main.cpp
+@@ -293,6 +293,12 @@
+             << "    --text-chunk-size <chars>\n"
+             << "    --audio-chunk-seconds <float>\n"
+             << "    --audio-chunk-mode auto|fixed|none\n";
++    }
++}
++
++void print_model_metadata(const engine::runtime::ModelCliInterface & cli) {
++    for (const auto & entry : cli.metadata) {
++        std::cout << entry.first << "=" << entry.second << "\n";
+     }
+ }
+ 
+@@ -301,8 +307,9 @@
+         << "family=" << inspection.metadata.family << "\n"
+         << "variant=" << inspection.metadata.variant << "\n"
+         << "model_root=" << inspection.model_root.string() << "\n"
+-        << "description=" << inspection.metadata.description << "\n"
+-        << "  Supported tasks:\n";
++        << "description=" << inspection.metadata.description << "\n";
++    print_model_metadata(inspection.cli);
++    std::cout << "  Supported tasks:\n";
+     for (const auto & capability : inspection.capabilities.supported_tasks) {
+         std::cout << "    --task " << engine::runtime::to_string(capability.task) << " --mode ";
+         for (size_t i = 0; i < capability.modes.size(); ++i) {
+@@ -365,6 +372,7 @@
+     std::cout << "family=" << inspection.metadata.family << "\n";
+     std::cout << "variant=" << inspection.metadata.variant << "\n";
+     std::cout << "model_root=" << inspection.model_root.string() << "\n";
++    print_model_metadata(inspection.cli);
+     std::cout << "supported_tasks=" << inspection.capabilities.supported_tasks.size() << "\n";
+     for (const auto & capability : inspection.capabilities.supported_tasks) {
+         std::cout << "task=" << engine::runtime::to_string(capability.task) << " modes=";
+--- a/include/engine/framework/runtime/model.h
++++ b/include/engine/framework/runtime/model.h
+@@ -7,6 +7,7 @@
+ #include <memory>
+ #include <string>
+ #include <unordered_map>
++#include <utility>
+ #include <vector>
+ 
+ namespace engine::model_spec {
+@@ -55,6 +56,8 @@
+     std::vector<CliOptionInfo> request_options;
+     std::vector<CliOptionInfo> session_options;
+     std::vector<CliOptionInfo> load_options;
++    // Model-owned, additive key=value capability and format identifiers.
++    std::vector<std::pair<std::string, std::string>> metadata;
+ };
+ 
+ struct ModelInspection {
+--- a/include/engine/models/yue2/request.h
++++ b/include/engine/models/yue2/request.h
+@@ -5,6 +5,9 @@
+ 
+ namespace engine::models::yue2 {
+ 
++// Also called at the typed pipeline boundary, which may bypass option parsing.
++void validate_yue2_score_input(const Yue2Request & request);
++
+ Yue2Request parse_yue2_request(const runtime::TaskRequest & request, const Yue2GenerationConfig & defaults);
+ Yue2Request parse_yue2_preparation_request(
+     const runtime::SessionPreparationRequest & request,
+--- a/include/engine/models/yue2/types.h
++++ b/include/engine/models/yue2/types.h
+@@ -3,6 +3,7 @@
+ #include "engine/models/yue2/flow_solver.h"
+ 
+ #include <cstdint>
++#include <optional>
+ #include <string>
+ #include <vector>
+ 
+@@ -74,11 +75,20 @@
+     Full,
+ };
+ 
++struct Yue2ScoreTokens {
++    // Raw ABC sampling output, excluding structural start/end delimiters.
++    std::vector<int32_t> ids;
++    bool truncated = false;
++};
++
+ struct Yue2Request {
+     std::string style;
+     std::string lyrics;
+     Yue2CotMode cot = Yue2CotMode::Full;
+     std::string abc;
++    // nullopt means no exact score supplied. A present empty vector is an
++    // intentional empty score and must never trigger ABC generation.
++    std::optional<Yue2ScoreTokens> score_tokens;
+     std::vector<int32_t> semantic_codes;
+     std::string score_tokens_out;
+     std::string semantic_codes_out;
+--- a/src/models/yue2/pipeline.cpp
++++ b/src/models/yue2/pipeline.cpp
+@@ -42,7 +42,7 @@
+         return out;
+     }
+     out.insert(out.end(), abc_ids.begin(), abc_ids.end());
+-    if (!request.abc.empty()) {
++    if (!request.abc.empty() || request.score_tokens.has_value()) {
+         out.push_back(kAbcEndToken);
+         out.push_back(kMusicStartToken);
+     }
+@@ -134,9 +134,13 @@
+     }
+ 
+     Yue2Plan plan(const Yue2Request & request) {
++        validate_yue2_score_input(request);
+         Yue2Plan out;
+         out.cot = request.cot;
+-        if (!request.abc.empty()) {
++        if (request.score_tokens.has_value()) {
++            out.abc_ids = request.score_tokens->ids;
++            out.truncated = request.score_tokens->truncated;
++        } else if (!request.abc.empty()) {
+             out.abc = request.abc;
+             out.abc_ids = tokenizer.encode(request.abc);
+         }
+@@ -147,6 +151,7 @@
+     }
+ 
+     Yue2SemanticResult generate_semantic(const Yue2Request & request, Yue2Plan plan) {
++        validate_yue2_score_input(request);
+         const auto total_start = Clock::now();
+         Yue2SemanticResult out;
+         out.plan = std::move(plan);
+@@ -160,7 +165,7 @@
+             engine::debug::timing_log_scalar("yue2.semantic.total_inner_ms", engine::debug::elapsed_ms(total_start));
+             return out;
+         }
+-        if (request.cot != Yue2CotMode::Off && request.abc.empty()) {
++        if (request.cot != Yue2CotMode::Off && request.abc.empty() && !request.score_tokens.has_value()) {
+             ensure_ar();
+             const auto abc_start = Clock::now();
+             out.plan.abc_ids = ar->generate(out.plan.prefix, abc_window(request.generation), request.seed);
+--- a/src/models/yue2/request.cpp
++++ b/src/models/yue2/request.cpp
+@@ -5,10 +5,16 @@
+ #include "engine/framework/runtime/options.h"
+ 
+ #include <cmath>
++#include <cctype>
++#include <charconv>
+ #include <filesystem>
++#include <memory>
+ #include <stdexcept>
+ #include <string>
++#include <unordered_set>
+ 
++#include "cJSON.h"
++
+ namespace engine::models::yue2 {
+ namespace {
+ 
+@@ -52,6 +58,174 @@
+     return {};
+ }
+ 
++void skip_json_space(const char *& cursor, const char * end) {
++    while (cursor < end && (*cursor == ' ' || *cursor == '\t' || *cursor == '\r' || *cursor == '\n')) ++cursor;
++}
++
++using JsonOwner = std::unique_ptr<cJSON, decltype(&cJSON_Delete)>;
++
++JsonOwner consume_json_value(const char *& cursor, const char * end) {
++    const char * after = nullptr;
++    JsonOwner value(cJSON_ParseWithLengthOpts(cursor, static_cast<size_t>(end - cursor), &after, 0), &cJSON_Delete);
++    if (!value || after == nullptr || after <= cursor || after > end) {
++        throw std::runtime_error("Yue2 score_tokens_file has invalid JSON content");
++    }
++    cursor = after;
++    return value;
++}
++
++std::string full_json_key(const char * begin, const char * end, const cJSON & decoded) {
++    auto invalid = [] { throw std::runtime_error("Yue2 score_tokens_file has an invalid field name"); };
++    if (!cJSON_IsString(&decoded) || decoded.valuestring == nullptr || end - begin < 2 ||
++        *begin != '"' || end[-1] != '"') invalid();
++    // cJSON has already decoded every byte, including bytes after \u0000,
++    // but exposes only a C string. Recover its full UTF-8 length from the
++    // validated source spelling; retain cJSON's decoder rather than adding
++    // another JSON or Unicode decoder. Never use strlen/strcmp for key identity.
++    const char * cursor = begin + 1;
++    const char * limit = end - 1;
++    size_t size = 0;
++    auto hex_quad = [&]() {
++        if (limit - cursor < 4) invalid();
++        uint32_t value = 0;
++        for (int i = 0; i < 4; ++i) {
++            const char digit = *cursor++;
++            value <<= 4;
++            if (digit >= '0' && digit <= '9') value += digit - '0';
++            else if (digit >= 'a' && digit <= 'f') value += digit - 'a' + 10;
++            else if (digit >= 'A' && digit <= 'F') value += digit - 'A' + 10;
++            else invalid();
++        }
++        return value;
++    };
++    while (cursor < limit) {
++        const unsigned char byte = static_cast<unsigned char>(*cursor++);
++        if (byte < 0x20 || byte == '"') invalid();
++        if (byte != '\\') { ++size; continue; }
++        if (cursor == limit) invalid();
++        switch (*cursor++) {
++        case '"': case '\\': case '/': case 'b': case 'f': case 'n': case 'r': case 't':
++            ++size;
++            break;
++        case 'u': {
++            const auto first = hex_quad();
++            if (first >= 0xD800 && first <= 0xDBFF) {
++                if (limit - cursor < 6 || cursor[0] != '\\' || cursor[1] != 'u') invalid();
++                cursor += 2;
++                const auto second = hex_quad();
++                if (second < 0xDC00 || second > 0xDFFF) invalid();
++                size += 4;
++            } else {
++                if (first >= 0xDC00 && first <= 0xDFFF) invalid();
++                size += first < 0x80 ? 1 : first < 0x800 ? 2 : 3;
++            }
++            break;
++        }
++        default:
++            invalid();
++        }
++    }
++    return std::string(decoded.valuestring, size);
++}
++
++std::vector<int32_t> exact_integer_score_array(const char *& cursor, const char * end) {
++    auto invalid = [] {
++        throw std::runtime_error("Yue2 score_tokens_file IDs must be decimal JSON integers in [0,151643)");
++    };
++    if (cursor == end || *cursor++ != '[') invalid();
++    skip_json_space(cursor, end);
++    std::vector<int32_t> out;
++    if (cursor < end && *cursor == ']') { ++cursor; return out; }
++    while (cursor < end) {
++        const char * begin = cursor;
++        if (*cursor == '-') ++cursor;
++        if (cursor == end) invalid();
++        if (*cursor == '0') {
++            ++cursor;
++        } else if (*cursor >= '1' && *cursor <= '9') {
++            do { ++cursor; } while (cursor < end && *cursor >= '0' && *cursor <= '9');
++        } else {
++            invalid();
++        }
++        const char * number_end = cursor;
++        int32_t id = 0;
++        const auto parsed = std::from_chars(begin, number_end, id);
++        if (parsed.ec != std::errc{} || parsed.ptr != number_end || id < 0 || id >= kEodToken) invalid();
++        skip_json_space(cursor, end);
++        // Decimal points, exponent markers and leading-zero continuations
++        // are rejected before any floating conversion could erase them.
++        if (cursor == end || (*cursor != ',' && *cursor != ']')) invalid();
++        out.push_back(id);
++        if (*cursor++ == ']') return out;
++        skip_json_space(cursor, end);
++    }
++    invalid();
++    return {}; // invalid() always throws.
++}
++
++Yue2ScoreTokens exact_score_fields(const std::string & text) {
++    // The complete document was already structurally parsed. Resolve all
++    // top-level fields by their full decoded identity before selecting score
++    // data. Unrelated metadata still uses the existing cJSON value parser.
++    // Both traversals are linear; score IDs come from their original lexemes.
++    const char * cursor = text.data();
++    const char * end = cursor + text.size();
++    Yue2ScoreTokens out;
++    bool has_tokens = false;
++    std::unordered_set<std::string> fields;
++    skip_json_space(cursor, end);
++    if (cursor == end || *cursor++ != '{') throw std::runtime_error("Yue2 score_tokens_file must be an object");
++    skip_json_space(cursor, end);
++    while (cursor < end && *cursor != '}') {
++        const char * begin = cursor;
++        auto parsed_key = consume_json_value(cursor, end);
++        auto key = full_json_key(begin, cursor, *parsed_key);
++        if (!fields.emplace(key).second) throw std::runtime_error("Yue2 score_tokens_file has duplicate fields");
++        skip_json_space(cursor, end);
++        if (cursor == end || *cursor++ != ':') throw std::runtime_error("Yue2 score_tokens_file has an invalid field");
++        skip_json_space(cursor, end);
++        if (key == "tokens") {
++            out.ids = exact_integer_score_array(cursor, end);
++            has_tokens = true;
++        } else {
++            auto value = consume_json_value(cursor, end);
++            if (key == "truncated") {
++                if (!cJSON_IsBool(value.get())) throw std::runtime_error("Yue2 score_tokens_file truncated must be a boolean");
++                out.truncated = cJSON_IsTrue(value.get());
++            }
++        }
++        skip_json_space(cursor, end);
++        if (cursor == end || *cursor != ',') break;
++        ++cursor;
++        skip_json_space(cursor, end);
++    }
++    if (!has_tokens) throw std::runtime_error("Yue2 score_tokens_file requires a tokens array");
++    return out;
++}
++
++Yue2ScoreTokens score_tokens_from_file(const std::filesystem::path & path) {
++    if (!engine::io::is_existing_file(path)) {
++        throw std::runtime_error("Yue2 score_tokens_file does not exist: " + path.string());
++    }
++    const auto text = engine::io::read_text_file(path);
++    const char * end = nullptr;
++    std::unique_ptr<cJSON, decltype(&cJSON_Delete)> root(
++        cJSON_ParseWithLengthOpts(text.data(), text.size(), &end, 0), &cJSON_Delete);
++    if (!root || !cJSON_IsObject(root.get())) {
++        throw std::runtime_error("Yue2 score_tokens_file must contain a JSON object");
++    }
++    for (const char * cursor = end; cursor < text.data() + text.size(); ++cursor) {
++        if (std::isspace(static_cast<unsigned char>(*cursor)) == 0) {
++            throw std::runtime_error("Yue2 score_tokens_file has trailing JSON content");
++        }
++    }
++    // Its C-string keys and rounded numeric values cannot establish full key
++    // identity or exact integer IDs. Release the structural tree before the
++    // field traversal, then resolve those two small contracts from source bytes.
++    root.reset();
++    return exact_score_fields(text);
++}
++
+ void apply_options(
+     Yue2Request & out,
+     const std::unordered_map<std::string, std::string> & options) {
+@@ -140,10 +314,22 @@
+     apply_sampling(out.generation.semantic, "semantic");
+     validate_sampling(out.generation.abc, "abc");
+     validate_sampling(out.generation.semantic, "semantic");
++    if (const auto tokens_file = options.find("score_tokens_file"); tokens_file != options.end()) {
++        // Presence is significant even when an explicitly supplied text field
++        // is empty. Existing text-only precedence remains unchanged.
++        if (options.count("abc") != 0 || options.count("abc_file") != 0) {
++            throw std::runtime_error("Yue2 score_tokens_file cannot be combined with abc or abc_file");
++        }
++        if (tokens_file->second.empty()) {
++            throw std::runtime_error("Yue2 score_tokens_file must not be empty");
++        }
++        out.score_tokens = score_tokens_from_file(tokens_file->second);
++    }
+     out.abc = abc_from_options(options);
+     if (!out.abc.empty() && out.cot == Yue2CotMode::Off) {
+         throw std::runtime_error("Yue2 external ABC requires cot=melody or cot=full");
+     }
++    validate_yue2_score_input(out);
+     if (const auto semantic_codes_file = runtime::find_option(options, {"semantic_codes_file"})) {
+         const std::filesystem::path path(*semantic_codes_file);
+         if (!engine::io::is_existing_file(path)) {
+@@ -182,6 +368,21 @@
+ 
+ }  // namespace
+ 
++void validate_yue2_score_input(const Yue2Request & request) {
++    if (!request.score_tokens.has_value()) return;
++    if (!request.abc.empty()) {
++        throw std::runtime_error("Yue2 exact score tokens cannot be combined with ABC text");
++    }
++    if (request.cot == Yue2CotMode::Off) {
++        throw std::runtime_error("Yue2 exact score tokens require cot=melody or cot=full");
++    }
++    for (const auto token : request.score_tokens->ids) {
++        if (token < 0 || token >= kEodToken) {
++            throw std::runtime_error("Yue2 exact score token IDs must be in [0,151643)");
++        }
++    }
++}
++
+ Yue2Request parse_yue2_request(const runtime::TaskRequest & request, const Yue2GenerationConfig & defaults) {
+     if (request.audio_input.has_value()) {
+         throw std::runtime_error("Yue2 does not consume audio_input");
+--- a/src/models/yue2/session.cpp
++++ b/src/models/yue2/session.cpp
+@@ -155,11 +155,17 @@
+ 
+ runtime::ModelCliInterface yue2_cli_interface() {
+     runtime::ModelCliInterface out;
++    out.metadata = {
++        {"feature.yue2.score_tokens", "1"},
++        {"format.yue2.score_tokens", "riff.yue2.score-tokens.v1"},
++        {"format.yue2.prefix", "riff.yue2.prefix.v1"},
++    };
+     out.request_options = {
+         {"style", "string", "Optional music style prompt.", false},
+         {"lyrics", "string", "Lyrics to generate.", false},
+         {"abc", "string", "ABC score conditioning text.", false},
+         {"abc_file", "path", "Path to ABC score conditioning text.", false},
++        {"score_tokens_file", "path", "Replay exact ABC token IDs from saved plan JSON, including an empty score. Requires melody/full; excludes abc and abc_file.", false},
+         {"score_tokens_out", "path", "Save the actual symbolic plan token IDs as JSON.", false},
+         {"plan_only", "true|false", "Generate a symbolic plan without rendering audio.", false, "false"},
+         {"cot", "off|melody|full", "Planning mode.", false, "off"},
