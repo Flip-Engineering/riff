@@ -739,7 +739,8 @@ select {
   min-width: 0;
 }
 select,
-.advanced-grid input {
+.advanced-grid input,
+.acoustic-context input[data-decoder] {
   width: 100%;
   padding: 8px 10px;
   border: 1px solid var(--line);

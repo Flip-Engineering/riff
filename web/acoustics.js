@@ -27,6 +27,19 @@
   }
   el("#acoustic-controls").innerHTML = controls("audio");
   el("#detail-acoustic-controls").innerHTML = controls("detail-audio");
+  for (const container of [el("#acoustic-controls"), el("#detail-acoustic-controls")]) {
+    container.addEventListener("invalid", event => {
+      const field = event.target;
+      if (!field.matches("[data-decoder]")) return;
+      field.closest("details").open = true;
+      // Native validation selects the first invalid control. After the panel
+      // expands, keep that field in view without taking focus from the user.
+      requestAnimationFrame(() => {
+        if (document.activeElement === field && !field.validity.valid)
+          field.scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" });
+      });
+    }, true);
+  }
 
   function fillControls(prefix, values = {}, captured = null) {
     for (const field of el(`#${prefix}-refinements`).querySelectorAll("[data-decoder]")) {
@@ -190,6 +203,7 @@
   });
   el("#finish-audio").addEventListener("click", async () => {
     if (!detail?.compatible) return;
+    errorMessage("#detail-error");
     try { await enqueue(detail.id, readControls("detail-audio", true), el("#edit-title").value, el("#finish-audio")); }
     catch (error) { errorMessage("#detail-error", error.message); }
   });

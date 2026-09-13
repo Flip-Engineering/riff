@@ -82,6 +82,27 @@ try {
   const current = () => page.evaluate(() => formRecipe());
   const refresh = () => page.evaluate(() => refresh());
   const attached = () => page.waitForFunction(() => RiffAcoustics.ready() && formRecipe().acoustic_source);
+  const invalidCollapsed = async (prefix, button) => {
+    const field = page.locator(`#${prefix}-core`), panel = page.locator(`#${prefix}-refinements`);
+    if (!await panel.evaluate(item => item.open)) await panel.locator("summary").press("Enter");
+    await field.fill("0");
+    await panel.locator("summary").press("Enter");
+    assert(!await field.isVisible());
+    const submitted = requests.length;
+    await page.locator(button).press("Enter");
+    assert.equal(requests.length, submitted, "Invalid refinement must not submit a request");
+    assert(await field.isVisible(), `${prefix}: invalid field must be revealed`);
+    assert(await field.evaluate(item => item === document.activeElement), `${prefix}: invalid field must receive focus`);
+    await page.waitForFunction(selector => {
+      const bounds = document.querySelector(selector).getBoundingClientRect();
+      const header = document.querySelector(".app-header").getBoundingClientRect();
+      return bounds.top >= Math.max(0, header.bottom) && bounds.bottom <= innerHeight;
+    }, `#${prefix}-core`);
+    assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+    await page.screenshot({ path: `test-results/acoustic-validation-${prefix}.png` });
+    await field.press("ControlOrMeta+A");
+    await page.keyboard.type("512");
+  };
   await page.goto(fixture.url);
   await page.waitForFunction(() => state.jobs.length >= 2 && selected);
   const before = await current();
@@ -105,11 +126,13 @@ try {
   await page.waitForFunction(() => !document.querySelector("#finish-audio").disabled);
   await page.locator("#detail-audio-refinements > summary").click();
   assert.equal(await page.locator("#detail-audio-core").getAttribute("placeholder"), "1024");
-  await page.locator("#detail-audio-core").fill("512");
+  await invalidCollapsed("detail-audio", "#finish-audio");
+  assert(await page.locator("#detail-error").isVisible());
   await page.locator("#detail-audio-halo").fill("0");
   await page.locator("#detail-audio-storage").selectOption("0");
   await page.locator("#finish-audio").click();
   await page.waitForFunction(() => state.jobs.length === 4);
+  assert(await page.locator("#detail-error").isHidden());
   assert.deepEqual(requests.at(-1).decoder, { core_frames: 512, halo_frames: 0, storage: 0 });
   assert.deepEqual(await current(), before);
   const number = requests.length;
@@ -144,15 +167,16 @@ try {
   await page.locator("#acoustic-context").scrollIntoViewIfNeeded();
   await page.screenshot({ path: "test-results/acoustic-draft-mobile.png" });
   assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
-  await page.setViewportSize({ width: 1280, height: 1000 });
   await page.locator("#title").fill("My chosen finish");
   assert.equal((await current()).acoustic_source, source);
   ready = false; await refresh();
   assert(await page.locator("#generate").isEnabled());
+  await invalidCollapsed("audio", "#generate");
   await page.locator("#generate").click();
   await page.waitForFunction(() => state.jobs.length === 6); await attached();
   assert.equal(requests.at(-1).title, "My chosen finish");
   assert.equal(requests.at(-1).acoustic_source, source);
+  await page.setViewportSize({ width: 1280, height: 1000 });
   console.log("PASS Producer decode recommendations preserve all musical inputs and seed; attached Finish audio works without main-model readiness");
 
   await page.locator(".creative-controls > summary").click();

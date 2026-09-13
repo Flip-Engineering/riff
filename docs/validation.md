@@ -116,6 +116,11 @@ a full render using those same settings. Every one of the 4,319,872 PCM16 values
 matched within each pair, and the acoustic tensors matched across all runs.
 Changing decoder settings slightly changed the audio relative to the original
 settings, as expected. Recorded decoder footprints were 393 MB and 645 MB.
+Separate instrumented replays retained every WAV byte and measured Metal buffer
+high waters of 3.39 GB and 5.38 GB. Those are allocated capacities, not physical
+residency. The current admission reservations for these cases are 6.18 GB and
+8.16 GB; replacing the conservative graph envelope with native allocation
+planning remains optimization work.
 
 The Elixir artifact library streams validation and publication without allocating
 a second latent tensor. Actual control/queue/HTTP tests cover source binding,
