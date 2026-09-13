@@ -301,6 +301,12 @@ defmodule Riff.Runtime.AcousticArtifactTest do
 
     # Start with the problematic ignored disposition deliberately. The native
     # launcher resets it after shell startup and fixes the limit at 1,024 bytes.
+    # Linux BeamAsm normally grows a memfd with ftruncate for dual-mapped code,
+    # which also hits RLIMIT_FSIZE before this tiny copy can start. Select its
+    # documented anonymous single mapping only in this owned test child. Keep
+    # optional profiler files disabled; the production VM keeps its defaults.
+    jit_flags = if :os.type() == {:unix, :linux}, do: " +JMsingle true +JPperf false", else: ""
+
     System.cmd(
       "/bin/sh",
       [
@@ -318,7 +324,13 @@ defmodule Riff.Runtime.AcousticArtifactTest do
         command
       ],
       stderr_to_stdout: true,
-      env: [{"ERL_FLAGS", "+S 1:1 +A 1"}, {"ERL_CRASH_DUMP", "/dev/null"}]
+      env: [
+        {"ERL_FLAGS", "+S 1:1 +A 1" <> jit_flags},
+        {"ERL_AFLAGS", nil},
+        {"ERL_ZFLAGS", nil},
+        {"ELIXIR_ERL_OPTIONS", nil},
+        {"ERL_CRASH_DUMP", "/dev/null"}
+      ]
     )
   end
 end
