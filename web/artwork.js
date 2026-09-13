@@ -115,8 +115,17 @@ const RiffArtwork = (() => {
         p[index * 2 + 1] = 143 + ty * perspective * .93;
       }
     }
+    orderFaces(g);
     if (withFaces) shadeFaces(g);
     return g;
+  }
+
+  function orderFaces(g) {
+    const v = g.vertices;
+    for (const face of g.faces) {
+      face.depth = (v[face.a * 3 + 2] + v[face.b * 3 + 2] + v[face.c * 3 + 2] + v[face.d * 3 + 2]) / 4;
+    }
+    g.faces.sort((a, b) => a.depth - b.depth);
   }
 
   function shadeFaces(g) {
@@ -136,9 +145,7 @@ const RiffArtwork = (() => {
       const angle = face.a % steps / steps * Math.PI * 2;
       face.chromatic = .5 + .5 * Math.sin(Math.cos(angle) * 2.1 + Math.sin(angle) * 1.6
         + face.ring / (rings - 1) * 3.2 + g.lightPhase + g.stress[face.a] * .8);
-      face.depth = (v[a + 2] + v[b + 2] + v[face.c * 3 + 2] + v[d + 2]) / 4;
     }
-    g.faces.sort((a, b) => a.depth - b.depth);
   }
 
   function createSurfaceRenderer() {
@@ -304,8 +311,8 @@ const RiffArtwork = (() => {
       const history = motion.history?.map(scaled);
       motion = Object.assign(scaled(motion), { history });
     }
-    // WebGL computes its own material from vertex normals. Canvas face shading
-    // and depth sorting are only needed when that renderer is unavailable.
+    // WebGL computes its own material from vertex normals. Prepare Canvas
+    // shading only on fallback; retain depth ordering across renderer changes.
     const g = scene(seed, seconds, motion, false), { palette: c, projected: p } = g;
     g.presence = clamp(appearance.surface ?? defaults.surface);
     g.color = clamp(appearance.color ?? defaults.color);
