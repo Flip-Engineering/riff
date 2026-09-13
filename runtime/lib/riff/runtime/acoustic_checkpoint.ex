@@ -31,7 +31,12 @@ defmodule Riff.Runtime.AcousticCheckpoint do
 
     directory!(Path.dirname(path))
     before = regular!(path)
-    {:ok, file} = File.open(path, [:read, :binary, :raw])
+
+    file =
+      case File.open(path, [:read, :binary, :raw]) do
+        {:ok, file} -> file
+        _ -> raise Error, "The saved sound could not be opened."
+      end
 
     try do
       opened = opened_stat!(file)
@@ -97,7 +102,7 @@ defmodule Riff.Runtime.AcousticCheckpoint do
       ) and halo <= @max_i64 and seed <= @max_i64 and
         rate <= 0x7FFFFFFF and channels <= 0x7FFFFFFF and
         frames * latent <= @max_i64 and payload_bytes == frames * latent * 4 and
-        payload_bytes <= @max_u64 - @header_bytes and
+        payload_bytes <= @max_i64 and
         semantic_frames == frames and frames * ratio <= @max_i64 and
         frames * ratio > 64 and (frames * ratio - 64) * channels * 4 <= @max_u64 and
         vae_storage in 0..6 and model_storage in 0..6 and solver in [1, 2],
@@ -194,14 +199,20 @@ defmodule Riff.Runtime.AcousticCheckpoint do
   end
 
   defp directory!(path) do
-    check!(File.lstat!(path).type == :directory, "The sound library directory is linked.")
+    case File.lstat(path) do
+      {:ok, %{type: :directory}} -> :ok
+      _ -> raise Error, "The sound library directory is linked or unavailable."
+    end
+
     parent = Path.dirname(path)
     if parent != path, do: directory!(parent)
   end
 
   defp opened_stat!(file) do
-    {:ok, info} = :file.read_file_info(file, time: :posix)
-    File.Stat.from_record(info)
+    case :file.read_file_info(file, time: :posix) do
+      {:ok, info} -> File.Stat.from_record(info)
+      _ -> raise Error, "The saved sound became unavailable during inspection."
+    end
   end
 
   defp identity(info),

@@ -77,6 +77,28 @@ defmodule Riff.Runtime.AcousticCheckpointTest do
     end
   end
 
+  test "the payload length fits the native signed header decoder", c do
+    header =
+      binary_part(c.bytes, 0, 512)
+      |> replace(32, <<Bitwise.bsl(1, 57)::little-64>>)
+      |> replace(40, <<16::little-64>>)
+      |> replace(48, <<Bitwise.bsl(1, 63)::little-64>>)
+      |> replace(72, <<1::little-64>>)
+      |> replace(136, <<Bitwise.bsl(1, 57)::little-64>>)
+      |> sign_header()
+
+    assert_raise Checkpoint.Error, fn -> Checkpoint.parse_header!(header) end
+  end
+
+  test "missing files and parents use the artifact error contract", c do
+    File.rm!(c.path)
+    assert_raise Checkpoint.Error, fn -> Checkpoint.inspect!(c.root, c.path) end
+
+    assert_raise Checkpoint.Error, fn ->
+      Checkpoint.inspect!(c.root, Path.join([c.root, "gone", "saved.acoustic"]))
+    end
+  end
+
   test "file and ancestor links, sibling roots and nonregular input stay outside the library",
        c do
     link = Path.join(c.root, "linked.acoustic")
