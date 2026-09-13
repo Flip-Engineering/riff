@@ -95,7 +95,8 @@ def apply_pinned_patches(checkout, source, manifest, run):
             raise ValueError("The engine source changed during setup. Its local changes have been preserved.")
 
 
-def prepare(backend, run=None, source=ROOT, download_models=True, jobs=None, cuda_arch=None, activate=True, probe=True):
+def prepare(backend, run=None, source=ROOT, download_models=True, jobs=None, cuda_arch=None, activate=True, probe=True,
+            configure_only=False):
     source = Path(source)
     manifest = json.loads((source / "sources.json").read_text())
     if backend not in ("metal", "cuda", "cpu"):
@@ -130,7 +131,11 @@ def prepare(backend, run=None, source=ROOT, download_models=True, jobs=None, cud
             run([sys.executable, "-m", "venv", str(tools_env)])
         run([str(interpreter), "-m", "pip", "install", "cmake==" + manifest["cmake"]])
         cmake = str(tools_env / "bin/cmake")
-    run([cmake, *cmake_command(checkout, build, backend, cuda_arch)])
+    configuration = [cmake, *cmake_command(checkout, build, backend, cuda_arch)]
+    run(configuration)
+    if configure_only:
+        return {"backend": backend, "source_directory": str(checkout), "build_directory": str(build),
+                "cmake": cmake, "configuration": configuration}
     # Leave half the CPUs available to the studio and desktop; adjustable by the user.
     build_jobs = jobs or max(1, (platform_support.default_threads() + 1) // 2)
     run([cmake, "--build", str(build), "--parallel", str(build_jobs), "--target", "audiocpp_cli"])
@@ -154,11 +159,15 @@ def main():
     parser.add_argument("--backend", choices=("metal", "cuda", "cpu"), default=platform_support.default_backend())
     parser.add_argument("--build-only", action="store_true")
     parser.add_argument("--compile-only", action="store_true", help="Compile without models, device probing, or activation (for CI)")
+    parser.add_argument("--configure-only", action="store_true", help="Verify source and configure CMake without compiling or activating")
     parser.add_argument("--jobs", type=int)
     parser.add_argument("--cuda-arch", help="CMake CUDA architectures; default native")
     args = parser.parse_args()
-    prepare(args.backend, download_models=not (args.build_only or args.compile_only), jobs=args.jobs,
-            cuda_arch=args.cuda_arch, probe=not args.compile_only, activate=not args.compile_only)
+    configured = prepare(args.backend, download_models=not (args.build_only or args.compile_only), jobs=args.jobs,
+                         cuda_arch=args.cuda_arch, probe=not args.compile_only, activate=not args.compile_only,
+                         configure_only=args.configure_only)
+    if args.configure_only:
+        print(json.dumps(configured, sort_keys=True))
 
 
 if __name__ == "__main__":

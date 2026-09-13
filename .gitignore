@@ -17,3 +17,5 @@ tools/
 releases/
 dist/
 .mix-venv/
+.compiler-cache-tool/
+native-cache-receipts/
