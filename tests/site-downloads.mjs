@@ -7,7 +7,7 @@ import { chromium } from "playwright";
 
 const site = resolve("site");
 const assetURL = version => `https://github.com/Flip-Engineering/riff/releases/download/${version}/Riff-Setup-macos-arm64.zip`;
-const baseline = assetURL("v0.6.4");
+const baseline = assetURL("v0.6.5");
 const release = (tag, published, extra = {}) => ({
   tag_name: tag, published_at: published, draft: false, prerelease: false,
   assets: [{ name: "Riff-Setup-macos-arm64.zip", state: "uploaded", browser_download_url: assetURL(tag) }], ...extra,
