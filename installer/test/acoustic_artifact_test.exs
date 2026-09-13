@@ -2,6 +2,36 @@ defmodule Riff.Runtime.AcousticArtifactTest do
   use ExUnit.Case, async: true
   alias Riff.Runtime.{AcousticArtifact, AcousticCheckpoint}
 
+  setup_all do
+    root =
+      Path.join(
+        System.tmp_dir!(),
+        "riff-copy-launcher-" <> Base.encode16(:crypto.strong_rand_bytes(12))
+      )
+
+    File.mkdir!(root)
+    on_exit(fn -> File.rm_rf!(root) end)
+    launcher = Path.join(root, "limited-copy")
+
+    {output, status} =
+      System.cmd(
+        System.find_executable("cc") || flunk("The native copy fixture needs a C compiler."),
+        [
+          "-std=c11",
+          "-Wall",
+          "-Wextra",
+          "-Werror",
+          Path.join(__DIR__, "fixtures/acoustic/limited_copy.c"),
+          "-o",
+          launcher
+        ],
+        stderr_to_stdout: true
+      )
+
+    assert status == 0, "Could not compile the native copy fixture:\n#{output}"
+    %{copy_launcher: launcher}
+  end
+
   setup do
     temporary = if File.dir?("/private/tmp"), do: "/private/tmp", else: System.tmp_dir!()
 
@@ -148,16 +178,26 @@ defmodule Riff.Runtime.AcousticArtifactTest do
     earlier = Path.join(c.input, ".acoustic-earlier")
     File.write!(earlier, "another invocation")
 
-    {_output, status} =
-      limited_copy(:prepare!, [c.library, saved["id"], c.decoder, c.input], :kill)
+    {output, status} =
+      limited_copy(
+        c.copy_launcher,
+        :prepare!,
+        [c.library, saved["id"], c.decoder, c.input],
+        :kill
+      )
 
-    assert status != 0
+    assert output =~ "COPY_STARTED\n", "Copy child did not start (#{status}):\n#{output}"
+    assert [_, signal] = Regex.run(~r/COPY_LIMIT mode=kill bytes=1024 signal=(\d+)/, output)
+
+    assert status == 128 + String.to_integer(signal),
+           "Copy child was not killed by SIGXFSZ:\n#{output}"
+
     refute File.exists?(Path.join(c.input, "acoustic.yac"))
-    [partial_name] = File.ls!(c.input) -- [Path.basename(earlier)]
+    assert [partial_name] = File.ls!(c.input) -- [Path.basename(earlier)], output
     assert String.starts_with?(partial_name, ".acoustic-")
     partial = Path.join(c.input, partial_name)
     partial_bytes = File.read!(partial)
-    assert byte_size(partial_bytes) > 0 and byte_size(partial_bytes) < byte_size(bytes)
+    assert byte_size(partial_bytes) == 1024 and byte_size(partial_bytes) < byte_size(bytes)
 
     prepared = AcousticArtifact.prepare!(c.library, saved["id"], c.decoder, c.input)
     assert File.read!(prepared["input_path"]) == bytes
@@ -177,11 +217,18 @@ defmodule Riff.Runtime.AcousticArtifactTest do
     File.write!(earlier, "another invocation")
 
     {output, status} =
-      limited_copy(:prepare!, [c.library, saved["id"], c.decoder, c.input], :error)
+      limited_copy(
+        c.copy_launcher,
+        :prepare!,
+        [c.library, saved["id"], c.decoder, c.input],
+        :error
+      )
 
-    assert status != 0
+    assert output =~ "COPY_STARTED\n", "Copy child did not start (#{status}):\n#{output}"
+    assert status == 1, output
     assert output =~ "File.Error"
     assert output =~ "copy sound"
+    assert output =~ "file too large"
     assert File.ls!(c.input) == [Path.basename(earlier)]
     prepared = AcousticArtifact.prepare!(c.library, saved["id"], c.decoder, c.input)
     assert File.read!(prepared["input_path"]) == bytes
@@ -197,11 +244,13 @@ defmodule Riff.Runtime.AcousticArtifactTest do
     File.write!(Path.join(earlier, "keep"), "another invocation")
 
     {output, status} =
-      limited_copy(:capture_file!, [c.library, c.root, c.source, %{}], :error)
+      limited_copy(c.copy_launcher, :capture_file!, [c.library, c.root, c.source, %{}], :error)
 
-    assert status != 0
+    assert output =~ "COPY_STARTED\n", "Copy child did not start (#{status}):\n#{output}"
+    assert status == 1, output
     assert output =~ "File.Error"
     assert output =~ "copy sound"
+    assert output =~ "file too large"
     assert File.ls!(c.library) == [Path.basename(earlier)]
     saved = AcousticArtifact.capture_file!(c.library, c.root, c.source, %{})
     assert File.read!(saved["path"]) == bytes
@@ -245,22 +294,21 @@ defmodule Riff.Runtime.AcousticArtifactTest do
     Enum.map(tasks, &Task.await(&1, 10_000))
   end
 
-  defp limited_copy(operation, arguments, mode) do
-    # RLIMIT_FSIZE interrupts a real write in this owned child VM. The native
-    # 1,280-byte fixture exceeds one shell file-size unit on macOS and Linux;
-    # no production hook, mock copy implementation or large file is required.
-    trap = if mode == :error, do: "trap '' XFSZ; ", else: ""
-    script = "ulimit -c 0; ulimit -f 1; " <> trap <> "exec \"$@\""
-
+  defp limited_copy(launcher, operation, arguments, mode) do
     command =
-      "apply(Riff.Runtime.AcousticArtifact, #{inspect(operation)}, #{inspect(arguments, limit: :infinity)})"
+      "IO.puts(\"COPY_STARTED\"); " <>
+        "apply(Riff.Runtime.AcousticArtifact, #{inspect(operation)}, #{inspect(arguments, limit: :infinity)})"
 
+    # Start with the problematic ignored disposition deliberately. The native
+    # launcher resets it after shell startup and fixes the limit at 1,024 bytes.
     System.cmd(
       "/bin/sh",
       [
         "-c",
-        script,
+        "trap '' XFSZ; exec \"$@\"",
         "riff-acoustic-copy-fixture",
+        launcher,
+        Atom.to_string(mode),
         System.find_executable("elixir"),
         "-pa",
         Application.app_dir(:riff_installer, "ebin"),
