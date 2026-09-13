@@ -1,5 +1,6 @@
 Code.require_file("../../desktop/support.exs", __DIR__)
 Code.require_file("crypto_component.exs", __DIR__)
+Code.require_file("rust_notices.exs", __DIR__)
 
 defmodule RiffInstaller.MacPackage do
   @moduledoc false
@@ -308,11 +309,14 @@ defmodule RiffInstaller.MacPackage do
     )
 
     rust = run!("rustc", ["--print", "sysroot"]) |> String.trim()
-    copy_license_group(rust, "rust", destination)
+    notices = Riff.Installer.RustNotices.copy!(rust, Path.join(destination, "rust"))
 
-    File.cp!(
-      Path.join(rust, "share/doc/rustc/COPYRIGHT-library.html"),
-      Path.join(destination, "rust-standard-library-COPYRIGHT.html")
+    File.write!(
+      Path.join(runtime, "rust-build.json"),
+      Jason.encode!(
+        Map.put(notices, "compiler", run!("rustc", ["--version"]) |> String.trim()),
+        pretty: true
+      )
     )
   end
 
