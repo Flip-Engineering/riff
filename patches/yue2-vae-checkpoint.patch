@@ -1,0 +1,1139 @@
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -1350,6 +1350,7 @@
+ 
+ audiocpp_add_model(yue2
+     SOURCES
++        src/models/yue2/acoustic_checkpoint.cpp
+         src/models/yue2/ar_runtime.cpp
+         src/models/yue2/assets.cpp
+         src/models/yue2/nar_runtime.cpp
+--- /dev/null
++++ b/include/engine/models/yue2/acoustic_checkpoint.h
+@@ -0,0 +1,58 @@
++#pragma once
++
++#include "engine/models/yue2/types.h"
++
++#include <array>
++#include <cstddef>
++#include <cstdint>
++#include <filesystem>
++#include <vector>
++
++namespace engine::models::yue2::checkpoint {
++
++inline constexpr const char * kFormat = "riff.yue2.acoustic.v1";
++inline constexpr uint32_t kDecoderContract = 1;
++inline constexpr size_t kHeaderBytes = 512;
++using Digest = std::array<uint8_t, 32>;
++
++// File identities are process-local guards, never serialized private paths.
++struct FileIdentity {
++    uint64_t bytes = 0, device = 0, inode = 0, modified = 0, changed = 0;
++    bool operator==(const FileIdentity & other) const noexcept;
++};
++FileIdentity file_identity(const std::filesystem::path & path);
++void require_unchanged(const std::filesystem::path & path, const FileIdentity & expected);
++Digest hash_bytes(const void * bytes, size_t size);
++Digest hash_file(const std::filesystem::path & path);
++Digest hash_i32(const std::vector<int32_t> & values);
++Digest executable_hash();
++
++struct Metadata {
++    uint64_t frames = 0, latent_dim = 0;
++    Yue2VaeConfig vae;
++    // Stable on-disk storage IDs: native=0,f32=1,f16=2,bf16=3,q8_0=4,q4_0=5,q4_k=6.
++    uint32_t vae_storage = 0, model_storage = 0;
++    uint64_t seed = 0, ode_steps = 0, semantic_frames = 0, context = 0;
++    Yue2OdeMethod ode_method = Yue2OdeMethod::Midpoint;
++    float guidance = 1.0F;
++    bool semantic_truncated = false;
++    Digest payload{}, model{}, decoder{}, model_config{}, decoder_config{};
++    Digest tokenizer{}, generation_config{}, conditioning{}, semantic_codes{}, producer_binary{};
++};
++
++struct Completed {
++    Metadata metadata;
++    std::vector<float> latents;  // [frame, channel], one owned payload allocation
++};
++
++// Writes existing interleaved F32 data directly. A successful no-replace atomic
++// publication occurs only after the complete payload/header have been fsynced.
++// The final path is never truncated, including on failure or a concurrent save.
++void require_output_available(const std::filesystem::path & path);
++void save_completed(const std::filesystem::path & path, Metadata metadata,
++                    const std::vector<float> & latents);
++Completed load_completed(const std::filesystem::path & path);
++void require_decoder(const Metadata & saved, const Yue2VaeConfig & config,
++                     const Digest & model);
++
++}  // namespace engine::models::yue2::checkpoint
+--- a/include/engine/models/yue2/assets.h
++++ b/include/engine/models/yue2/assets.h
+@@ -2,6 +2,7 @@
+ 
+ #include "engine/framework/assets/tensor_source.h"
+ #include "engine/models/yue2/types.h"
++#include "engine/models/yue2/acoustic_checkpoint.h"
+ 
+ #include <filesystem>
+ #include <memory>
+@@ -13,6 +14,10 @@
+     std::filesystem::path tiktoken_path;
+     std::shared_ptr<const assets::TensorSource> model_weights;
+     std::shared_ptr<const assets::TensorSource> vae_weights;
++    checkpoint::FileIdentity model_identity, vae_identity;
++    checkpoint::Digest model_config_hash{}, vae_config_hash{}, generation_config_hash{};
++    bool has_model_config = false;
++    bool vae_storage_explicit = false;
+     Yue2Config config;
+ };
+ 
+--- a/include/engine/models/yue2/request.h
++++ b/include/engine/models/yue2/request.h
+@@ -5,6 +5,8 @@
+ 
+ namespace engine::models::yue2 {
+ 
++void validate_yue2_acoustic_input(const Yue2Request & request);
++
+ // Also called at the typed pipeline boundary, which may bypass option parsing.
+ void validate_yue2_score_input(const Yue2Request & request);
+ 
+--- a/include/engine/models/yue2/session.h
++++ b/include/engine/models/yue2/session.h
+@@ -26,9 +26,11 @@
+     runtime::TaskResult run(const runtime::TaskRequest & request) override;
+ 
+ private:
++    void ensure_pipeline(bool decode_only);
+     runtime::TaskSpec task_;
+     std::shared_ptr<const Yue2Assets> assets_;
+     std::unique_ptr<Yue2PipelineRuntime> pipeline_;
++    bool pipeline_decode_only_ = false;
+ };
+ 
+ std::shared_ptr<runtime::IVoiceModelLoader> make_yue2_loader();
+--- a/include/engine/models/yue2/types.h
++++ b/include/engine/models/yue2/types.h
+@@ -92,6 +92,11 @@
+     std::vector<int32_t> semantic_codes;
+     std::string score_tokens_out;
+     std::string semantic_codes_out;
++    std::string acoustic_latents_out;
++    std::string acoustic_latents_file;
++    bool acoustic_only = false;
++    std::optional<int64_t> acoustic_decode_core_frames;
++    std::optional<int64_t> acoustic_decode_halo_frames;
+     bool semantic_only = false;
+     bool plan_only = false;
+     std::vector<float> nar_noise;
+--- /dev/null
++++ b/src/models/yue2/acoustic_checkpoint.cpp
+@@ -0,0 +1,441 @@
++#include "engine/models/yue2/acoustic_checkpoint.h"
++
++#include <algorithm>
++#include <atomic>
++#include <cerrno>
++#include <cmath>
++#include <cstdio>
++#include <cstring>
++#include <limits>
++#include <memory>
++#include <random>
++#include <stdexcept>
++#include <string>
++#include <system_error>
++#include <sys/stat.h>
++
++#if defined(_WIN32)
++#define NOMINMAX
++#include <windows.h>
++#include <io.h>
++#else
++#include <fcntl.h>
++#include <unistd.h>
++#endif
++#if defined(__APPLE__)
++#include <CommonCrypto/CommonDigest.h>
++#include <mach-o/dyld.h>
++#endif
++
++namespace engine::models::yue2::checkpoint {
++namespace {
++
++static_assert(sizeof(float) == 4 && std::numeric_limits<float>::is_iec559,
++              "Acoustic checkpoints require IEEE 754 binary32 floats");
++using Header = std::array<uint8_t, kHeaderBytes>;
++using File = std::unique_ptr<FILE, decltype(&std::fclose)>;
++constexpr char kMagic[8] = {'R','I','F','F','Y','A','C','1'};
++
++[[noreturn]] void fail(const char * message) {
++    throw std::runtime_error(std::string("Yue2 acoustic checkpoint: ") + message);
++}
++
++#if defined(__APPLE__) && !defined(RIFF_CHECKPOINT_PORTABLE_SHA)
++#pragma clang diagnostic push
++#pragma clang diagnostic ignored "-Wdeprecated-declarations"
++class Sha256 {
++    CC_SHA256_CTX context_{};
++public:
++    Sha256() { CC_SHA256_Init(&context_); }
++    void update(const void * bytes, size_t size) {
++        const auto * cursor = static_cast<const uint8_t *>(bytes);
++        while (size) {
++            const auto n = static_cast<CC_LONG>(std::min<size_t>(size, std::numeric_limits<CC_LONG>::max()));
++            CC_SHA256_Update(&context_, cursor, n);
++            cursor += n;
++            size -= n;
++        }
++    }
++    Digest finish() { Digest out{}; CC_SHA256_Final(out.data(), &context_); return out; }
++};
++#pragma clang diagnostic pop
++#else
++// Incremental SHA-256, using the same standard compression function as the
++// existing sanotts text-seed implementation. No optional OpenSSL dependency.
++class Sha256 {
++    uint32_t h_[8] = {0x6a09e667U,0xbb67ae85U,0x3c6ef372U,0xa54ff53aU,
++                     0x510e527fU,0x9b05688cU,0x1f83d9abU,0x5be0cd19U};
++    std::array<uint8_t, 64> pending_{};
++    size_t used_ = 0;
++    uint64_t bytes_ = 0;
++    static uint32_t r(uint32_t x, unsigned n) { return (x >> n) | (x << (32 - n)); }
++    void block(const uint8_t * p) {
++        static constexpr uint32_t k[64] = {
++            0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,
++            0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,
++            0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,
++            0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,
++            0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,
++            0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,
++            0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,
++            0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2};
++        uint32_t w[64];
++        for (size_t i=0; i<16; ++i) w[i] = (uint32_t(p[i*4])<<24)|(uint32_t(p[i*4+1])<<16)|
++                                                (uint32_t(p[i*4+2])<<8)|p[i*4+3];
++        for (size_t i=16; i<64; ++i) w[i] = w[i-16] + (r(w[i-15],7)^r(w[i-15],18)^(w[i-15]>>3)) +
++                                                     w[i-7] + (r(w[i-2],17)^r(w[i-2],19)^(w[i-2]>>10));
++        uint32_t a=h_[0],b=h_[1],c=h_[2],d=h_[3],e=h_[4],f=h_[5],g=h_[6],h=h_[7];
++        for (size_t i=0; i<64; ++i) {
++            const auto t1=h+(r(e,6)^r(e,11)^r(e,25))+((e&f)^(~e&g))+k[i]+w[i];
++            const auto t2=(r(a,2)^r(a,13)^r(a,22))+((a&b)^(a&c)^(b&c));
++            h=g;g=f;f=e;e=d+t1;d=c;c=b;b=a;a=t1+t2;
++        }
++        h_[0]+=a;h_[1]+=b;h_[2]+=c;h_[3]+=d;h_[4]+=e;h_[5]+=f;h_[6]+=g;h_[7]+=h;
++    }
++public:
++    void update(const void * bytes, size_t size) {
++        if (size > std::numeric_limits<uint64_t>::max()/8 - bytes_) fail("hash input is too large");
++        bytes_ += size;
++        auto * p = static_cast<const uint8_t *>(bytes);
++        while (size) {
++            const auto n=std::min(size,64-used_);
++            std::memcpy(pending_.data()+used_,p,n); used_+=n;p+=n;size-=n;
++            if (used_==64) { block(pending_.data()); used_=0; }
++        }
++    }
++    Digest finish() {
++        const uint64_t bits=bytes_*8;
++        pending_[used_++]=0x80;
++        if (used_>56) { std::fill(pending_.begin()+used_,pending_.end(),0);block(pending_.data());used_=0; }
++        std::fill(pending_.begin()+used_,pending_.end(),0);
++        for (unsigned i=0;i<8;++i) pending_[63-i]=static_cast<uint8_t>(bits>>(8*i));
++        block(pending_.data());
++        Digest out{};
++        for (size_t i=0;i<8;++i) for(unsigned j=0;j<4;++j) out[i*4+j]=static_cast<uint8_t>(h_[i]>>(24-8*j));
++        return out;
++    }
++};
++#endif
++
++void put(uint8_t * p, uint64_t value, size_t bytes) {
++    for (size_t i = 0; i < bytes; ++i) p[i] = static_cast<uint8_t>(value >> (8*i));
++}
++uint64_t get(const uint8_t * p, size_t bytes) {
++    uint64_t value = 0;
++    for (size_t i = 0; i < bytes; ++i) value |= uint64_t(p[i]) << (8*i);
++    return value;
++}
++bool little_endian() { const uint32_t value = 1; return *reinterpret_cast<const uint8_t *>(&value) == 1; }
++bool empty(const Digest & hash) { return std::all_of(hash.begin(), hash.end(), [](auto v) { return v == 0; }); }
++uint64_t payload_size(const Metadata & m) {
++    if (!m.frames || !m.latent_dim || m.frames > uint64_t(INT64_MAX) || m.latent_dim > uint64_t(INT64_MAX) ||
++        m.frames > (std::numeric_limits<uint64_t>::max()-kHeaderBytes)/4/m.latent_dim)
++        fail("invalid or overflowing latent shape");
++    const uint64_t bytes = m.frames * m.latent_dim * 4;
++    if (bytes > std::numeric_limits<size_t>::max() || m.frames > uint64_t(INT64_MAX)/m.latent_dim)
++        fail("latent shape is too large for this runtime");
++    return bytes;
++}
++void validate(const Metadata & m) {
++    (void) payload_size(m);
++    const auto & v = m.vae;
++    if (v.sample_rate <= 0 || v.channels <= 0 || v.channels > INT32_MAX || v.latent_dim <= 0 ||
++        uint64_t(v.latent_dim) != m.latent_dim || v.encoder_latent_dim <= 0 || v.downsampling_ratio <= 0 ||
++        v.decode_core_frames <= 0 || v.decode_halo_frames < 0 || m.vae_storage > 6 || m.model_storage > 6 ||
++        m.seed >= (uint64_t(1)<<63) || !m.ode_steps || m.ode_steps > uint64_t(INT64_MAX) ||
++        !m.context || m.context > uint64_t(INT64_MAX) || m.semantic_frames != m.frames ||
++        !std::isfinite(m.guidance) || m.guidance < 0 || m.guidance > 20 ||
++        (m.ode_method != Yue2OdeMethod::Midpoint && m.ode_method != Yue2OdeMethod::AdamsBashforth2))
++        fail("invalid completed acoustic metadata");
++    if (m.frames > uint64_t(INT64_MAX)/uint64_t(v.downsampling_ratio) ||
++        m.frames*uint64_t(v.downsampling_ratio) <= 64 ||
++        m.frames*uint64_t(v.downsampling_ratio)-64 > std::numeric_limits<size_t>::max()/sizeof(float)/uint64_t(v.channels))
++        fail("decoded audio shape overflows this runtime");
++    for (const auto * digest : {&m.model,&m.decoder,&m.model_config,&m.decoder_config,&m.tokenizer,
++                               &m.generation_config,&m.conditioning,&m.semantic_codes,&m.producer_binary})
++        if (empty(*digest)) fail("missing source provenance digest");
++}
++Header encode(const Metadata & m) {
++    validate(m);
++    Header h{};
++    std::copy(std::begin(kMagic),std::end(kMagic),h.begin());
++    put(h.data()+8,1,4); put(h.data()+12,kHeaderBytes,4);
++    put(h.data()+16,1,4); put(h.data()+20,1,4); put(h.data()+24,1,4); // F32LE, frame-major, complete
++    put(h.data()+28,m.semantic_truncated?1:0,4);
++    const uint64_t fields[] = {m.frames,m.latent_dim,payload_size(m),uint64_t(m.vae.sample_rate),
++        uint64_t(m.vae.channels),uint64_t(m.vae.downsampling_ratio),uint64_t(m.vae.decode_core_frames),
++        uint64_t(m.vae.decode_halo_frames),uint64_t(m.vae.encoder_latent_dim)};
++    for (size_t i=0;i<9;++i) put(h.data()+32+i*8,fields[i],8);
++    put(h.data()+104,m.vae_storage,4);put(h.data()+108,m.model_storage,4);
++    put(h.data()+112,m.seed,8);put(h.data()+120,m.ode_steps,8);
++    put(h.data()+128,m.ode_method==Yue2OdeMethod::Midpoint?1:2,4);put(h.data()+132,kDecoderContract,4);
++    put(h.data()+136,m.semantic_frames,8);put(h.data()+144,m.context,8);
++    uint32_t guidance;std::memcpy(&guidance,&m.guidance,4);put(h.data()+152,guidance,4);
++    size_t offset=160;
++    for (const auto * digest : {&m.payload,&m.model,&m.decoder,&m.model_config,&m.decoder_config,
++                               &m.tokenizer,&m.generation_config,&m.conditioning,&m.semantic_codes,&m.producer_binary}) {
++        std::copy(digest->begin(),digest->end(),h.begin()+offset);offset+=32;
++    }
++    const auto digest=hash_bytes(h.data(),480);std::copy(digest.begin(),digest.end(),h.begin()+480);
++    return h;
++}
++Metadata decode(const Header & h) {
++    const auto digest=hash_bytes(h.data(),480);
++    if (!std::equal(std::begin(kMagic),std::end(kMagic),h.begin()) ||
++        !std::equal(digest.begin(),digest.end(),h.begin()+480)) fail("invalid header or header digest");
++    if (get(h.data()+8,4)!=1 || get(h.data()+12,4)!=kHeaderBytes || get(h.data()+16,4)!=1 ||
++        get(h.data()+20,4)!=1 || get(h.data()+24,4)!=1 || get(h.data()+28,4)>1 ||
++        get(h.data()+132,4)!=kDecoderContract || get(h.data()+156,4)!=0)
++        fail("unsupported format, dtype, layout, decoder contract, or incomplete state");
++    // Check all serialized signed dimensions before narrowing to runtime types.
++    for (size_t offset=32;offset<=96;offset+=8)
++        if (get(h.data()+offset,8)>uint64_t(INT64_MAX)) fail("dimension exceeds signed runtime range");
++    if (get(h.data()+56,8)>uint64_t(INT32_MAX) || get(h.data()+64,8)>uint64_t(INT32_MAX))
++        fail("audio rate or channel count exceeds runtime range");
++    Metadata m;
++    m.frames=get(h.data()+32,8);m.latent_dim=get(h.data()+40,8);
++    m.vae.sample_rate=static_cast<int>(get(h.data()+56,8));m.vae.channels=get(h.data()+64,8);
++    m.vae.latent_dim=static_cast<int64_t>(m.latent_dim);m.vae.downsampling_ratio=get(h.data()+72,8);
++    m.vae.decode_core_frames=get(h.data()+80,8);m.vae.decode_halo_frames=get(h.data()+88,8);
++    m.vae.encoder_latent_dim=get(h.data()+96,8);
++    m.vae_storage=get(h.data()+104,4);m.model_storage=get(h.data()+108,4);
++    m.seed=get(h.data()+112,8);m.ode_steps=get(h.data()+120,8);
++    const auto method=get(h.data()+128,4);
++    if (method!=1 && method!=2) fail("unknown acoustic solver");
++    m.ode_method=method==1?Yue2OdeMethod::Midpoint:Yue2OdeMethod::AdamsBashforth2;
++    m.semantic_frames=get(h.data()+136,8);m.context=get(h.data()+144,8);
++    const auto guidance=static_cast<uint32_t>(get(h.data()+152,4));std::memcpy(&m.guidance,&guidance,4);
++    m.semantic_truncated=get(h.data()+28,4)!=0;
++    size_t offset=160;
++    for (auto * value : {&m.payload,&m.model,&m.decoder,&m.model_config,&m.decoder_config,
++                        &m.tokenizer,&m.generation_config,&m.conditioning,&m.semantic_codes,&m.producer_binary}) {
++        std::copy_n(h.begin()+offset,32,value->begin());offset+=32;
++    }
++    validate(m);
++    if (get(h.data()+48,8)!=payload_size(m)) fail("payload byte count does not match the shape");
++    return m;
++}
++
++#if !defined(_WIN32)
++FileIdentity identity(const struct stat & s) {
++    if (!S_ISREG(s.st_mode) || s.st_size < 0) fail("input must be a regular file");
++#if defined(__APPLE__)
++#if !defined(_POSIX_C_SOURCE) || defined(_DARWIN_C_SOURCE)
++    const auto modified=s.st_mtimespec,changed=s.st_ctimespec;
++#else
++    // audio.cpp compiles with POSIX_C_SOURCE, which exposes Darwin's nanosecond
++    // fields separately instead of the non-POSIX timespec aliases.
++    const timespec modified{s.st_mtime,s.st_mtimensec},changed{s.st_ctime,s.st_ctimensec};
++#endif
++#else
++    const auto modified=s.st_mtim,changed=s.st_ctim;
++#endif
++    return {uint64_t(s.st_size),uint64_t(s.st_dev),uint64_t(s.st_ino),
++            uint64_t(modified.tv_sec)*1000000000+uint64_t(modified.tv_nsec),
++            uint64_t(changed.tv_sec)*1000000000+uint64_t(changed.tv_nsec)};
++}
++FileIdentity descriptor_identity(FILE * file) {
++    struct stat s{};if (::fstat(::fileno(file),&s)!=0) fail("cannot inspect the open input");return identity(s);
++}
++#else
++FileIdentity handle_identity(HANDLE handle) {
++    BY_HANDLE_FILE_INFORMATION s{};
++    if (!GetFileInformationByHandle(handle,&s) || (s.dwFileAttributes&FILE_ATTRIBUTE_DIRECTORY))
++        fail("input must be a readable regular file");
++    return {(uint64_t(s.nFileSizeHigh)<<32)|s.nFileSizeLow,s.dwVolumeSerialNumber,
++            (uint64_t(s.nFileIndexHigh)<<32)|s.nFileIndexLow,
++            (uint64_t(s.ftLastWriteTime.dwHighDateTime)<<32)|s.ftLastWriteTime.dwLowDateTime,
++            (uint64_t(s.ftCreationTime.dwHighDateTime)<<32)|s.ftCreationTime.dwLowDateTime};
++}
++FileIdentity descriptor_identity(FILE * file) { return handle_identity(reinterpret_cast<HANDLE>(_get_osfhandle(_fileno(file)))); }
++#endif
++File open_read(const std::filesystem::path & path) {
++#if defined(_WIN32)
++    File file(_wfopen(path.c_str(),L"rb"),&std::fclose);
++#else
++    // Check the opened descriptor, without waiting indefinitely on a FIFO or
++    // device presented as a checkpoint. O_NONBLOCK has no effect on regular files.
++    const int fd=::open(path.c_str(),O_RDONLY|O_NONBLOCK|O_CLOEXEC);
++    File file(fd>=0?::fdopen(fd,"rb"):nullptr,&std::fclose);
++    if (fd>=0 && !file) ::close(fd);
++#endif
++    if (!file) fail("cannot open the input file");
++    (void) descriptor_identity(file.get());
++    return file;
++}
++void write(FILE * f, const void * bytes, size_t n) {
++    if (std::fwrite(bytes,1,n,f)!=n) fail("could not write the complete checkpoint");
++}
++void sync(FILE * f) {
++    if (std::fflush(f)!=0) fail("could not flush the checkpoint");
++#if defined(_WIN32)
++    if (_commit(_fileno(f))!=0) fail("could not sync the checkpoint");
++#else
++    if (::fsync(::fileno(f))!=0) fail("could not sync the checkpoint");
++#endif
++}
++void sync_parent(const std::filesystem::path & path) {
++#if !defined(_WIN32)
++    const auto parent=path.parent_path().empty()?std::filesystem::path("."):path.parent_path();
++    const int fd=::open(parent.c_str(),O_RDONLY|O_DIRECTORY|O_CLOEXEC);
++    if (fd<0) fail("could not open checkpoint directory for sync");
++    const int result=::fsync(fd);const int saved=errno;::close(fd);errno=saved;
++    if (result!=0) fail("checkpoint is complete but directory sync failed");
++#else
++    (void) path; // MoveFileExW(MOVEFILE_WRITE_THROUGH) below owns rename durability.
++#endif
++}
++struct Pending {
++    std::filesystem::path path;
++    File file{nullptr,&std::fclose};
++    explicit Pending(const std::filesystem::path & target) {
++        static std::atomic<uint64_t> sequence{0};
++        for (;;) {
++            path=target;
++            path += ".partial-"+std::to_string(std::random_device{}())+"-"+std::to_string(sequence++);
++#if defined(_WIN32)
++            file.reset(_wfopen(path.c_str(),L"wbx"));
++#else
++            const int fd=::open(path.c_str(),O_RDWR|O_CREAT|O_EXCL|O_CLOEXEC,0600);
++            if (fd>=0) { file.reset(::fdopen(fd,"w+b"));if (!file) { ::close(fd);::unlink(path.c_str()); } }
++#endif
++            if (file) return;
++            if (errno!=EEXIST) fail("cannot create a private checkpoint output");
++        }
++    }
++    ~Pending() {
++        file.reset();
++        // Only this invocation's exclusively created partial file is removed.
++        if (!path.empty()) { std::error_code error;std::filesystem::remove(path,error); }
++    }
++    void publish(const std::filesystem::path & target) {
++        sync(file.get());
++        if (std::fclose(file.release())!=0) fail("could not close the completed checkpoint");
++#if defined(_WIN32)
++        if (!MoveFileExW(path.c_str(),target.c_str(),MOVEFILE_WRITE_THROUGH)) fail("cannot publish without replacing an existing checkpoint");
++#else
++        // Same-directory hard-link publication is atomic and has no overwrite
++        // race. If unsupported, preserve the target and fail rather than rename.
++        if (::link(path.c_str(),target.c_str())!=0) fail("cannot publish without replacing an existing checkpoint");
++        if (::unlink(path.c_str())!=0) fail("checkpoint is complete but partial-name cleanup failed");
++#endif
++        path.clear();sync_parent(target);
++    }
++};
++
++}  // namespace
++
++bool FileIdentity::operator==(const FileIdentity & o) const noexcept {
++    return bytes==o.bytes && device==o.device && inode==o.inode && modified==o.modified && changed==o.changed;
++}
++FileIdentity file_identity(const std::filesystem::path & path) {
++#if defined(_WIN32)
++    const HANDLE handle=CreateFileW(path.c_str(),GENERIC_READ,FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,
++                                    nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);
++    if (handle==INVALID_HANDLE_VALUE) fail("cannot inspect the source file");
++    try { const auto out=handle_identity(handle);CloseHandle(handle);return out; }
++    catch (...) { CloseHandle(handle);throw; }
++#else
++    struct stat s{};if (::stat(path.c_str(),&s)!=0) fail("cannot inspect the source file");return identity(s);
++#endif
++}
++void require_unchanged(const std::filesystem::path & path,const FileIdentity & expected) {
++    if (!(file_identity(path)==expected)) fail("a source file changed during the operation");
++}
++Digest hash_bytes(const void * bytes,size_t size) { Sha256 hash;hash.update(bytes,size);return hash.finish(); }
++Digest hash_file(const std::filesystem::path & path) {
++    auto file=open_read(path);const auto before=descriptor_identity(file.get());
++    Sha256 hash;std::array<uint8_t,65536> block;uint64_t total=0;
++    while (const auto n=std::fread(block.data(),1,block.size(),file.get())) { hash.update(block.data(),n);total+=n; }
++    if (std::ferror(file.get()) || total!=before.bytes || !(descriptor_identity(file.get())==before))
++        fail("could not hash a stable source file");
++    require_unchanged(path,before);return hash.finish();
++}
++Digest hash_i32(const std::vector<int32_t> & values) {
++    Sha256 hash;
++    if (little_endian()) hash.update(values.data(),values.size()*sizeof(int32_t));
++    else for (auto value:values) { uint8_t bytes[4];put(bytes,uint32_t(value),4);hash.update(bytes,4); }
++    return hash.finish();
++}
++Digest executable_hash() {
++    std::filesystem::path path;
++#if defined(__APPLE__)
++    uint32_t size=0;_NSGetExecutablePath(nullptr,&size);std::vector<char> buffer(size);
++    if (_NSGetExecutablePath(buffer.data(),&size)!=0) fail("cannot identify this native executable");
++    path=buffer.data();
++#elif defined(_WIN32)
++    std::vector<wchar_t> buffer(1024);
++    for (;;) { const auto n=GetModuleFileNameW(nullptr,buffer.data(),static_cast<DWORD>(buffer.size()));
++        if (!n) fail("cannot identify this native executable");
++        if (n<buffer.size()) { path=std::wstring(buffer.data(),n);break; }buffer.resize(buffer.size()*2); }
++#else
++    path="/proc/self/exe";
++#endif
++    return hash_file(path);
++}
++
++void require_output_available(const std::filesystem::path & path) {
++    if (path.empty() || path.filename().empty()) fail("output path must name a new file");
++    std::error_code error;
++    const auto status=std::filesystem::symlink_status(path,error);
++    if (error && error!=std::errc::no_such_file_or_directory) fail("cannot inspect the output path");
++    if (std::filesystem::exists(status)) fail("the output already exists; choose a new checkpoint path");
++    const auto parent=path.parent_path().empty()?std::filesystem::path("."):path.parent_path();
++    if (!std::filesystem::is_directory(parent)) fail("checkpoint output directory does not exist");
++}
++
++void save_completed(const std::filesystem::path & path, Metadata m,const std::vector<float> & latents) {
++    validate(m);
++    if (latents.size()!=payload_size(m)/4) fail("payload does not match the completed shape");
++    require_output_available(path);
++    Pending output(path);Header placeholder{};write(output.file.get(),placeholder.data(),placeholder.size());
++    Sha256 hash;std::array<uint8_t,16384> swapped;
++    for (size_t start=0;start<latents.size();) {
++        const auto n=std::min<size_t>(swapped.size()/4,latents.size()-start);
++        for (size_t i=0;i<n;++i) if (!std::isfinite(latents[start+i])) fail("latent payload contains a non-finite value");
++        const void * bytes=latents.data()+start;
++        if (!little_endian()) {
++            for (size_t i=0;i<n;++i) { uint32_t bits;std::memcpy(&bits,&latents[start+i],4);put(swapped.data()+i*4,bits,4); }
++            bytes=swapped.data();
++        }
++        hash.update(bytes,n*4);write(output.file.get(),bytes,n*4);start+=n;
++    }
++    m.payload=hash.finish();const auto header=encode(m);
++    if (std::fseek(output.file.get(),0,SEEK_SET)!=0) fail("cannot finalize checkpoint metadata");
++    write(output.file.get(),header.data(),header.size());output.publish(path);
++}
++
++Completed load_completed(const std::filesystem::path & path) {
++    auto file=open_read(path);const auto before=descriptor_identity(file.get());
++    Header header{};
++    if (std::fread(header.data(),1,header.size(),file.get())!=header.size()) fail("checkpoint header is incomplete");
++    Completed out;out.metadata=decode(header);
++    const auto bytes=payload_size(out.metadata);
++    if (before.bytes!=kHeaderBytes+bytes) fail("checkpoint payload is truncated or has trailing data");
++    out.latents.resize(static_cast<size_t>(bytes/4));
++    Sha256 hash;
++    for (size_t start=0;start<out.latents.size();) {
++        const auto n=std::min<size_t>(4096,out.latents.size()-start);
++        auto * values=out.latents.data()+start;
++        if (std::fread(values,4,n,file.get())!=n) fail("checkpoint payload ended early");
++        hash.update(values,n*4);
++        for (size_t i=0;i<n;++i) {
++            if (!little_endian()) { const uint32_t bits=static_cast<uint32_t>(get(reinterpret_cast<uint8_t *>(values+i),4));std::memcpy(values+i,&bits,4); }
++            if (!std::isfinite(values[i])) fail("latent payload contains a non-finite value");
++        }
++        start+=n;
++    }
++    if (hash.finish()!=out.metadata.payload) fail("checkpoint payload digest does not match");
++    if (!(descriptor_identity(file.get())==before)) fail("checkpoint changed while reading");
++    require_unchanged(path,before);return out;
++}
++
++void require_decoder(const Metadata & m,const Yue2VaeConfig & v,const Digest & model) {
++    const auto & s=m.vae;
++    if (m.decoder!=model ||
++        s.sample_rate!=v.sample_rate || s.channels!=v.channels || s.latent_dim!=v.latent_dim ||
++        s.encoder_latent_dim!=v.encoder_latent_dim || s.downsampling_ratio!=v.downsampling_ratio)
++        fail("the selected VAE identity or audio/latent shape does not match the checkpoint");
++}
++
++}  // namespace engine::models::yue2::checkpoint
+--- a/src/models/yue2/assets.cpp
++++ b/src/models/yue2/assets.cpp
+@@ -31,8 +31,13 @@
+     return fallback;
+ }
+ 
+-Yue2ModelConfig parse_model_config(const std::filesystem::path & path) {
+-    const auto root = json::parse_file(path);
++json::Value read_config(const std::filesystem::path & path, checkpoint::Digest & digest) {
++    const auto text = engine::io::read_text_file(path);
++    digest = checkpoint::hash_bytes(text.data(), text.size());
++    return json::parse(text);
++}
++
++Yue2ModelConfig parse_model_config(const json::Value & root) {
+     Yue2ModelConfig out;
+     out.hidden_size = json::require_i64(root, "hidden_size");
+     out.layers = json::require_i64(root, "num_hidden_layers");
+@@ -61,8 +66,7 @@
+     return out;
+ }
+ 
+-Yue2VaeConfig parse_vae_config(const std::filesystem::path & path) {
+-    const auto root = json::parse_file(path);
++Yue2VaeConfig parse_vae_config(const json::Value & root) {
+     Yue2VaeConfig out;
+     out.sample_rate = static_cast<int>(json::optional_i64(root, "sample_rate", out.sample_rate));
+     out.channels = json::optional_i64(root, "audio_channels", out.channels);
+@@ -76,13 +80,14 @@
+     return out;
+ }
+ 
+-Yue2GenerationConfig parse_generation_config(const std::filesystem::path & path) {
++Yue2GenerationConfig parse_generation_config(const std::filesystem::path & path, checkpoint::Digest & digest) {
+     Yue2GenerationConfig out;
+     if (!engine::io::is_existing_file(path)) {
++        digest = checkpoint::hash_bytes(nullptr, 0); // absence, with effective solver fields in the checkpoint
+         out.abc = Yue2SamplingConfig{0.7F, 0.9F, 30, 1.005F, 100, 32, 4096};
+         return out;
+     }
+-    const auto root = json::parse_file(path);
++    const auto root = read_config(path, digest);
+     if (const auto * abc = root.find("abc")) {
+         out.abc = parse_sampling(*abc, Yue2SamplingConfig{0.7F, 0.9F, 30, 1.005F, 100, 32, 4096});
+     }
+@@ -108,18 +113,16 @@
+     const auto model_config = sidecars / "yue2-model-config.json";
+     const auto generation_config = sidecars / "yue2-generation-config.json";
+     const auto vae_config = sidecars / "yue2-vae-config.json";
+-    if (!engine::io::is_existing_file(model_config)) {
+-        throw std::runtime_error("missing Yue2 model config: " + model_config.string());
+-    }
+     if (!engine::io::is_existing_file(vae_config)) {
+         throw std::runtime_error("missing Yue2 VAE config: " + vae_config.string());
+     }
+-    if (!engine::io::is_existing_file(assets->tiktoken_path)) {
+-        throw std::runtime_error("missing Yue2 tiktoken file: " + assets->tiktoken_path.string());
+-    }
+-    assets->config.model = parse_model_config(model_config);
+-    assets->config.vae = parse_vae_config(vae_config);
+-    assets->config.generation = parse_generation_config(generation_config);
++    // A VAE-only directory is sufficient for saved-acoustic decoding. Normal
++    // generation still requires the main config/tokenizer at stage selection.
++    assets->has_model_config = engine::io::is_existing_file(model_config);
++    if (assets->has_model_config)
++        assets->config.model = parse_model_config(read_config(model_config, assets->model_config_hash));
++    assets->config.vae = parse_vae_config(read_config(vae_config, assets->vae_config_hash));
++    assets->config.generation = parse_generation_config(generation_config, assets->generation_config_hash);
+     return assets;
+ }
+ 
+--- a/src/models/yue2/pipeline.cpp
++++ b/src/models/yue2/pipeline.cpp
+@@ -8,6 +8,7 @@
+ #include <chrono>
+ #include <fstream>
+ #include <cstdint>
++#include <limits>
+ #include <stdexcept>
+ #include <utility>
+ 
+@@ -15,6 +16,27 @@
+ namespace {
+ 
+ using Clock = std::chrono::steady_clock;
++
++uint32_t checkpoint_storage(assets::TensorStorageType type) {
++    switch (type) {
++        case assets::TensorStorageType::Native: return 0;
++        case assets::TensorStorageType::F32: return 1;
++        case assets::TensorStorageType::F16: return 2;
++        case assets::TensorStorageType::BF16: return 3;
++        case assets::TensorStorageType::Q8_0: return 4;
++        case assets::TensorStorageType::Q4_0: return 5;
++        case assets::TensorStorageType::Q4_K: return 6;
++        default: throw std::runtime_error("Unsupported checkpoint weight precision");
++    }
++}
++
++assets::TensorStorageType checkpoint_storage(uint32_t value) {
++    const assets::TensorStorageType types[] = {assets::TensorStorageType::Native, assets::TensorStorageType::F32,
++        assets::TensorStorageType::F16, assets::TensorStorageType::BF16, assets::TensorStorageType::Q8_0,
++        assets::TensorStorageType::Q4_0, assets::TensorStorageType::Q4_K};
++    if (value > 6) throw std::runtime_error("Unsupported checkpoint weight precision");
++    return types[value];
++}
+ 
+ std::string request_text(const Yue2Request & request) {
+     std::string text;
+@@ -118,7 +140,6 @@
+         size_t vae_graph_arena_bytes)
+         : execution(&execution),
+           assets(std::move(assets)),
+-          tokenizer(this->assets->tiktoken_path),
+           model_weight_type(model_weight_type),
+           vae_weight_type(vae_weight_type),
+           model_weight_context_bytes(model_weight_context_bytes),
+@@ -135,6 +156,7 @@
+ 
+     Yue2Plan plan(const Yue2Request & request) {
+         validate_yue2_score_input(request);
++        const auto & tokenizer = get_tokenizer();
+         Yue2Plan out;
+         out.cot = request.cot;
+         if (request.score_tokens.has_value()) {
+@@ -197,7 +219,7 @@
+         }
+         ensure_ar();
+         const auto negative_start = Clock::now();
+-        const auto neg = negative_prefix(request, tokenizer, out.plan.abc_ids);
++        const auto neg = negative_prefix(request, get_tokenizer(), out.plan.abc_ids);
+         engine::debug::timing_log_scalar("yue2.semantic.negative_prefix_ms", engine::debug::elapsed_ms(negative_start));
+         engine::debug::timing_log_scalar("yue2.semantic.positive_prefix_tokens", out.plan.prefix.size());
+         engine::debug::timing_log_scalar("yue2.semantic.negative_prefix_tokens", neg.size());
+@@ -244,18 +266,25 @@
+             generation.ode_method);
+     }
+ 
+-    runtime::AudioBuffer decode_audio(const std::vector<float> & latents, int64_t frames) {
+-        ensure_vae();
+-        const int64_t channels = assets->config.model.latent_dim;
+-        if (frames <= 0 || static_cast<int64_t>(latents.size()) != frames * channels) {
++    runtime::AudioBuffer decode_audio(const std::vector<float> & latents, int64_t frames,
++                                     const Yue2VaeConfig * captured = nullptr) {
++        const auto & config = captured ? *captured : assets->config.vae;
++        const int64_t channels = config.latent_dim;
++        if (frames <= 0 || channels <= 0 || frames > std::numeric_limits<int64_t>::max()/channels ||
++            latents.size() != static_cast<uint64_t>(frames)*static_cast<uint64_t>(channels)) {
+             throw std::runtime_error("Yue2 VAE latent shape mismatch");
+         }
+-        const int64_t core_frames = assets->config.vae.decode_core_frames;
+-        const int64_t halo_frames = assets->config.vae.decode_halo_frames;
+-        const int64_t ratio = assets->config.vae.downsampling_ratio;
++        const int64_t core_frames = config.decode_core_frames;
++        const int64_t halo_frames = config.decode_halo_frames;
++        const int64_t ratio = config.downsampling_ratio;
+         if (core_frames <= 0 || halo_frames < 0 || ratio <= 0) {
+             throw std::runtime_error("Yue2 VAE tile configuration is invalid");
+         }
++        if (config.channels <= 0 || config.channels > INT32_MAX || frames > INT64_MAX/ratio ||
++            frames*ratio <= 64 || static_cast<uint64_t>(frames*ratio-64) >
++                std::numeric_limits<size_t>::max()/sizeof(float)/static_cast<uint64_t>(config.channels))
++            throw std::runtime_error("Yue2 VAE output shape overflows this runtime");
++        ensure_vae();
+         engine::debug::timing_log_scalar("yue2.vae_decode.latent_frames", frames);
+         engine::debug::timing_log_scalar("yue2.vae_decode.channels", channels);
+         double planar_pack_ms = 0.0;
+@@ -290,16 +319,16 @@
+             throw std::runtime_error("Yue2 VAE output frame count is invalid");
+         }
+         runtime::AudioBuffer audio;
+-        audio.sample_rate = assets->config.vae.sample_rate;
+-        audio.channels = static_cast<int>(assets->config.vae.channels);
++        audio.sample_rate = config.sample_rate;
++        audio.channels = static_cast<int>(config.channels);
+         audio.samples.assign(static_cast<size_t>(total_output_frames * audio.channels), 0.0F);
+         int64_t tiles = 0;
+         double tile_decode_ms = 0.0;
+         double tile_copy_ms = 0.0;
+-        for (int64_t start = 0; start < frames; start += core_frames) {
+-            const int64_t end = std::min(frames, start + core_frames);
++        for (int64_t start = 0; start < frames;) {
++            const int64_t end = start + std::min(core_frames, frames - start);
+             const int64_t left = std::max<int64_t>(0, start - halo_frames);
+-            const int64_t right = std::min(frames, end + halo_frames);
++            const int64_t right = end + std::min(halo_frames, frames - end);
+             const auto tile_decode_start = Clock::now();
+             auto tile_audio = vae->decode(make_planar_tile(left, right), 1, right - left).front();
+             tile_decode_ms += engine::debug::elapsed_ms(tile_decode_start);
+@@ -321,6 +350,7 @@
+             }
+             tile_copy_ms += engine::debug::elapsed_ms(copy_start);
+             ++tiles;
++            start = end;
+         }
+         engine::debug::timing_log_scalar("yue2.vae_decode.tiles", tiles);
+         engine::debug::timing_log_scalar("yue2.vae_decode.planar_pack_ms", planar_pack_ms);
+@@ -331,6 +361,51 @@
+     }
+ 
+     runtime::AudioBuffer run(const Yue2Request & request) {
++        validate_yue2_acoustic_input(request);
++        if (!request.acoustic_latents_file.empty()) {
++            const auto load_start = Clock::now();
++            auto saved = checkpoint::load_completed(request.acoustic_latents_file);
++            engine::debug::timing_log_scalar("yue2.acoustic.load_ms", engine::debug::elapsed_ms(load_start));
++            // No plan, tokenizer, main TensorSource, AR or NAR is needed here.
++            ar.reset(); nar.reset();
++            if (!assets->vae_weights) throw std::runtime_error("Acoustic replay requires a selected VAE");
++            const auto & path = assets->vae_weights->source_path();
++            checkpoint::require_unchanged(path, assets->vae_identity);
++            const auto verify_start = Clock::now();
++            checkpoint::require_decoder(saved.metadata, assets->config.vae, checkpoint::hash_file(path));
++            checkpoint::require_unchanged(path, assets->vae_identity);
++            engine::debug::timing_log_scalar("yue2.acoustic.verify_decoder_ms", engine::debug::elapsed_ms(verify_start));
++            const auto requested_storage = vae_weight_type;
++            const auto selected_storage = assets->vae_storage_explicit ? requested_storage : checkpoint_storage(saved.metadata.vae_storage);
++            if (selected_storage != vae_weight_type) vae.reset();
++            vae_weight_type = selected_storage;
++            auto decode_config = saved.metadata.vae;
++            if (request.acoustic_decode_core_frames) decode_config.decode_core_frames = *request.acoustic_decode_core_frames;
++            if (request.acoustic_decode_halo_frames) decode_config.decode_halo_frames = *request.acoustic_decode_halo_frames;
++            const bool original_settings = checkpoint_storage(vae_weight_type) == saved.metadata.vae_storage &&
++                decode_config.decode_core_frames == saved.metadata.vae.decode_core_frames &&
++                decode_config.decode_halo_frames == saved.metadata.vae.decode_halo_frames;
++            engine::debug::timing_log_scalar("yue2.acoustic.original_decode_settings", original_settings);
++            engine::debug::timing_log_scalar("yue2.acoustic.decode_storage", checkpoint_storage(vae_weight_type));
++            engine::debug::timing_log_scalar("yue2.acoustic.decode_core_frames", decode_config.decode_core_frames);
++            engine::debug::timing_log_scalar("yue2.acoustic.decode_halo_frames", decode_config.decode_halo_frames);
++            const auto vae_start = Clock::now();
++            auto audio = decode_audio(saved.latents, static_cast<int64_t>(saved.metadata.frames), &decode_config);
++            checkpoint::require_unchanged(path, assets->vae_identity);
++            engine::debug::timing_log_scalar("yue2.vae_decode_ms", engine::debug::elapsed_ms(vae_start));
++            if (vae) vae->release_runtime_graphs();
++            return audio;
++        }
++        std::optional<checkpoint::Metadata> acoustic;
++        checkpoint::FileIdentity tokenizer_before;
++        if (!request.acoustic_latents_out.empty()) {
++            checkpoint::require_output_available(request.acoustic_latents_out);
++            const auto pin_start = Clock::now();
++            tokenizer_before = checkpoint::file_identity(assets->tiktoken_path);
++            acoustic = pin_acoustic_sources(request);
++            checkpoint::require_unchanged(assets->tiktoken_path, tokenizer_before);
++            engine::debug::timing_log_scalar("yue2.acoustic.pin_sources_ms", engine::debug::elapsed_ms(pin_start));
++        }
+         const auto plan_start = Clock::now();
+         auto planned = plan(request);
+         engine::debug::timing_log_scalar("yue2.plan_ms", engine::debug::elapsed_ms(plan_start, Clock::now()));
+@@ -364,6 +439,26 @@
+         const int64_t frames = static_cast<int64_t>(latents.size()) / assets->config.model.latent_dim;
+         ar.reset();
+         nar.reset();
++        if (acoustic) {
++            // A complete result is accepted only if its frame count matches all
++            // requested semantic codes. A solver exception/partial chunk never
++            // reaches publication, and a later VAE failure leaves this file.
++            checkpoint::require_unchanged(assets->model_weights->source_path(), assets->model_identity);
++            checkpoint::require_unchanged(assets->vae_weights->source_path(), assets->vae_identity);
++            checkpoint::require_unchanged(assets->tiktoken_path, tokenizer_before);
++            if (!(tokenizer_identity == tokenizer_before))
++                throw std::runtime_error("Tokenizer changed between conditioning and acoustic capture");
++            const auto codes = codec_from_semantic_tokens(semantic.tokens);
++            acoustic->frames = frames;
++            acoustic->semantic_frames = codes.size();
++            acoustic->semantic_truncated = semantic.truncated;
++            acoustic->conditioning = checkpoint::hash_i32(semantic.plan.prefix);
++            acoustic->semantic_codes = checkpoint::hash_i32(codes);
++            const auto save_start = Clock::now();
++            checkpoint::save_completed(request.acoustic_latents_out, *acoustic, latents);
++            engine::debug::timing_log_scalar("yue2.acoustic.save_ms", engine::debug::elapsed_ms(save_start));
++        }
++        if (request.acoustic_only) return {};
+         const auto vae_start = Clock::now();
+         auto audio = decode_audio(latents, frames);
+         engine::debug::timing_log_scalar("yue2.vae_decode_ms", engine::debug::elapsed_ms(vae_start, Clock::now()));
+@@ -386,6 +481,39 @@
+     }
+ 
+ private:
++    const Yue2TextTokenizer & get_tokenizer() {
++        if (!text_tokenizer) {
++            tokenizer_identity = checkpoint::file_identity(assets->tiktoken_path);
++            text_tokenizer = std::make_unique<Yue2TextTokenizer>(assets->tiktoken_path);
++            checkpoint::require_unchanged(assets->tiktoken_path, tokenizer_identity);
++        }
++        return *text_tokenizer;
++    }
++
++    checkpoint::Metadata pin_acoustic_sources(const Yue2Request & request) {
++        if (!assets->model_weights || !assets->vae_weights)
++            throw std::runtime_error("Acoustic capture requires selected main and VAE sources");
++        checkpoint::require_unchanged(assets->model_weights->source_path(), assets->model_identity);
++        checkpoint::require_unchanged(assets->vae_weights->source_path(), assets->vae_identity);
++        checkpoint::Metadata m;
++        m.latent_dim = assets->config.model.latent_dim;
++        m.vae = assets->config.vae;
++        m.model_storage = checkpoint_storage(model_weight_type);
++        m.vae_storage = checkpoint_storage(vae_weight_type);
++        m.seed = request.seed; m.ode_steps = request.generation.ode_steps;
++        m.ode_method = request.generation.ode_method; m.context = request.generation.context;
++        m.guidance = request_guidance_scale(request);
++        m.model = checkpoint::hash_file(assets->model_weights->source_path());
++        m.decoder = checkpoint::hash_file(assets->vae_weights->source_path());
++        checkpoint::require_unchanged(assets->model_weights->source_path(), assets->model_identity);
++        checkpoint::require_unchanged(assets->vae_weights->source_path(), assets->vae_identity);
++        m.model_config = assets->model_config_hash; m.decoder_config = assets->vae_config_hash;
++        m.generation_config = assets->generation_config_hash;
++        m.tokenizer = checkpoint::hash_file(assets->tiktoken_path);
++        m.producer_binary = checkpoint::executable_hash();
++        return m;
++    }
++
+     void ensure_ar() {
+         if (ar) {
+             return;
+@@ -441,7 +569,8 @@
+ 
+     core::ExecutionContext * execution = nullptr;
+     std::shared_ptr<const Yue2Assets> assets;
+-    Yue2TextTokenizer tokenizer;
++    std::unique_ptr<Yue2TextTokenizer> text_tokenizer;
++    checkpoint::FileIdentity tokenizer_identity;
+     assets::TensorStorageType model_weight_type = assets::TensorStorageType::Native;
+     assets::TensorStorageType vae_weight_type = assets::TensorStorageType::Native;
+     size_t model_weight_context_bytes = 0;
+--- a/src/models/yue2/request.cpp
++++ b/src/models/yue2/request.cpp
+@@ -229,6 +229,35 @@
+ void apply_options(
+     Yue2Request & out,
+     const std::unordered_map<std::string, std::string> & options) {
++    if (const auto input = options.find("acoustic_latents_file"); input != options.end()) {
++        if (input->second.empty()) throw std::runtime_error("Yue2 acoustic_latents_file must not be empty");
++        for (const auto * key : {"acoustic_latents_out", "abc", "abc_file", "score_tokens_file", "score_tokens_out",
++                                "semantic_codes_file", "semantic_codes_out", "nar_noise_file"}) {
++            if (options.count(key)) throw std::runtime_error(std::string("Yue2 acoustic decode cannot be combined with ") + key);
++        }
++        for (const auto * key : {"plan_only", "semantic_only", "acoustic_only"}) {
++            if (const auto it = options.find(key); it != options.end() && it->second != "false")
++                throw std::runtime_error(std::string("Yue2 acoustic decode requires ") + key + "=false");
++        }
++        out.acoustic_latents_file = input->second;
++        out.acoustic_decode_core_frames = runtime::parse_i64_option(options, {"acoustic_decode_core_frames"});
++        out.acoustic_decode_halo_frames = runtime::parse_i64_option(options, {"acoustic_decode_halo_frames"});
++        validate_yue2_acoustic_input(out);
++        // Existing descriptive recipe fields may accompany a saved recording.
++        // Its sampled score, performance and acoustic settings are not rerun.
++        return;
++    }
++    if (options.count("acoustic_decode_core_frames") || options.count("acoustic_decode_halo_frames"))
++        throw std::runtime_error("Yue2 acoustic decode refinements require acoustic_latents_file");
++    if (const auto value = options.find("acoustic_latents_out"); value != options.end()) {
++        if (value->second.empty()) throw std::runtime_error("Yue2 acoustic_latents_out must not be empty");
++        out.acoustic_latents_out = value->second;
++    }
++    if (const auto value = options.find("acoustic_only"); value != options.end()) {
++        if (value->second != "true" && value->second != "false")
++            throw std::runtime_error("Yue2 acoustic_only must be true or false");
++        out.acoustic_only = value->second == "true";
++    }
+     if (const auto cot = runtime::find_option(options, {"cot"})) {
+         out.cot = parse_cot_mode(*cot);
+     }
+@@ -358,6 +387,7 @@
+             throw std::runtime_error("Yue2 nar_noise_file must contain raw float32 acoustic noise rows with 64 columns");
+         }
+     }
++    validate_yue2_acoustic_input(out);
+ }
+ 
+ Yue2Request normalize_request(Yue2Request out) {
+@@ -368,6 +398,26 @@
+ 
+ }  // namespace
+ 
++void validate_yue2_acoustic_input(const Yue2Request & request) {
++    if ((request.acoustic_decode_core_frames.has_value() && *request.acoustic_decode_core_frames <= 0) ||
++        (request.acoustic_decode_halo_frames.has_value() && *request.acoustic_decode_halo_frames < 0))
++        throw std::runtime_error("Yue2 acoustic decode requires positive core frames and nonnegative halo frames");
++    if (!request.acoustic_latents_file.empty()) {
++        if (request.acoustic_only || request.plan_only || request.semantic_only ||
++            !request.acoustic_latents_out.empty() || !request.abc.empty() || request.score_tokens.has_value() ||
++            !request.semantic_codes.empty() || !request.nar_noise.empty() ||
++            !request.score_tokens_out.empty() || !request.semantic_codes_out.empty())
++            throw std::runtime_error("Yue2 acoustic decode cannot be combined with another generation stage");
++        return;
++    }
++    if (request.acoustic_decode_core_frames.has_value() || request.acoustic_decode_halo_frames.has_value())
++        throw std::runtime_error("Yue2 acoustic decode refinements require acoustic_latents_file");
++    if (request.acoustic_only && request.acoustic_latents_out.empty())
++        throw std::runtime_error("Yue2 acoustic_only requires acoustic_latents_out");
++    if (!request.acoustic_latents_out.empty() && (request.plan_only || request.semantic_only))
++        throw std::runtime_error("Yue2 acoustic output requires the completed acoustic stage");
++}
++
+ void validate_yue2_score_input(const Yue2Request & request) {
+     if (!request.score_tokens.has_value()) return;
+     if (!request.abc.empty()) {
+--- a/src/models/yue2/session.cpp
++++ b/src/models/yue2/session.cpp
+@@ -68,6 +68,7 @@
+ }
+ 
+ void validate_component_anchors(const Yue2Assets & assets) {
++    if (assets.model_weights) {
+     const auto & source = *assets.model_weights;
+     assets::require_tensor_shape(
+         source,
+@@ -83,6 +84,9 @@
+         {assets.config.model.attention_heads * assets.config.model.head_dim, assets.config.model.hidden_size});
+     assets::require_tensor_shape(source, "vae2llm.weight", {assets.config.model.hidden_size, assets.config.model.latent_dim});
+     assets::require_tensor_shape(source, "llm2vae.weight", {assets.config.model.latent_dim, assets.config.model.hidden_size});
++    if (assets.config.model.latent_dim != assets.config.vae.latent_dim)
++        throw std::runtime_error("Yue2 main and VAE latent dimensions differ");
++    }
+     if (assets.vae_weights->has_tensor("decoder.layers.0.weight")) {
+         assets::require_tensor_shape(*assets.vae_weights, "decoder.layers.0.weight", {2048, 64, 7});
+     } else {
+@@ -92,18 +96,32 @@
+ 
+ std::shared_ptr<const Yue2Assets> select_component_assets(
+     std::shared_ptr<const Yue2Assets> base,
+-    const std::unordered_map<std::string, std::string> & options) {
++    const std::unordered_map<std::string, std::string> & options,
++    bool decode_only) {
+     auto selected = std::make_shared<Yue2Assets>(*base);
++    selected->vae_storage_explicit = options.count("yue2.vae_weight_type") || options.count("yue2.weight_type");
++    if (!decode_only) {
++    if (!base->has_model_config) throw std::runtime_error("Yue2 generation requires the main model config");
++    if (!engine::io::is_existing_file(base->tiktoken_path)) throw std::runtime_error("Yue2 generation requires its tokenizer");
+     const std::string model_gguf =
+         runtime::find_option(options, {"yue2.model_gguf"}).value_or("yue2-3b-q8_0.gguf");
++    const auto model_path = resolve_component_gguf_path(*base, "yue2.model_gguf", model_gguf);
++    selected->model_identity = checkpoint::file_identity(model_path);
+     selected->model_weights = assets::open_tensor_source(
+-        resolve_component_gguf_path(*base, "yue2.model_gguf", model_gguf),
++        model_path,
+         "model_weights");
++    checkpoint::require_unchanged(model_path, selected->model_identity);
++    } else {
++        selected->model_weights.reset();
++    }
+     const std::string vae_gguf =
+         runtime::find_option(options, {"yue2.vae_gguf"}).value_or("yue2-vae-f16.gguf");
++    const auto vae_path = resolve_component_gguf_path(*base, "yue2.vae_gguf", vae_gguf);
++    selected->vae_identity = checkpoint::file_identity(vae_path);
+     selected->vae_weights = assets::open_tensor_source(
+-        resolve_component_gguf_path(*base, "yue2.vae_gguf", vae_gguf),
++        vae_path,
+         "vae_weights");
++    checkpoint::require_unchanged(vae_path, selected->vae_identity);
+     validate_component_anchors(*selected);
+     return selected;
+ }
+@@ -159,6 +177,9 @@
+         {"feature.yue2.score_tokens", "1"},
+         {"format.yue2.score_tokens", "riff.yue2.score-tokens.v1"},
+         {"format.yue2.prefix", "riff.yue2.prefix.v1"},
++        {"feature.yue2.acoustic_checkpoint", "1"},
++        {"feature.yue2.acoustic_decode", "1"},
++        {"format.yue2.acoustic", checkpoint::kFormat},
+     };
+     out.request_options = {
+         {"style", "string", "Optional music style prompt.", false},
+@@ -168,6 +189,11 @@
+         {"score_tokens_file", "path", "Replay exact ABC token IDs from saved plan JSON, including an empty score. Requires melody/full; excludes abc and abc_file.", false},
+         {"score_tokens_out", "path", "Save the actual symbolic plan token IDs as JSON.", false},
+         {"plan_only", "true|false", "Generate a symbolic plan without rendering audio.", false, "false"},
++        {"acoustic_latents_out", "path", "Save completed acoustic F32 latents before VAE decode; the output must be new.", false},
++        {"acoustic_only", "true|false", "Stop after saving completed acoustic latents. Requires acoustic_latents_out.", false, "false"},
++        {"acoustic_latents_file", "path", "Decode a completed acoustic checkpoint using its matching VAE; skips the main model, tokenizer, AR and NAR.", false},
++        {"acoustic_decode_core_frames", "int", "Explicit VAE tile refinement for acoustic replay; default uses the captured setting.", false, "", "1"},
++        {"acoustic_decode_halo_frames", "int", "Explicit VAE overlap refinement for acoustic replay; default uses the captured setting.", false, "", "0"},
+         {"cot", "off|melody|full", "Planning mode.", false, "off"},
+         {"seed", "int", "Generation seed.", false, "0"},
+         {"cfg_scale", "float", "Classifier-free guidance scale.", false, "1.0", "0.0", "20.0"},
+@@ -197,13 +223,22 @@
+     std::shared_ptr<const Yue2Assets> assets)
+     : runtime::RuntimeSessionBase(options),
+       task_(task),
+-      assets_(select_component_assets(require_assets(std::move(assets)), options.options)) {
++      assets_(require_assets(std::move(assets))) {
+     if (task_.task != runtime::VoiceTaskKind::AudioGeneration || task_.mode != runtime::RunMode::Offline) {
+         throw std::runtime_error("Yue2 supports only offline gen/music");
+     }
++}
++
++void Yue2Session::ensure_pipeline(bool decode_only) {
++    if (pipeline_ && pipeline_decode_only_ == decode_only) return;
++    // A session may switch stages. Drop any former main-model runtime before
++    // selecting decoder-only assets; never retain an AR/NAR cache for replay.
++    pipeline_.reset();
++    const auto & options = this->options();
++    auto selected = select_component_assets(assets_, options.options, decode_only);
+     pipeline_ = std::make_unique<Yue2PipelineRuntime>(
+         execution_context(),
+-        assets_,
++        std::move(selected),
+         parse_weight_type(options, "yue2.model_weight_type", assets::TensorStorageType::Native),
+         parse_weight_type(options, "yue2.vae_weight_type", assets::TensorStorageType::Native),
+         runtime::parse_size_mb_option(options.options, {"yue2.model_weight_context_mb"}, 6144ull * 1024ull * 1024ull),
+@@ -212,6 +247,7 @@
+         runtime::parse_size_mb_option(options.options, {"yue2.ar_decode_graph_arena_mb"}, 1536ull * 1024ull * 1024ull),
+         runtime::parse_size_mb_option(options.options, {"yue2.nar_graph_arena_mb"}, 6144ull * 1024ull * 1024ull),
+         runtime::parse_size_mb_option(options.options, {"yue2.vae_graph_arena_mb"}, 1536ull * 1024ull * 1024ull));
++    pipeline_decode_only_ = decode_only;
+ }
+ 
+ Yue2Session::~Yue2Session() = default;
+@@ -239,9 +275,10 @@
+     require_prepared("Yue2 run");
+     const auto wall_start = Clock::now();
+     const auto parsed = parse_yue2_request(request, assets_->config.generation);
++    ensure_pipeline(!parsed.acoustic_latents_file.empty());
+     runtime::TaskResult result;
+     auto audio = pipeline_->run(parsed);
+-    if (!parsed.plan_only && !parsed.semantic_only) result.audio_output = std::move(audio);
++    if (!parsed.plan_only && !parsed.semantic_only && !parsed.acoustic_only) result.audio_output = std::move(audio);
+     engine::debug::timing_log_scalar("session.wall_ms", engine::debug::elapsed_ms(wall_start, Clock::now()));
+     return result;
+ }
+--- a/model_specs/yue2.json
++++ b/model_specs/yue2.json
+@@ -77,6 +77,39 @@
+         "required": false
+       },
+       {
++        "name": "acoustic_latents_out",
++        "type": "string",
++        "description": "Save completed F32 acoustic latents at a new path before VAE decoding.",
++        "required": false
++      },
++      {
++        "name": "acoustic_only",
++        "type": "bool",
++        "description": "Stop after publishing acoustic_latents_out without decoding audio.",
++        "required": false,
++        "default": false
++      },
++      {
++        "name": "acoustic_latents_file",
++        "type": "string",
++        "description": "Decode a completed riff.yue2.acoustic.v1 checkpoint using its compatible VAE. Skips the main model, tokenizer, AR and NAR.",
++        "required": false
++      },
++      {
++        "name": "acoustic_decode_core_frames",
++        "type": "int",
++        "description": "Explicit decoder tile refinement for acoustic replay; omitted restores the captured value.",
++        "required": false,
++        "min": 1
++      },
++      {
++        "name": "acoustic_decode_halo_frames",
++        "type": "int",
++        "description": "Explicit decoder overlap refinement for acoustic replay; omitted restores the captured value.",
++        "required": false,
++        "min": 0
++      },
++      {
+         "name": "semantic_codes_file",
+         "type": "string",
+         "description": "Teacher-forced raw int32 semantic codec IDs for downstream parity validation.",

@@ -77,12 +77,19 @@
     "patches/yue2-score-replay.patch": {
       "bytes": 16958,
       "sha256": "451fe770247e2f425d8c9a0293f4922d283dfb5246584af8c37c8c688e03558b"
+    },
+    "patches/yue2-vae-checkpoint.patch": {
+      "bytes": 59400,
+      "sha256": "8c727009f25999d222b106951a672fd2be77be82deb1e9e45ab71cc878c0da90"
     }
   },
   "native_capabilities": {
     "feature.yue2.score_tokens": "1",
     "format.yue2.score_tokens": "riff.yue2.score-tokens.v1",
-    "format.yue2.prefix": "riff.yue2.prefix.v1"
+    "format.yue2.prefix": "riff.yue2.prefix.v1",
+    "feature.yue2.acoustic_checkpoint": "1",
+    "feature.yue2.acoustic_decode": "1",
+    "format.yue2.acoustic": "riff.yue2.acoustic.v1"
   },
   "writer": {
     "repo": "Qwen/Qwen3-0.6B-MLX-4bit",

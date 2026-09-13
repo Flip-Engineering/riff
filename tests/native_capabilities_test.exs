@@ -8,7 +8,10 @@ defmodule Riff.Native.CapabilitiesTest do
   @expected %{
     "feature.yue2.score_tokens" => "1",
     "format.yue2.score_tokens" => "riff.yue2.score-tokens.v1",
-    "format.yue2.prefix" => "riff.yue2.prefix.v1"
+    "format.yue2.prefix" => "riff.yue2.prefix.v1",
+    "feature.yue2.acoustic_checkpoint" => "1",
+    "feature.yue2.acoustic_decode" => "1",
+    "format.yue2.acoustic" => "riff.yue2.acoustic.v1"
   }
   @valid Enum.map_join(@expected, "\n", fn {key, value} -> "#{key}=#{value}" end)
 
@@ -20,7 +23,13 @@ defmodule Riff.Native.CapabilitiesTest do
     for text <- [
           "family=yue2\n",
           String.replace(@valid, "feature.yue2.score_tokens", "feature.yue2.score_tokens_extra"),
-          String.replace(@valid, "riff.yue2.prefix.v1", "riff.yue2.prefix.v2")
+          String.replace(@valid, "riff.yue2.prefix.v1", "riff.yue2.prefix.v2"),
+          String.replace(@valid, "riff.yue2.acoustic.v1", "riff.yue2.acoustic.v2"),
+          String.replace(
+            @valid,
+            "feature.yue2.acoustic_decode=1",
+            "feature.yue2.acoustic_decode=0"
+          )
         ] do
       assert_raise RuntimeError, ~r/metadata/, fn -> C.parse!(text, @expected) end
     end
@@ -34,8 +43,18 @@ defmodule Riff.Native.CapabilitiesTest do
     end
   end
 
-  test "source manifest declares the exact supported score and prefix contracts" do
+  test "source manifest declares the exact supported score, prefix and acoustic contracts" do
     manifest = Path.join(__DIR__, "../sources.json") |> File.read!() |> :json.decode()
     assert Map.take(manifest["native_capabilities"], Map.keys(@expected)) == @expected
+  end
+
+  test "decoder discovery fixture needs only VAE metadata and no weights" do
+    root =
+      Path.join(System.tmp_dir!(), "riff-native-capability-#{System.unique_integer([:positive])}")
+
+    on_exit(fn -> File.rm_rf!(root) end)
+    model = C.decoder_fixture!(root)
+    assert File.ls!(model) == ["sidecars"]
+    assert File.ls!(Path.join(model, "sidecars")) == ["yue2-vae-config.json"]
   end
 end
