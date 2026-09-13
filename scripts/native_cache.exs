@@ -118,8 +118,13 @@ defmodule Riff.NativeCache do
       |> Enum.map(fn entry ->
         compiler = Map.fetch!(entry, "compiler")
 
-        unless Enum.all?(~w(path id version), &(is_binary(compiler[&1]) and compiler[&1] != "")),
-          do: raise("Incomplete compiler identity")
+        # CMake omits the version of its ASM driver even when that driver is
+        # the same verified cc executable. ASM has no cache launcher here;
+        # preserve its reported fields and bytes without inventing a version.
+        fields = if entry["language"] == "ASM", do: ~w(path id), else: ~w(path id version)
+
+        unless Enum.all?(fields, &(is_binary(compiler[&1]) and compiler[&1] != "")),
+          do: raise("Incomplete #{entry["language"]} compiler identity")
 
         entry =
           Map.put(

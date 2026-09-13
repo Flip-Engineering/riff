@@ -107,9 +107,10 @@ jobs:
     runs-on: ubuntu-24.04
     container: nvidia/cuda:12.8.1-devel-ubuntu24.04@sha256:520292dbb4f755fd360766059e62956e9379485d9e073bbd2f6e3c20c270ed66
     env:
+      ImageOS: ubuntu24
       RIFF_CUDA_IMAGE: nvidia/cuda:12.8.1-devel-ubuntu24.04@sha256:520292dbb4f755fd360766059e62956e9379485d9e073bbd2f6e3c20c270ed66
     steps:
-      - run: apt-get update && apt-get install -y git python3 python3-venv cmake build-essential curl ca-certificates
+      - run: apt-get update && apt-get install -y git python3 python3-venv cmake build-essential curl ca-certificates unzip
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124
         with:

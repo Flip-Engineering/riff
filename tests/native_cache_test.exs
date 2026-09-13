@@ -49,7 +49,7 @@ defmodule Riff.NativeCacheTest do
 
     File.write!(
       Path.join(native, "CMakeLists.txt"),
-      "cmake_minimum_required(VERSION 3.17)\nproject(cache_fixture C CXX)\nadd_executable(fixture main.cpp extra.c)\n"
+      "cmake_minimum_required(VERSION 3.17)\nproject(cache_fixture C CXX ASM)\nadd_executable(fixture main.cpp extra.c empty.s)\n"
     )
 
     File.write!(
@@ -58,6 +58,7 @@ defmodule Riff.NativeCacheTest do
     )
 
     File.write!(Path.join(native, "extra.c"), "int answer(void) { return 42; }\n")
+    File.write!(Path.join(native, "empty.s"), ".text\n")
     Cache.query!(build)
     arguments = ["-S", native, "-B", build, "-DCMAKE_BUILD_TYPE=Release"]
     {_, 0} = System.cmd(cmake, arguments, stderr_to_stdout: true)
@@ -93,6 +94,7 @@ defmodule Riff.NativeCacheTest do
     baseline = Cache.configured!(root, configuration, "cpu", %{})
 
     assert Enum.map(baseline.descriptor["namespace"]["toolchains"], & &1["language"]) == [
+             "ASM",
              "C",
              "CXX"
            ]
@@ -214,6 +216,34 @@ defmodule Riff.NativeCacheTest do
     File.rm_rf!(Path.join(configuration["build_directory"], ".cmake/api/v1/reply"))
 
     assert_raise RuntimeError, ~r/metadata is missing/, fn ->
+      Cache.configured!(root, configuration, "cpu", %{})
+    end
+  end
+
+  test "missing C compiler version remains a failure with a valid uncached assembler", %{
+    root: root
+  } do
+    configuration = configured(root)
+
+    [path] =
+      Path.wildcard(
+        Path.join(configuration["build_directory"], ".cmake/api/v1/reply/toolchains-v1-*.json")
+      )
+
+    reply = Cache.json(path)
+
+    changed =
+      Map.update!(reply, "toolchains", fn items ->
+        Enum.map(items, fn entry ->
+          if entry["language"] == "C",
+            do: Map.update!(entry, "compiler", &Map.delete(&1, "version")),
+            else: entry
+        end)
+      end)
+
+    Cache.write_json(path, changed)
+
+    assert_raise RuntimeError, ~r/Incomplete C compiler identity/, fn ->
       Cache.configured!(root, configuration, "cpu", %{})
     end
   end
