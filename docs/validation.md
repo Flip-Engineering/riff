@@ -105,7 +105,9 @@ All 1,535,744 PCM bytes matched. Source seed, score, performance and the origina
 recording remained unchanged. Observed process footprints were 2.61 GB for
 capture and 338 MB for decoding alone; walls were 13.89 and 3.64 seconds on the
 shared host. These are operation-specific measurements, not a fresh-generation
-speedup or whole-system memory guarantee.
+speedup or whole-system memory guarantee. Process physical footprint and Metal
+buffer capacity are different measures; this footprint does not describe all
+the decoder's allocated GPU buffers.
 
 Four 45-second native runs exercised multiple decoder tiles. Replay restored
 captured 1024-frame sections and 16-frame overlap even with different current
@@ -123,6 +125,9 @@ decoded take's original score and performance. Browser checks cover direct histo
 recovery, decoder defaults and explicit zero, producer seed preservation, musical
 edit detachment/Undo, pending operations and refresh handoff. The current admission
 estimate remains conservative; native allocation telemetry is a separate follow-up.
+Take comparison resolves decoder overrides against the captured settings, keeps
+explicit zero values, and distinguishes missing historical settings. Equal
+sampling settings remain equal regardless of recipe field order.
 See [saved synthesis](acoustic-recovery.md) for the shared studio/agent contract.
 
 ## Producer variations and studio refresh in 0.6.5

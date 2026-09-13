@@ -36,8 +36,19 @@
         const display = value => field === "solver" ? value === "ab2" ? "Multistep" : "Midpoint" : value ?? "Default";
         if (left !== right) changes.push([label, `${display(left)} → ${display(right)}`]);
       }
-      if (JSON.stringify(a.recipe.refinement || {}) !== JSON.stringify(b.recipe.refinement || {})) changes.push(["Fine tuning", "Sampling controls changed"]);
-      $("#compare-changes").innerHTML = changes.length ? `<dl>${changes.map(([label, value]) => `<div><dt>${esc(label)}</dt><dd>${esc(value)}</dd></div>`).join("")}</dl>` : '<p class="quiet-text">The musical inputs are the same.</p>';
+      const refinementKeys = new Set([...Object.keys(a.recipe.refinement || {}), ...Object.keys(b.recipe.refinement || {})]);
+      if ([...refinementKeys].some(field => a.recipe.refinement?.[field] !== b.recipe.refinement?.[field]))
+        changes.push(["Fine tuning", "Sampling controls changed"]);
+      const precision = ["Model default", "32-bit float", "16-bit float", "Brain float 16", "8-bit", "4-bit", "4-bit K"];
+      for (const [field, captured, label] of [["core_frames", "decode_core_frames", "Audio sections"],
+        ["halo_frames", "decode_halo_frames", "Audio overlap"], ["storage", "vae_storage", "Decoder precision"]]) {
+        const effective = recipe => recipe.decoder?.[field] ?? recipe.acoustic?.[captured] ?? null;
+        const left = effective(a.recipe), right = effective(b.recipe);
+        const display = value => value === null ? "Not recorded" : field === "storage"
+          ? precision[value] || String(value) : `${value} frames`;
+        if (left !== right) changes.push([label, `${display(left)} → ${display(right)}`]);
+      }
+      $("#compare-changes").innerHTML = changes.length ? `<dl>${changes.map(([label, value]) => `<div><dt>${esc(label)}</dt><dd>${esc(value)}</dd></div>`).join("")}</dl>` : '<p class="quiet-text">The recorded settings are the same.</p>';
     } catch (error) { detailSignature = ""; $("#compare-changes").textContent = error.message; }
   }
   function render() {

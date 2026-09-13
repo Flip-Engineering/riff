@@ -2,6 +2,7 @@ Riff 0.6.6 saves the completed sound synthesis, so you can finish its audio with
 
 - **Finish audio** appears in history when a saved synthesis is ready, including after an interrupted decode. The original take, seed, score and performance are retained.
 - A recording’s **Audio refinement** controls let you adjust decoder sections, overlap and precision. Empty fields restore the captured settings.
+- **What changed** explains decoder refinements between takes, using the settings actually selected for each finish.
 - Writers, producers and agents share the same saved-synthesis operation and full musical context. Editing the music starts a new performance; Undo restores the saved sound.
 - **Sound to finish later** joins the output choices. The public download page keeps a completed graphical installer available while a new release is being assembled.
 
