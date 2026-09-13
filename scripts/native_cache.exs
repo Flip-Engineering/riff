@@ -6,7 +6,14 @@ defmodule Riff.NativeCache do
   @flags ~w(CC CXX CUDACXX CUDAHOSTCXX CFLAGS CXXFLAGS CPPFLAGS CUDAFLAGS NVCC_PREPEND_FLAGS NVCC_APPEND_FLAGS LDFLAGS SDKROOT MACOSX_DEPLOYMENT_TARGET CMAKE_GENERATOR CMAKE_TOOLCHAIN_FILE CMAKE_OSX_ARCHITECTURES)
 
   def json(path), do: path |> File.read!() |> :json.decode()
-  def write_json(path, data), do: File.write!(path, [:json.encode(data), "\n"])
+  def write_json(path, data), do: File.write!(path, [:json.encode(json_value(data)), "\n"])
+  defp json_value(nil), do: :null
+
+  defp json_value(value) when is_map(value),
+    do: Map.new(value, fn {k, v} -> {k, json_value(v)} end)
+
+  defp json_value(value) when is_list(value), do: Enum.map(value, &json_value/1)
+  defp json_value(value), do: value
   def digest(data), do: :crypto.hash(:sha256, data) |> Base.encode16(case: :lower)
 
   def hash_file(path),
@@ -32,6 +39,7 @@ defmodule Riff.NativeCache do
     do: ["map", value |> Enum.sort() |> Enum.map(fn {k, v} -> [k, canonical(v)] end)]
 
   defp canonical(value) when is_list(value), do: ["list", Enum.map(value, &canonical/1)]
+  defp canonical(nil), do: :null
   defp canonical(value), do: value
 
   def file_record(path, name) do
@@ -196,15 +204,7 @@ defmodule Riff.NativeCache do
     sdk =
       if :os.type() == {:unix, :darwin}, do: macos_sdk!(entries["CMAKE_OSX_SYSROOT"]), else: %{}
 
-    host =
-      if backend == "cuda" do
-        path = entries["CMAKE_CUDA_HOST_COMPILER"]
-
-        unless is_binary(path) and path != "",
-          do: raise("CUDA host compiler must be selected explicitly for compiler caching")
-
-        file_record(path, path)
-      end
+    host = if backend == "cuda", do: cuda_host!(build)
 
     namespace =
       %{
@@ -240,6 +240,41 @@ defmodule Riff.NativeCache do
       source_sha256: source.sha256,
       entries: entries
     }
+  end
+
+  def cuda_host!(build) do
+    # CUDAHOSTCXX initializes a normal CMake variable, absent from cache-v2.
+    # CMake records its resolved value in this generated compiler description.
+    files = Path.wildcard(Path.join(build, "CMakeFiles/*/CMakeCUDACompiler.cmake"))
+
+    unless length(files) == 1,
+      do: raise("A unique configured CUDA compiler description is required")
+
+    [file] = files
+
+    unless File.lstat!(file).type == :regular and File.stat!(file).size <= 1_000_000,
+      do: raise("Invalid configured CUDA compiler description")
+
+    text = File.read!(file)
+    declarations = Regex.scan(~r/^\s*set\s*\(\s*CMAKE_CUDA_HOST_COMPILER(?:\s|\))/m, text)
+
+    unless length(declarations) == 1,
+      do: raise("A unique CUDA host compiler declaration is required")
+
+    values =
+      Regex.scan(
+        ~r/^set\(CMAKE_CUDA_HOST_COMPILER "([^"\\\x00-\x1f$;]+)"\)\r?$/m,
+        text,
+        capture: :all_but_first
+      )
+
+    unless length(values) == 1, do: raise("A literal configured CUDA host compiler is required")
+    [[path]] = values
+
+    unless Path.type(path) == :absolute,
+      do: raise("The configured CUDA host compiler must be absolute")
+
+    file_record(path, path) |> Map.put("configuration_source", Path.relative_to(file, build))
   end
 
   defp macos_sdk!(configured) do

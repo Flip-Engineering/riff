@@ -261,6 +261,39 @@ defmodule Riff.NativeCacheTest do
     end
   end
 
+  test "CUDA host identity comes from its literal generated description", %{root: root} do
+    directory = Path.join(root, "CMakeFiles/3.28.3")
+    File.mkdir_p!(directory)
+    path = Path.join(directory, "CMakeCUDACompiler.cmake")
+    compiler = System.find_executable("c++")
+    line = "set(CMAKE_CUDA_HOST_COMPILER \"#{compiler}\")\n"
+    File.write!(path, "set(CMAKE_CUDA_COMPILER_ID \"NVIDIA\")\n" <> line)
+    record = Cache.cuda_host!(root)
+    assert record["sha256"] == Cache.hash_file(compiler)
+    assert record["configuration_source"] == "CMakeFiles/3.28.3/CMakeCUDACompiler.cmake"
+
+    for text <- [
+          "",
+          line <> line,
+          line <> "set(CMAKE_CUDA_HOST_COMPILER \"${HOST}\")\n",
+          "set(CMAKE_CUDA_HOST_COMPILER \"${HOST}\")\n",
+          "set(CMAKE_CUDA_HOST_COMPILER \"g++\")\n"
+        ] do
+      File.write!(path, text)
+      assert_raise RuntimeError, fn -> Cache.cuda_host!(root) end
+    end
+
+    File.rm!(path)
+    assert_raise RuntimeError, fn -> Cache.cuda_host!(root) end
+  end
+
+  test "optional receipt values remain JSON null and distinct from the string nil", %{root: root} do
+    path = Path.join(root, "null.json")
+    Cache.write_json(path, %{"tool" => nil, "nested" => [nil]})
+    assert Cache.json(path) == %{"tool" => :null, "nested" => [:null]}
+    refute Cache.identity(%{"value" => nil}) == Cache.identity(%{"value" => "nil"})
+  end
+
   test "only pushes to the owned main branch can write the remote cache" do
     main = %{
       "GITHUB_EVENT_NAME" => "push",
