@@ -16,10 +16,10 @@ from install import version_tuple
 
 ROOT_FILES = '''.gitattributes .gitignore VERSION LICENSE NOTICE.md README.md DESIGN.md CONTRIBUTING.md
 Riff.command build.sh capabilities.py fetch-models.py inspiration.py install.py keychain.py launcher.py
-maintenance.py model_options.py network_access.py paths.py platform_support.py review_client.py review_recipe.py reviews.py
+maintenance.py model_admission.py model_options.py network_access.py paths.py platform_support.py review_client.py review_recipe.py reviews.py
 run.py setup_engine.py setup-writer.sh sources.json studio.py studio_core.py symbolic.py video.py
 writer.py lyrics.txt requirements-writer.lock package.json package-lock.json design-seed.txt'''.split()
-PUBLIC_DOCS = '''adapters.md adapter-research.json install.md capabilities.md branding.md validation.md
+PUBLIC_DOCS = '''adapters.md adapter-research.json install.md capabilities.md branding.md validation.md architecture-direction.md yue2-capability-audit.md
 studio.png composition.png studio-mobile.png'''.split()
 
 
@@ -28,6 +28,10 @@ def public_files():
     for directory in ("web", "patches", "scripts", "tests", ".github", "site"):
         files += [path for path in (ROOT / directory).rglob("*") if path.is_file()
                   and "__pycache__" not in path.parts and path.name != ".DS_Store"]
+    # Desktop build trees contain downloaded dependencies and private acceptance
+    # evidence. Publish their tracked source only, never a recursive build tree.
+    tracked = subprocess.check_output(["git", "ls-files", "-z", "--", "desktop", "installer", "runtime"], cwd=ROOT)
+    files += [ROOT / name for name in tracked.decode().split("\0") if name]
     for path in files:
         if not path.is_file() or path.is_symlink():
             raise ValueError(f"Expected a regular release file: {path.relative_to(ROOT)}")

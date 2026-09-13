@@ -7,6 +7,23 @@ on:
 permissions:
   contents: read
 jobs:
+  control:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124
+        with:
+          otp-version: '28.0.2'
+          elixir-version: '1.18.4'
+      - run: rustc --version
+      - run: mix deps.get --check-locked
+        working-directory: installer
+      - run: mix check
+        working-directory: installer
+      - run: elixir runtime/test/admission_test.exs
+      - run: elixir runtime/test/resources_test.exs
+      - run: elixir desktop/test/build_test.exs
+      - run: python3 -m unittest discover -s installer/test -p '*_test.py' -v
   application:
     runs-on: ubuntu-24.04
     strategy:

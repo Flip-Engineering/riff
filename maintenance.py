@@ -21,6 +21,8 @@ class Maintenance:
         self.task = {"status": "idle", "message": ""}
         self.thread, self.process = None, None
         self.stopping = threading.Event()
+        self.cancelled = threading.Event()
+        self.desktop_process = False
         self.install_root = Path(os.environ["RIFF_INSTALL_ROOT"]) if os.environ.get("RIFF_INSTALL_ROOT") else None
         self.release = None
         pending_path = DATA / "pending-update.json"
@@ -38,12 +40,14 @@ class Maintenance:
         with self.generator.store.db() as db:
             queued = db.execute("SELECT count(*) FROM jobs WHERE status IN ('queued','running','cancelling')").fetchone()[0]
         reviews = self.reviews.snapshot() if self.reviews else []
-        return bool(queued or self.generator.writer_gate.locked() or (self.video_exports and self.video_exports.busy()) or any(r["status"] in ("queued", "running", "cancelling") for r in reviews))
+        return bool(queued or self.generator.has_active_work() or self.generator.writer_gate.locked() or (self.video_exports and self.video_exports.busy()) or any(r["status"] in ("queued", "running", "cancelling") for r in reviews))
 
     def snapshot(self):
         with self.lock:
             engine = platform_support.readiness()
-            return {"version": self.version, "engine": engine, "prerequisites": setup_engine.prerequisites(engine["backend"]),
+            desktop = bool(self.install_root and ((self.install_root / "runtime.json").exists() or (self.install_root / "runtime.json").is_symlink()))
+            return {"version": self.version, "engine": engine, "prerequisites": [] if desktop else setup_engine.prerequisites(engine["backend"]),
+                    "desktop": desktop,
                     "task": dict(self.task), "managed": bool(self.install_root), "preferences": dict(self.preferences),
                     "release": self.release, "pending": self.pending, "busy": self.busy()}
 
@@ -79,6 +83,7 @@ class Maintenance:
                 raise ValueError("A setup or update task is already running.")
             if action != "check" and self.busy():
                 raise ValueError("Finish or cancel the current takes and reviews before changing the engine.")
+            self.cancelled.clear()
             self.task = {"status": "running", "action": action, "message": "Starting"}
             self.thread = threading.Thread(target=self.work, args=(action, payload), daemon=True)
             self.thread.start()
@@ -87,25 +92,30 @@ class Maintenance:
     def work(self, action, payload):
         gate = False
         try:
+            runtime = install.desktop_runtime(self.install_root)
             if action != "check":
                 gate = self.generator.model_gate.acquire(blocking=False)
                 if not gate:
                     raise ValueError("The music engine is in use. Try again when it finishes.")
             if action == "setup":
+                if runtime:
+                    raise ValueError("Open Riff Setup to repair the bundled music engine.")
                 setup_engine.prepare(payload.get("backend", platform_support.settings()["backend"]), run=self.run,
                                      jobs=payload.get("jobs"), cuda_arch=payload.get("cuda_arch"))
                 self.progress("Ready to make music")
             elif action == "check":
-                self.release = install.get_release()
+                self.release = install.get_release(runtime["platform"]) if runtime else install.get_release()
                 if install.version_tuple(self.release["version"]) <= install.version_tuple(self.version):
                     self.release = None
                 self.progress("An update is available" if self.release else "Riff is up to date")
             elif action == "update":
                 if not self.install_root:
                     raise ValueError("Use the Riff installer to enable managed updates. Source checkouts stay under Git control.")
-                release = install.get_release()
+                release = install.get_release(runtime["platform"]) if runtime else install.get_release()
                 if install.version_tuple(release["version"]) <= install.version_tuple(self.version):
                     self.progress("Riff is up to date")
+                elif runtime:
+                    self.prepare_desktop(runtime, release)
                 else:
                     target = install.stage_release(self.install_root, release, self.progress)
                     models_changed = json.loads((target / "sources.json").read_text())["model"] != json.loads((ROOT / "sources.json").read_text())["model"]
@@ -121,12 +131,63 @@ class Maintenance:
                 raise ValueError("Unknown setup action.")
             with self.lock:
                 self.task["status"] = "done"
+        except install.UpdateCancelled as exc:
+            with self.lock:
+                self.task.update(status="cancelled", message=str(exc))
         except Exception as exc:
             with self.lock:
                 self.task.update(status="failed", message=str(exc))
         finally:
             if gate:
                 self.generator.model_gate.release()
+
+    def update_cancelled(self):
+        return self.stopping.is_set() or self.cancelled.is_set()
+
+    def control_process(self, process):
+        with self.lock:
+            self.process = process
+            self.desktop_process = process is not None
+            if process and self.update_cancelled() and self.task.get("action") != "activate":
+                install.stop_desktop_control(process)
+
+    def run_desktop(self, runtime, action, payload):
+        with (DATA / "setup.log").open("a") as log:
+            return install.desktop_control(runtime, action, self.install_root, payload,
+                                           self.progress, self.update_cancelled if action == "prepare" else None,
+                                           self.control_process, log)
+
+    def prepare_desktop(self, runtime, release):
+        payload = install.stage_desktop_release(self.install_root, release, self.progress, self.update_cancelled)
+        result = self.run_desktop(runtime, "prepare", payload)
+        manifest = json.loads((payload / "manifest.json").read_text())
+        if result["version"] != release["version"] or result["runtime_id"] != manifest["runtime_id"]:
+            raise ValueError("The prepared desktop update does not match this release.")
+        install.check_cancelled(self.update_cancelled)
+        pending = {"kind": "desktop", "version": result["version"], "path": result["path"],
+                   "runtime_id": result["runtime_id"], "payload": str(payload), "release": release}
+        temporary = DATA / "pending-update.json.tmp"
+        temporary.write_text(json.dumps(pending) + "\n")
+        temporary.replace(DATA / "pending-update.json")
+        self.pending = pending
+        self.progress("Update ready. Restart Riff to use it.")
+
+    def cancel(self):
+        with self.lock:
+            if self.task.get("action") == "activate" and self.task["status"] == "running":
+                raise ValueError("Riff is finishing its restart.")
+            if self.task["status"] != "running":
+                return dict(self.task)
+            self.cancelled.set()
+            self.task["message"] = "Stopping update preparation"
+            process, desktop = self.process, self.desktop_process
+        if process and process.poll() is None:
+            if desktop:
+                install.stop_desktop_control(process)
+            else:
+                process.terminate()
+        with self.lock:
+            return dict(self.task)
 
     def configure(self, payload):
         for key in ("automatic_checks", "automatic_downloads"):
@@ -149,9 +210,32 @@ class Maintenance:
         pending = self.pending or (json.loads(path.read_text()) if path.exists() else None)
         if not self.install_root or not pending:
             raise ValueError("There is no prepared update to install.")
-        target = Path(pending["path"])
-        install.activate(self.install_root, target)
-        return {"status": "restarting"}
+        if not self.generator.quiesce():
+            raise ValueError("Finish or cancel the current work before restarting.")
+        self.task = {"status": "running", "action": "activate", "message": "Opening the updated studio"}
+        try:
+            runtime = install.desktop_runtime(self.install_root)
+            if pending.get("kind") == "desktop":
+                if not runtime:
+                    raise ValueError("The desktop runtime is unavailable. Reopen Riff Setup.")
+                payload = Path(pending["payload"])
+                manifest = install.validate_prepared_desktop(self.install_root, payload, pending["release"])
+                if manifest["version"] != pending["version"] or manifest["runtime_id"] != pending["runtime_id"]:
+                    raise ValueError("The prepared desktop identity changed. Prepare the update again.")
+                result = self.run_desktop(runtime, "activate", payload)
+                if result["version"] != pending["version"] or result["runtime_id"] != pending["runtime_id"]:
+                    raise ValueError("The desktop activation receipt does not match the prepared update.")
+            else:
+                if runtime:
+                    if not install.external_installer_handoff(runtime, self.install_root, pending):
+                        raise ValueError("Prepare this update again with the desktop installer. Your current Riff is kept.")
+                install.activate(self.install_root, Path(pending["path"]))
+            self.task.update(status="done", message="Restarting Riff")
+            return {"status": "restarting"}
+        except Exception as exc:
+            self.generator.resume()
+            self.task.update(status="failed", message=str(exc))
+            raise
 
     def automatic(self):
         # One startup check, then a user-configurable interval. Downloads are opt-in.
@@ -172,8 +256,6 @@ class Maintenance:
 
     def close(self):
         self.stopping.set()
-        with self.lock:
-            if self.process and self.process.poll() is None:
-                self.process.terminate()
+        self.cancel()
         if self.thread:
             self.thread.join(timeout=30)

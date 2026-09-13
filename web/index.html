@@ -1163,14 +1163,14 @@
           <details><summary>Engine paths and device</summary><div class="advanced-grid"><div><label for="engine-device">GPU device</label><input id="engine-device" type="number" min="0" step="1" /></div><div><label for="engine-binary">audio.cpp executable</label><input id="engine-binary" type="text" /></div><div><label for="engine-model-root">Model folder</label><input id="engine-model-root" type="text" /></div><div><label for="engine-model-file">Music model GGUF</label><input id="engine-model-file" type="text" /></div><div><label for="engine-vae-file">Audio decoder GGUF</label><input id="engine-vae-file" type="text" /></div></div></details>
           <div class="system-actions"><button type="button" class="secondary-button" id="setup-engine">Download and set up</button><button type="submit" class="text-button">Use engine settings</button></div>
         </form>
-        <p class="control-hint">Setup downloads about 2.93 GB of music weights and builds audio.cpp for your selected accelerator. Existing verified downloads are reused.</p>
+        <p id="setup-description" class="control-hint">Verified model downloads are reused.</p>
         <div id="setup-requirements" class="control-hint"></div>
         <progress id="system-progress" aria-label="Setup progress" hidden></progress><p id="system-task" role="status"></p><a href="/api/system/log" target="_blank" class="text-button">Setup log</a>
       </section>
       <section class="system-section"><h3>Updates</h3><p id="system-version"></p><p id="system-update-state" role="status"></p>
         <label class="review-check"><input id="automatic-checks" type="checkbox" />Check automatically</label>
         <label class="review-check"><input id="automatic-downloads" type="checkbox" />Prepare updates when the studio is idle</label>
-        <div class="system-actions"><button type="button" class="secondary-button" id="check-update">Check for updates</button><button type="button" class="secondary-button" id="install-update" hidden>Prepare update</button><button type="button" class="secondary-button" id="restart-update" hidden>Restart and update</button></div>
+        <div class="system-actions"><button type="button" class="secondary-button" id="check-update">Check for updates</button><button type="button" class="secondary-button" id="install-update" hidden>Prepare update</button><button type="button" class="text-button" id="cancel-update" hidden>Stop preparation</button><button type="button" class="secondary-button" id="restart-update" hidden>Restart and update</button></div>
         <p id="managed-hint" class="control-hint">This copy runs from source. <a href="https://github.com/Flip-Engineering/riff/releases" target="_blank" rel="noreferrer">Install a release</a> to enable app updates.</p>
       </section>
     </dialog>

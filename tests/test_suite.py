@@ -64,13 +64,12 @@ class PlatformTests(unittest.TestCase):
 
 
 class SymbolicTests(StudioFixture):
-    def test_cloud_composer_can_write_while_the_local_music_slot_is_in_use(self):
+    def test_writer_entry_uses_independent_admission_and_preserves_single_draft_ownership(self):
         generator = Generator(self.store)
         try:
-            with generator.model_gate, patch.object(generator, "write_idea", return_value={"abc": "K:Dm\nD2"}):
+            with patch.object(generator, "write_idea", return_value={"abc": "K:Dm\nD2"}):
                 self.assertEqual(generator.inspiration({"idea_engine": "openrouter"})["abc"], "K:Dm\nD2")
-                with self.assertRaisesRegex(ValueError, "local model is busy"):
-                    generator.inspiration({"idea_engine": "ai"})
+                self.assertEqual(generator.inspiration({"idea_engine": "ai"})["abc"], "K:Dm\nD2")
                 with generator.writer_gate:
                     with self.assertRaisesRegex(ValueError, "writing request is already running"):
                         generator.inspiration({"idea_engine": "openrouter"})

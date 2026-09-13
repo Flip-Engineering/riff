@@ -49,15 +49,21 @@
     $("#system-task").textContent = system.task.message || (system.engine.ready ? "Music engine ready" : "Choose an engine to get started");
     $("#system-task").classList.toggle("form-error", system.task.status === "failed");
     $("#system-progress").hidden = system.task.status !== "running";
+    $("#cancel-update").hidden = system.task.status !== "running" || system.task.action !== "update" || !system.desktop;
     $("#system-version").textContent = "Riff " + system.version;
     $("#system-update-state").textContent = system.pending ? `Version ${system.pending.version} is ready to use.`
       : system.release ? `Version ${system.release.version} is available.` : "";
-    $("#install-update").hidden = !system.release || !!system.pending;
+    $("#install-update").hidden = (!system.release && !system.pending) || (!!system.pending && system.task.status !== "failed");
+    $("#install-update").textContent = system.pending ? "Prepare again" : "Prepare update";
     $("#install-update").disabled = !system.managed || system.task.status === "running";
     $("#restart-update").hidden = !system.pending;
     $("#restart-update").disabled = system.busy || system.task.status === "running";
     $("#managed-hint").hidden = system.managed;
     $("#setup-engine").disabled = system.busy || system.task.status === "running";
+    $("#setup-engine").hidden = !!system.desktop;
+    $("#setup-description").textContent = system.desktop
+      ? "Model downloads are verified and reused when Riff updates."
+      : "Setup downloads the music models and prepares audio.cpp for your selected accelerator. Verified downloads are reused.";
     if (!settingsFilled) {
       for (const [key, id] of Object.entries(engineFields)) $("#" + id).value = system.engine[key];
       $("#automatic-checks").checked = system.preferences.automatic_checks;
@@ -90,11 +96,10 @@
     try { await api("/api/system/engine", "POST", payload); await refresh(); notify("Engine settings saved"); }
     catch (error) { $("#system-task").textContent = error.message; }
   });
-  for (const [button, action] of [["setup-engine", "setup"], ["check-update", "check"], ["install-update", "update"], ["restart-update", "restart"]]) {
+  for (const [button, action] of [["setup-engine", "setup"], ["check-update", "check"], ["install-update", "update"], ["restart-update", "restart"], ["cancel-update", "cancel"]]) {
     $("#" + button).addEventListener("click", async () => {
       try {
         await api("/api/system/" + action, "POST", action === "setup" ? { backend: $("#engine-backend").value } : {});
-        settingsFilled = false;
         await refresh();
       } catch (error) { $("#system-task").textContent = error.message; }
     });

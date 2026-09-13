@@ -3,7 +3,7 @@ import argparse
 import json
 from pathlib import Path
 import sys
-from paths import MODELS
+from platform_support import writer_settings
 
 MODEL_ID = "Qwen/Qwen3-0.6B-MLX-4bit"
 REVISION = "173234aa840d113125e9f2271100ddbaf16c9620"
@@ -164,7 +164,7 @@ def write(payload, raw_path=None):
         from mlx_lm import load, generate
         from mlx_lm.sample_utils import make_sampler
         mx.random.seed(seed % 2 ** 32)
-        model, tokenizer = load(str(MODELS / "lyric-writer"))
+        model, tokenizer = load(str(writer_settings()["model"]))
         messages[0]["content"] += (" You may omit unchanged generation fields to spend the writing budget on the music."
                                    " Response schema: " + json.dumps(schema))
         prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True, enable_thinking=False)

@@ -1,6 +1,21 @@
 # Installation and updates
 
-## Supported hosts
+## Graphical desktop installer
+
+The Apple Silicon installer preview includes the application runtime, Metal
+engine, media tools and local writer libraries. Open Riff Setup, choose Install,
+and follow the model download progress. Setup verifies and reuses existing model
+files, then offers Open Riff and installs a persistent Riff app in Applications.
+The intended desktop flow needs no terminal, Python installation or developer
+tools. Public Developer ID signing, notarization and complete delivery acceptance
+remain tracked requirements; see [desktop delivery](../desktop/README.md).
+
+The desktop preview requires Apple Silicon and macOS 15 or newer. Graphical
+NVIDIA packaging is separate work; current CUDA support uses the source path
+below. Source builds and local packaging proof do not establish a signed public
+desktop release.
+
+## Developer and source setup
 
 | Host | Engine | Requirements |
 |---|---|---|
@@ -55,13 +70,14 @@ through the advanced engine settings.
 
 ## Credentials and optional writing
 
-Audio reviews and animated MP4 exports need FFmpeg with H.264 encoding. On macOS install it through your package manager;
+Desktop setup carries the local writer and FFmpeg. For source installations,
+audio reviews and animated MP4 exports need FFmpeg with H.264 encoding. On macOS install it through your package manager;
 on Ubuntu use the `ffmpeg` package. Linux credentials need `secret-tool` from
 `libsecret-tools` and an unlocked Secret Service session, such as GNOME Keyring.
 The application will not save keys to an unencrypted file when that service is
 unavailable. Basic generation works without an OpenRouter connection.
 
-The local MLX writer requires Apple Silicon and `uv`. From the current release
+Source setup for the local MLX writer requires Apple Silicon and `uv`. From the current release
 folder, run `RIFF_HOME=/path/to/install/workspace ./setup-writer.sh`. Source
 checkouts can run `./setup-writer.sh` directly. OpenRouter writing uses the saved
 connection and does not require MLX.
@@ -82,22 +98,21 @@ archive paths, and runs an import preflight before activation. The trust boundar
 is the official GitHub repository and HTTPS; this is not an independent signing
 system.
 
-New code goes into a separate release folder. Changed engine sources build in a
-separate directory; changed model pins use a separate model set. Current recordings
+New code goes into a separate release folder. Desktop updates carry prebuilt
+platform runtimes and engines, verify every file, and use the bundled Elixir
+installer to prepare changed model sets. A missing compatible desktop asset
+keeps the current app and offers a later retry. Source-installed updates build
+changed engines in a separate directory. Current recordings
 and the SQLite library stay in the persistent workspace. Restart activates the
 prepared release. A failing startup preflight falls back to the previous version;
 engine activation records preserve user changes between launches. Old releases
 are retained for recovery and are not automatically pruned.
 
 Automatic checks default to once a day. Preparing updates while idle is opt-in;
-restart remains a visible action. Source checkouts receive release information but
-are updated with Git. To restore an installed version manually:
-
-```sh
-python3 -c 'from pathlib import Path; import install; root=Path("/path/to/Riff"); install.activate(root, root / "releases/0.2.0")'
-```
-
-Run that command from a release folder containing `install.py`, then open the
-stable launcher. Shut down the studio before manual activation. Back up
+restart remains a visible action. Desktop preparation can be stopped from Studio
+settings. Music, writing, reviews and exports must finish or be cancelled before
+activation. Source checkouts receive release information but are updated with Git.
+Desktop recovery must restore a matching app and runtime together; use Riff Setup
+to repair an installation. Back up
 `workspace/data/` and `workspace/outputs/` together. Model caches can be downloaded
 again; the library and recordings cannot.

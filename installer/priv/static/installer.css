@@ -1,0 +1,101 @@
+:root {
+  color-scheme: dark;
+  --background: #1c1216;
+  --surface: #281a1f;
+  --text: #f4f1ec;
+  --quiet: #d5c3c8;
+  --line: #49353e;
+  --accent: #ee7766;
+  --mineral: #9db5c7;
+  --error: #ffada0;
+  font-family: "Avenir Next", Avenir, "Segoe UI", sans-serif;
+  font-synthesis: none;
+  color: var(--text);
+  background: var(--background);
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { margin: 0; min-width: 280px; }
+button, a, summary { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+button { font: inherit; }
+button, summary { cursor: pointer; }
+button:disabled { cursor: default; opacity: .6; }
+a { color: inherit; text-underline-offset: 3px; text-decoration-thickness: 1px; }
+a:hover { color: var(--text); }
+button:focus-visible, a:focus-visible, summary:focus-visible { outline: 2px solid var(--mineral); outline-offset: 5px; }
+
+.installer { width: min(1080px, 100%); margin: 0 auto; padding: 48px 64px 32px; }
+.masthead { display: flex; align-items: center; gap: 24px; }
+.brand { display: inline-flex; align-items: baseline; font-size: 43px; line-height: 1; letter-spacing: -2.5px; font-weight: 600; }
+.brand-r { position: relative; }
+.brand-r img { position: absolute; width: .5em; height: .5em; left: -.11em; bottom: -.02em; }
+.brand-period { color: #5b8fc9; }
+.studio-label { font-size: 13px; color: var(--quiet); margin-top: 6px; }
+.setup-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; align-items: center; min-height: 488px; padding: 30px 0 38px; }
+.setup-copy { z-index: 1; min-width: 0; }
+h1 { font-size: clamp(29px, 3.5vw, 41px); font-weight: 500; letter-spacing: -1.5px; line-height: 1.16; margin: 0 0 16px; max-width: 10em; text-wrap: balance; }
+.introduction p { max-width: 31em; margin: 0; font-size: 16px; color: var(--quiet); line-height: 1.65; }
+.download-summary { margin: 26px 0 0; font-size: 13px; line-height: 1.6; color: var(--quiet); }
+.progress-area { margin-top: 27px; }
+.progress-caption { display: flex; justify-content: space-between; gap: 15px; align-items: baseline; font-size: 13px; }
+#progress-percent { color: var(--quiet); font-variant-numeric: tabular-nums; }
+.progress-track { height: 3px; margin-top: 12px; background: var(--line); border-radius: 2px; overflow: hidden; }
+.progress-fill { width: var(--progress, 0%); height: 100%; background: var(--mineral); border-radius: inherit; transition: width .3s ease-out; }
+[data-state="prepared"] .progress-fill, [data-state="ready"] .progress-fill { transition: none; }
+.progress-track[data-indeterminate="true"] .progress-fill { width: 28%; animation: checking 2.3s ease-in-out infinite alternate; }
+.progress-detail { margin: 9px 0 0; color: var(--quiet); font-size: 12px; line-height: 1.6; font-variant-numeric: tabular-nums; }
+.setup-message, .connection-message, .action-error { margin: 20px 0 0; font-size: 13px; line-height: 1.65; overflow-wrap: anywhere; white-space: pre-wrap; }
+.setup-message, .connection-message { color: var(--quiet); }
+.action-error, [data-state="error"] .setup-message { color: var(--error); }
+.actions { display: flex; align-items: center; gap: 25px; flex-wrap: wrap; margin-top: 26px; min-height: 48px; }
+.primary-action { min-height: 48px; padding: 12px 24px; border-radius: 7px; border: 1px solid transparent; background: var(--accent); color: var(--background); font-size: 14px; font-weight: 600; }
+.primary-action:hover:not(:disabled) { background: #f18e80; }
+.text-action { padding: 10px 0; border: 0; background: none; color: var(--quiet); font-size: 13px; min-height: 44px; }
+.text-action:hover:not(:disabled) { color: var(--text); }
+.download-details { margin-top: 27px; font-size: 12px; max-width: 380px; }
+.download-details summary { width: fit-content; padding: 13px 0; line-height: 18px; color: var(--quiet); }
+.download-details[open] summary { color: var(--text); }
+.asset-list { list-style: none; margin: 13px 0 0; padding: 0; }
+.asset { display: grid; grid-template-columns: 1fr auto; align-items: baseline; gap: 3px 15px; padding: 9px 0; }
+.asset + .asset { border-top: 1px solid var(--line); }
+.asset-name { line-height: 1.5; min-width: 0; overflow-wrap: anywhere; }
+.asset-size { color: var(--quiet); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.asset-state { grid-column: 1 / -1; color: var(--quiet); line-height: 1.6; }
+.asset[data-state="error"] .asset-state { color: var(--error); }
+.details-note { color: var(--quiet); line-height: 1.7; margin: 14px 0 0; }
+.sound-form { min-width: 0; pointer-events: none; opacity: .85; }
+.sound-form svg { display: block; width: 100%; height: auto; }
+.sound-form path { vector-effect: non-scaling-stroke; }
+.footer { display: flex; justify-content: space-between; align-items: end; gap: 28px; padding-top: 22px; border-top: 1px solid var(--line); color: var(--quiet); font-size: 11px; line-height: 1.7; }
+.license-note { margin: 0; max-width: 34em; }
+.engineering-credit { text-decoration: none; white-space: nowrap; }
+
+@keyframes checking { from { transform: translateX(0); } to { transform: translateX(260%); } }
+@media (min-height: 850px) and (min-width: 760px) { .installer { padding-top: 70px; } .setup-layout { min-height: 540px; } }
+@media (max-width: 760px) {
+  .installer { padding: 30px 30px 25px; max-width: 570px; }
+  .setup-layout { grid-template-columns: 1fr; padding-top: 42px; gap: 10px; }
+  .setup-copy { max-width: 440px; }
+  .sound-form { grid-row: 1; width: 66%; margin: -38px auto -20px; }
+  h1 { font-size: 33px; max-width: 12em; }
+  .footer { align-items: start; flex-direction: column; gap: 13px; }
+  .download-details { max-width: none; }
+}
+@media (max-width: 380px) {
+  .installer { padding-inline: 23px; }
+  .masthead { gap: 20px; }
+  h1 { font-size: 29px; }
+  .introduction p { font-size: 15px; }
+  .sound-form { width: 72%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+  .progress-track[data-indeterminate="true"] .progress-fill { width: 100%; opacity: .5; }
+}
+@media (forced-colors: active) {
+  .primary-action { border-color: ButtonText; }
+  .progress-track { outline: 1px solid CanvasText; }
+  .progress-fill { background: Highlight; forced-color-adjust: none; }
+  .sound-form { display: none; }
+}

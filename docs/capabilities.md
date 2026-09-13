@@ -5,6 +5,9 @@ and semantic music tokens autoregressively, produces acoustic latents through fl
 matching, then decodes stereo audio. Riff drives the pinned audio.cpp implementation
 of this pipeline. Its low-memory default uses Q4 main weights and an F16 VAE.
 
+The [upstream capability audit](yue2-capability-audit.md) maps the current public
+API to Riff and records remaining stage-reuse and composition workflows.
+
 | Musical task | Riff control |
 |---|---|
 | Words and musical style | Optional lyrics and free-form sound direction |

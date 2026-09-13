@@ -6,6 +6,17 @@ let ideaCancelled = false;
 let managedSound = null;
 let compassUsed = false;
 let compassPending = null;
+let ideaEngine = null;
+
+function renderWriting() {
+  if (!ideaBusy || ideaEngine !== "ai") return;
+  const writing = state.writing;
+  // A queued take may also ask the writer for lyrics. Its progress belongs
+  // to that take; only the standalone draft belongs to this writing desk.
+  if (writing && !writing.job_id) {
+    $("#writer-status").textContent = writing.stage || "Writing a new idea…";
+  }
+}
 
 function creationMode() {
   return $("[name=creation-mode]:checked").value;
@@ -80,6 +91,7 @@ async function shuffleIdea(part = "all", fromCompass = false) {
     return;
   }
   ideaBusy = true;
+  ideaEngine = before.idea_engine;
   ideaCancelled = false;
   $("#stop-writing").hidden = before.idea_engine === "phrases";
   const buttons = ["#surprise", "#spark", "#shuffle-lyrics"];
@@ -152,6 +164,7 @@ async function shuffleIdea(part = "all", fromCompass = false) {
     );
   } finally {
     ideaBusy = false;
+    ideaEngine = null;
     $("#stop-writing").hidden = true;
     $("#writer-status").textContent = "Ready for an idea";
     buttons.forEach((id) => ($(id).disabled = false));

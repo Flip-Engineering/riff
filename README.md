@@ -8,23 +8,19 @@ shape the composition, and collect the takes you want to keep.
 
 ## Install
 
-Riff runs on Apple Silicon with Metal, or Linux with NVIDIA CUDA or CPU.
-Python 3.9 or newer is required. Download and run the installer:
+[Get Riff](https://github.com/Flip-Engineering/riff/releases/latest)
 
-```sh
-curl -fL https://github.com/Flip-Engineering/riff/releases/latest/download/install.py -o riff-install.py
-python3 riff-install.py
-```
+The new Apple Silicon desktop installer is in validation. Its flow is **open Riff
+Setup → Install → Open Riff**. It includes the application runtime, Metal engine,
+media tools and local writer, downloads the required models with resumable
+progress, and adds Riff to Applications. Subsequent updates belong to the app.
+Public signed/notarized desktop delivery remains pending; a local packaging proof
+is not presented as a finished public installer.
 
-The installer verifies the release archive and opens the studio. In **Studio
-settings**, choose an accelerator and **Download and set up**. Setup builds the
-pinned audio.cpp engine and downloads about 2.93 GB of Q4 music weights, the F16
-audio decoder, and tokenizer files. Missing prerequisites are shown in the app.
-
-On macOS, install Apple's command-line tools with `xcode-select --install`.
-On Ubuntu, install `python3-venv`, `git`, and `build-essential`; NVIDIA acceleration
-also needs a compatible driver and CUDA Toolkit with `nvcc` on PATH. FFmpeg is
-needed for optional audio reviews and MP4 exports. See [installation and updates](docs/install.md).
+The current source distribution supports Apple Silicon Metal, Linux NVIDIA CUDA,
+and CPU. Developer setup and the existing source installer are documented in
+[installation and updates](docs/install.md). See [desktop delivery](desktop/README.md)
+for packaging and acceptance details.
 
 **Model terms:** Riff's application code is MIT licensed. The separately downloaded
 [YuE2 weights use CC BY-NC 4.0](https://huggingface.co/m-a-p/YuE2-3B).
@@ -66,6 +62,8 @@ The application license does not change the model's terms.
   `google/gemini-3.8-flash`; the studio never silently substitutes a model.
 - **Saved sounds.** Browse, create, edit, and remove reusable sound prompts.
   [Adapter research](docs/adapters.md) distinguishes these from learned LoRAs.
+- **Keep creating.** The desktop runtime can write a new idea while music renders
+  when memory permits. Each operation keeps its own progress and cancellation.
 
 ![Composition workspace](docs/composition.png)
 

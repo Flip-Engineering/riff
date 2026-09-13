@@ -31,7 +31,7 @@ const RiffArtwork = (() => {
       for (let i = 0; i <= 100; i++) {
         const light = i / 100;
         const material = light < .32 ? mix(body, [23, 30, 39], (.32 - light) * 1.6)
-          : mix(body, paper, (light - .32) * .88);
+          : mix(body, paper, (light - .32) / .68);
         lights.push(color(material));
         ridges.push(color(mix(material, light > .72 ? paper : body, .32)));
       }
@@ -189,14 +189,14 @@ const RiffArtwork = (() => {
         float texture=materialAmount.y*(fibre*0.6+weave*0.2);
         float sheen=pow(max(0.0,dot(n,normalize(vec3(-0.22+sound.y*0.13,-0.34,0.91)))),
           24.0+18.0*materialAmount.y);
-        float light=clamp(0.22+0.64*diffuse+surfaceStress*0.065+texture*0.035,0.0,1.0);
+        float light=clamp(0.16+0.69*diffuse+0.38*sheen+surfaceStress*0.045+texture*0.006,0.0,1.0);
         float grazing=pow(1.0-abs(n.z),2.0);
-        vec3 pigment=mix(ink,accent,veil*materialAmount.x);
-        vec3 material=mix(pigment*0.48,paper*1.015,light*0.91);
-        float transmission=grazing*(0.12+sound.x*0.09)+max(0.0,surfaceStress)*0.09;
+        vec3 pigment=mix(ink,accent,veil*materialAmount.x*0.72);
+        vec3 material=mix(pigment*0.48,paper*1.035,light);
+        float transmission=grazing*(0.075+sound.x*0.035)+max(0.0,surfaceStress)*0.035;
         material=mix(material,mix(pigment,glow,0.46),transmission);
-        vec3 pearl=mix(paper,glow,(0.22+0.23*veil)*materialAmount.x);
-        material=mix(material,pearl,sheen*(0.34+sound.z*0.20)*(1.0-texture*0.24));
+        vec3 pearl=mix(paper*1.035,glow,(0.05+0.08*veil)*materialAmount.x);
+        material=mix(material,pearl,sheen*(0.08+sound.z*0.035));
         float band=surfaceUV.y*39.0;
         float distance=abs(fract(band+0.5)-0.5);
         float openSide=smoothstep(-0.3,0.8,c.y);
@@ -205,7 +205,7 @@ const RiffArtwork = (() => {
         float coverage=1.0-smoothstep(width,width+fwidth(band)*0.8,distance);
         if(coverage<0.05) discard;
         float trace=1.0-smoothstep(0.01,0.01+fwidth(band)*1.2,distance);
-        material=mix(material,mix(pigment*0.46,pearl,light*0.50),trace*(0.50+materialAmount.y*0.12));
+        material=mix(material,mix(pigment*0.46,pearl,light*0.50),trace*(0.37+materialAmount.y*0.08)*(1.0-sheen*0.6));
         pixel=vec4(material,coverage);
       }
     `);

@@ -1,0 +1,44 @@
+{
+  "format_version": 1,
+  "platform": "macos-arm64",
+  "python": {
+    "version": "3.14.7+20260901",
+    "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20260901/cpython-3.14.7%2B20260901-aarch64-apple-darwin-install_only_stripped.tar.gz",
+    "archive": "python.tar.gz",
+    "bytes": 26486008,
+    "sha256": "4632cb1a6edad9e73d3c81b6d2e69131637d995173e3e85005df14102b0592ba",
+    "source": "https://github.com/astral-sh/python-build-standalone/releases/tag/20260901"
+  },
+  "ffmpeg": {
+    "version": "9.0.1",
+    "url": "https://ffmpeg.org/releases/ffmpeg-9.0.1.tar.xz",
+    "archive": "ffmpeg.tar.xz",
+    "bytes": 12036420,
+    "sha256": "cf38e0e28c7e5605942c4a77755349b0145804a397af37eb1fb4c77cb237f635",
+    "source": "https://ffmpeg.org/releases/ffmpeg-9.0.1.tar.xz"
+  },
+  "x264": {
+    "version": "c24e06c2e184345ceb33eb20a15d1024d9fd3497",
+    "url": "https://codeload.github.com/mirror/x264/tar.gz/c24e06c2e184345ceb33eb20a15d1024d9fd3497",
+    "archive": "x264.tar.gz",
+    "bytes": 1035587,
+    "sha256": "090d730e867fc63631782a1287974635d1237d0fa7c6fd1d09fd543620a56689",
+    "source": "https://code.videolan.org/videolan/x264/-/tree/c24e06c2e184345ceb33eb20a15d1024d9fd3497"
+  },
+  "lame": {
+    "version": "3.100",
+    "url": "https://downloads.sourceforge.net/project/lame/lame/3.100/lame-3.100.tar.gz",
+    "archive": "lame.tar.gz",
+    "bytes": 1524133,
+    "sha256": "ddfe36cab873794038ae2c1210557ad34857a4b6bdc515785d1da9e175b1da1e",
+    "source": "https://lame.sourceforge.io/download.php"
+  },
+  "openssl": {
+    "version": "3.6.4",
+    "url": "https://github.com/openssl/openssl/releases/download/openssl-3.6.4/openssl-3.6.4.tar.gz",
+    "archive": "openssl-3.6.4.tar.gz",
+    "bytes": 55003802,
+    "sha256": "9bffaa1ad1e07b354c21bd3324ec02fa15579f45a7d0494b3e74bc449b7333ef",
+    "source": "https://www.openssl-library.org/source/"
+  }
+}

@@ -884,7 +884,7 @@ function renderQueue() {
       : "";
   $("#engine-label").parentElement.hidden = connected && !running;
   $("#generation-footnote").textContent = !connected
-    ? "Open Riff.command to reconnect to your studio."
+    ? "Open Riff to reconnect to your studio."
     : active.length
       ? "Takes run one at a time. Keep writing while you wait."
       : "";
@@ -1018,6 +1018,7 @@ async function refresh() {
   const added = next.tracks.filter((track) => !latestTrackIds.has(track.id));
   const oldJobs = new Map(state.jobs.map((job) => [job.id, job.status]));
   state = next;
+  renderWriting();
   window.RiffControls?.render(next);
   window.RiffScore?.update(next);
   window.RiffCompare?.render();

@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#1c1216" />
+    <meta name="referrer" content="no-referrer" />
+    <meta name="riff-installer-token" content="RIFF_INSTALLER_TOKEN" />
+    <title>Install Riff</title>
+    <link rel="icon" href="/flip-face.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/installer.css" />
+    <script src="/installer.js" defer></script>
+  </head>
+  <body>
+    <main class="installer" aria-labelledby="heading">
+      <header class="masthead">
+        <span class="brand" aria-label="Riff"><span class="brand-r">r<img src="/flip-face.svg" alt="" /></span>iff<span class="brand-period">.</span></span>
+        <span class="studio-label">Music studio</span>
+      </header>
+
+      <div class="setup-layout">
+        <section class="setup-copy">
+          <div class="introduction" aria-live="polite" aria-atomic="true">
+            <h1 id="heading">Install Riff</h1>
+            <p id="description">A space to write, generate, and shape music.</p>
+          </div>
+
+          <div id="progress-area" class="progress-area" hidden>
+            <div class="progress-caption">
+              <span id="stage-label">Getting ready</span>
+              <span id="progress-percent"></span>
+            </div>
+            <div id="download-progress" class="progress-track" role="progressbar" aria-label="Download progress" aria-valuemin="0" aria-valuemax="100">
+              <div id="progress-fill" class="progress-fill"></div>
+            </div>
+            <p id="progress-detail" class="progress-detail"></p>
+          </div>
+
+          <p id="download-summary" class="download-summary">Getting ready…</p>
+          <p id="setup-message" class="setup-message" role="status" hidden></p>
+          <p id="connection-message" class="connection-message" role="status" hidden></p>
+          <p id="action-error" class="action-error" role="alert" hidden></p>
+
+          <div class="actions">
+            <button id="primary-action" class="primary-action" type="button" disabled>Install Riff</button>
+            <button id="cancel-action" class="text-action" type="button" hidden>Stop setup</button>
+          </div>
+
+          <details id="download-details" class="download-details">
+            <summary id="details-label">What’s included</summary>
+            <ul id="asset-list" class="asset-list" aria-label="Installation files"></ul>
+            <p id="details-empty" class="details-note">The studio’s music models download as part of setup.</p>
+          </details>
+        </section>
+
+        <div class="sound-form" aria-hidden="true">
+          <svg viewBox="0 0 440 460" focusable="false">
+            <defs>
+              <linearGradient id="fold-mineral" x1="0" x2="1" y1="0" y2="1">
+                <stop offset="0" stop-color="#91b7bc" />
+                <stop offset=".42" stop-color="#b0bdcd" />
+                <stop offset=".7" stop-color="#827d9c" />
+                <stop offset="1" stop-color="#c2a2a7" />
+              </linearGradient>
+            </defs>
+            <g id="sound-lines" fill="none" stroke="url(#fold-mineral)" stroke-linecap="round"></g>
+          </svg>
+        </div>
+      </div>
+
+      <footer class="footer">
+        <p class="license-note"><a href="https://huggingface.co/m-a-p/YuE2-3B" target="_blank" rel="noopener noreferrer">YuE2 music models</a> are included in setup under <a href="https://creativecommons.org/licenses/by-nc/4.0/" target="_blank" rel="noopener noreferrer">CC BY-NC 4.0</a>.</p>
+        <a class="engineering-credit" href="https://github.com/Flip-Engineering/riff" target="_blank" rel="noopener noreferrer">Flip Engineering</a>
+      </footer>
+      <noscript><p class="action-error">Enable JavaScript to continue setup.</p></noscript>
+    </main>
+  </body>
+</html>

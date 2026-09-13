@@ -136,6 +136,7 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/state":
                 state = self.server.store.snapshot()
                 state["live"] = self.server.generator.status()
+                state["writing"] = self.server.generator.writing_status()
                 state["reviews"] = self.server.reviews.snapshot() if self.server.reviews else []
                 state["review_settings"] = self.server.reviews.settings() if self.server.reviews else {"enabled": False}
                 state["engine"] = {**platform_support.readiness(), "writer_ready": self.server.generator.writer_ready(),
@@ -314,6 +315,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.json_response(200, result)
             elif path in ("/api/system/check", "/api/system/update") and method == "POST" and self.server.maintenance:
                 self.json_response(202, self.server.maintenance.start(path.rsplit("/", 1)[1], payload))
+            elif path == "/api/system/cancel" and method == "POST" and self.server.maintenance:
+                self.json_response(200, self.server.maintenance.cancel())
             elif path == "/api/system/preferences" and method == "POST" and self.server.maintenance:
                 self.json_response(200, self.server.maintenance.configure(payload))
             elif path == "/api/system/restart" and method == "POST" and self.server.maintenance:
@@ -325,8 +328,16 @@ class Handler(BaseHTTPRequestHandler):
             elif path == "/api/presets" and method == "POST":
                 self.json_response(201, self.server.store.add_preset(payload))
             elif path == "/api/inspiration" and method == "POST":
+                with self.server.maintenance.lock if self.server.maintenance else nullcontext():
+                    if self.server.restart_requested:
+                        raise ValueError("Riff is restarting. Your draft is saved.")
+                # The generator admits the writer atomically with its quiesce
+                # boundary; never hold the studio lock for the whole AI call.
                 self.json_response(200, self.server.generator.inspiration(payload))
             elif path == "/api/composition/revise" and method == "POST":
+                with self.server.maintenance.lock if self.server.maintenance else nullcontext():
+                    if self.server.restart_requested:
+                        raise ValueError("Riff is restarting. Your score is saved.")
                 self.json_response(200, self.server.generator.inspiration({**payload, "task": "score", "idea_engine": "openrouter"}))
             elif path == "/api/inspiration/cancel" and method == "POST":
                 self.json_response(200, self.server.generator.cancel_writing())
@@ -335,7 +346,11 @@ class Handler(BaseHTTPRequestHandler):
             elif path == "/api/review/key" and method == "DELETE" and self.server.reviews:
                 self.json_response(200, self.server.reviews.remove_key())
             elif (match := TRACK_REVIEWS_ROUTE.fullmatch(path)) and method == "POST" and self.server.reviews:
-                self.json_response(201, self.server.reviews.submit(match[1], payload))
+                with self.server.maintenance.lock if self.server.maintenance else nullcontext():
+                    if self.server.restart_requested:
+                        raise ValueError("Riff is restarting. Review this recording when the studio opens.")
+                    review = self.server.reviews.submit(match[1], payload)
+                self.json_response(201, review)
             elif (match := TRACK_ROUTE.fullmatch(path)) and match[2] == "video-exports" and method == "POST":
                 with self.server.maintenance.lock if self.server.maintenance else nullcontext():
                     if self.server.restart_requested:

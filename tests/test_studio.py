@@ -15,6 +15,7 @@ from unittest.mock import patch
 
 from studio import StudioServer, byte_range
 from studio_core import CONTEXT, Generator, Store, observe_generation, validate_recipe
+from admission_fixture import FixtureAdmission
 
 
 def fixture_audio(path):
@@ -91,6 +92,10 @@ class StudioFixture(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
         self.store = Store(self.root / "data", self.root / "outputs")
+        self.admission = FixtureAdmission()
+        admission = patch("studio_core.ModelAdmission", return_value=self.admission)
+        admission.start()
+        self.addCleanup(admission.stop)
         self.audio = self.store.outputs / "take.wav"
         fixture_audio(self.audio)
 
@@ -266,7 +271,7 @@ if settings.get('brief') == 'full recipe fixture':
 output.write_text(json.dumps(result))
 marker.unlink()
 """
-        return [sys.executable, "-u", "-c", script, str(output), str(self.root / "exclusive-worker")]
+        return [sys.executable, "-u", "-c", script, str(output), str(self.root / "writer-worker")]
 
     def writing_generator(self):
         self.generator = Generator(self.store, self.fake_command)
@@ -307,7 +312,7 @@ marker.unlink()
     def test_cancel_during_automatic_writing_reaps_writer_and_queue_continues(self):
         generator = self.writing_generator()
         first = generator.submit({"mode": "surprise", "brief": "wait"})["id"]
-        wait_until(lambda: (self.root / "exclusive-worker").exists())
+        wait_until(lambda: (self.root / "writer-worker").exists())
         pid = generator.writer_process.pid
         second = generator.submit(recipe())["id"]
         generator.cancel(first)
@@ -315,7 +320,7 @@ marker.unlink()
         self.assertEqual(self.status(first), "cancelled")
         self.assertEqual(subprocess.run(["/bin/ps", "-p", str(pid)], capture_output=True).returncode, 1)
 
-    def test_standalone_writer_is_cancellable_and_serializes_with_music(self):
+    def test_standalone_writer_and_music_overlap_with_independent_cancellation(self):
         generator = self.writing_generator()
         results = []
         def write():
@@ -323,19 +328,103 @@ marker.unlink()
         worker = threading.Thread(target=write)
         worker.start()
         try:
-            wait_until(lambda: (self.root / "exclusive-worker").exists())
+            wait_until(lambda: (self.root / "writer-worker").exists())
             pid = generator.writer_process.pid
-            job = generator.submit(recipe())["id"]
+            job = generator.submit(recipe(style="wait"))["id"]
+            wait_until(lambda: (self.root / "exclusive-worker").exists())
+            music = generator.process
             with self.assertRaises(ValueError): generator.inspiration({"mode": "surprise"})
-            self.assertIsNone(generator.process)
+            self.assertIsNone(music.poll())
+            self.assertFalse(generator.quiesce())
+            # Stopping the song must not stop the independent writer.
+            generator.cancel(job)
+            wait_until(lambda: self.status(job) == "cancelled")
+            self.assertIsNone(generator.writer_process.poll())
+            second = generator.submit(recipe(style="wait"))["id"]
+            wait_until(lambda: generator.process and generator.process.poll() is None)
+            second_process = generator.process
             generator.cancel_writing()
             worker.join(timeout=10)
             self.assertFalse(worker.is_alive())
-            wait_until(lambda: self.status(job) == "done")
+            self.assertIsNone(second_process.poll())
+            generator.cancel(second)
+            wait_until(lambda: self.status(second) == "cancelled")
             self.assertEqual(results, [{"cancelled": True}])
             self.assertEqual(subprocess.run(["/bin/ps", "-p", str(pid)], capture_output=True).returncode, 1)
         finally:
             if generator.writer_process: generator.cancel_writing()
+            worker.join(timeout=10)
+
+    def test_waiting_writer_can_stop_before_launch_and_resumes_when_memory_returns(self):
+        generator = self.writing_generator()
+        self.admission.gates["writer"].clear()
+        results = []
+        worker = threading.Thread(target=lambda: results.append(generator.inspiration({"mode": "surprise"})))
+        worker.start()
+        wait_until(lambda: (generator.writing_status() or {}).get("stage") == "Waiting for memory")
+        self.assertIsNone(generator.writer_process)
+        self.assertTrue(generator.has_active_work())
+        self.assertFalse(generator.quiesce())
+        generator.cancel_writing()
+        worker.join(timeout=10)
+        self.assertEqual(results, [{"cancelled": True}])
+        self.assertFalse(self.admission.entries)
+        worker = threading.Thread(target=lambda: results.append(generator.inspiration({"mode": "surprise"})))
+        worker.start()
+        try:
+            wait_until(lambda: (generator.writing_status() or {}).get("stage") == "Waiting for memory")
+            self.admission.gates["writer"].set()
+            worker.join(timeout=10)
+            self.assertFalse(worker.is_alive())
+            self.assertEqual(results[-1]["lyrics"], "Two moons talk over tea.")
+            self.assertTrue(generator.quiesce())
+            with self.assertRaisesRegex(ValueError, "Riff is updating"):
+                generator.inspiration({"mode": "surprise"})
+            with self.assertRaisesRegex(ValueError, "Riff is updating"):
+                generator.submit(recipe())
+            generator.resume()
+            job = generator.submit(recipe())["id"]
+            wait_until(lambda: self.status(job) == "done")
+        finally:
+            if generator.writing_status(): generator.cancel_writing()
+            worker.join(timeout=10)
+
+    def test_waiting_native_cancellation_keeps_writer_and_next_job_retries_admission(self):
+        generator = self.writing_generator()
+        self.admission.gates["native"].clear()
+        results = []
+        worker = threading.Thread(target=lambda: results.append(generator.inspiration({"mode": "surprise", "brief": "wait"})))
+        worker.start()
+        try:
+            wait_until(lambda: generator.writer_process is not None)
+            first = generator.submit(recipe())["id"]
+            wait_until(lambda: (generator.status() or {}).get("stage") == "Waiting for memory")
+            generator.cancel(first)
+            wait_until(lambda: self.status(first) == "cancelled")
+            self.assertIsNone(generator.writer_process.poll())
+            self.assertIsNone(generator.process)
+            second = generator.submit(recipe())["id"]
+            wait_until(lambda: (generator.status() or {}).get("stage") == "Waiting for memory")
+            self.admission.gates["native"].set()
+            wait_until(lambda: self.status(second) == "done")
+            self.assertIsNone(generator.writer_process.poll())
+        finally:
+            if generator.writing_status(): generator.cancel_writing()
+            worker.join(timeout=10)
+
+    def test_automatic_writer_waiting_for_standalone_writer_can_be_cancelled(self):
+        generator = self.writing_generator()
+        worker = threading.Thread(target=lambda: generator.inspiration({"mode": "surprise", "brief": "wait"}))
+        worker.start()
+        try:
+            wait_until(lambda: generator.writer_process is not None)
+            job = generator.submit({"mode": "surprise"})["id"]
+            wait_until(lambda: (generator.status() or {}).get("stage") == "Waiting for the writer")
+            generator.cancel(job)
+            wait_until(lambda: self.status(job) == "cancelled")
+            self.assertIsNone(generator.writer_process.poll())
+        finally:
+            if generator.writing_status(): generator.cancel_writing()
             worker.join(timeout=10)
 
     def test_cancellation_reaps_child_and_next_queued_take_finishes(self):

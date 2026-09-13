@@ -1,4 +1,4 @@
-"""Riff's local library and single-owner music generation queue."""
+"""Riff's library and resource-aware, independently cancellable model work."""
 import array
 from contextlib import contextmanager
 import ctypes
@@ -20,6 +20,7 @@ import run as engine
 from inspiration import inspire, seed_number
 from paths import ROOT, WORKSPACE
 import model_options
+from model_admission import AdmissionCancelled, ModelAdmission
 from symbolic import read_plan
 
 CONTEXT = model_options.CONTEXT
@@ -451,7 +452,7 @@ class Store:
 
 
 class Generator:
-    def __init__(self, store, command_builder=None):
+    def __init__(self, store, command_builder=None, admission=None):
         self.store = store
         self.command_builder = command_builder or self.native_command
         self.wake, self.stop = threading.Event(), threading.Event()
@@ -459,11 +460,14 @@ class Generator:
         self.process = None
         self.writer_process = None
         self.writer_job_id = None
-        self.writer_cancelled = False
-        self.model_gate = threading.Lock()
+        self.writer_session = None
         self.writer_gate = threading.Lock()
+        self.active_job_id = None
+        self.job_cancelled = None
+        self.quiescing = False
         self.live = None
         self.monitor = engine.platform_runtime.ProcessMemory()
+        self.admission = admission if admission is not None else ModelAdmission(store.data_root)
         store.recover_jobs()
         self.thread = threading.Thread(target=self.work, name="riff-generator", daemon=True)
         self.thread.start()
@@ -483,36 +487,97 @@ class Generator:
 
     @staticmethod
     def writer_ready():
-        return (WORKSPACE / ".writer-venv/bin/python").is_file() and (WORKSPACE / "models/lyric-writer/model.safetensors").is_file()
+        settings = engine.platform_runtime.writer_settings()
+        return settings["python"].is_file() and (settings["model"] / "model.safetensors").is_file()
 
     def inspiration(self, payload):
+        with self.lock:
+            self._accepting()
         if payload.get("idea_engine", "ai") == "phrases":
             return inspire(payload)
-        local = payload.get("idea_engine", "ai") != "openrouter"
-        if local and not self.model_gate.acquire(blocking=False):
-            raise ValueError("The local model is busy. Try the writer after this take, or choose the instant phrase shuffler.")
         try:
-            if not self.writer_gate.acquire(blocking=False):
-                raise ValueError("A writing request is already running. Finish or stop it before starting another.")
-            try:
-                return self.write_idea(payload)
-            finally:
-                self.writer_gate.release()
+            with self._writer_slot(nonblocking=True) as session:
+                return self.write_idea(payload, session=session)
+        except AdmissionCancelled:
+            return {"cancelled": True}
+
+    def _accepting(self):
+        if self.stop.is_set():
+            raise AdmissionCancelled()
+        if self.quiescing:
+            raise ValueError("Riff is updating. Your draft is kept.")
+
+    def has_active_work(self):
+        with self.lock:
+            if self.active_job_id or self.writer_gate.locked():
+                return True
+            with self.store.db() as db:
+                return bool(db.execute("SELECT 1 FROM jobs WHERE status IN ('queued','running','cancelling') LIMIT 1").fetchone())
+
+    def quiesce(self):
+        """Atomically close admission for activation, without interrupting work."""
+        with self.lock:
+            if self.has_active_work():
+                return False
+            self.quiescing = True
+            return True
+
+    def resume(self):
+        with self.lock:
+            self.quiescing = False
+        self.wake.set()
+
+    @contextmanager
+    def _writer_slot(self, job_id=None, started=None, nonblocking=False):
+        cancelled = self.job_cancelled if job_id else threading.Event()
+        while True:
+            with self.lock:
+                self._accepting()
+                if cancelled.is_set():
+                    raise AdmissionCancelled()
+                if self.writer_gate.acquire(blocking=False):
+                    session = {"id": f"writer:{uuid.uuid4().hex}", "job_id": job_id,
+                               "cancelled": cancelled, "started": started or time.monotonic(),
+                               "stage": "Preparing the writer", "footprint": 0, "peak_footprint": 0}
+                    self.writer_session = session
+                    self.writer_job_id = job_id
+                    break
+                if nonblocking:
+                    raise ValueError("A writing request is already running. Finish or stop it before starting another.")
+                if self.live and self.live["id"] == job_id:
+                    self.live.update(stage="Waiting for the writer", elapsed=time.monotonic() - started)
+            cancelled.wait(.2)
+        try:
+            yield session
         finally:
-            if local:
-                self.model_gate.release()
+            with self.lock:
+                if self.writer_session is session:
+                    self.writer_session = None
+                    self.writer_job_id = None
+                self.writer_gate.release()
 
     @staticmethod
     def writer_command(output):
-        return [str(WORKSPACE / ".writer-venv/bin/python"), str(ROOT / "writer.py"), "--output", str(output)]
+        return [str(engine.platform_runtime.writer_settings()["python"]), "-B", str(ROOT / "writer.py"), "--output", str(output)]
 
     def cancel_writing(self):
         with self.lock:
-            if self.writer_job_id or not self.writer_process or self.writer_process.poll() is not None:
+            session = self.writer_session
+            if not session or session["job_id"]:
                 raise ValueError("There is no standalone writing session to stop.")
-            self.writer_cancelled = True
-            self.writer_process.terminate()
+            session["cancelled"].set()
+            session["stage"] = "Stopping the writer"
+            if self.writer_process and self.writer_process.poll() is None:
+                self.writer_process.terminate()
         return {"status": "stopping"}
+
+    def writing_status(self):
+        with self.lock:
+            if not self.writer_session:
+                return None
+            session = self.writer_session
+            return {key: session[key] for key in ("id", "job_id", "stage", "footprint", "peak_footprint")} | {
+                "elapsed": time.monotonic() - session["started"]}
 
     def writing_settings(self, payload):
         # Validate the settings without imposing a particular story, genre, or form.
@@ -561,7 +626,7 @@ class Generator:
                         settings["reference"]["review"]["generation"] = generation_context(json.loads(review["generation"]))
         return settings
 
-    def write_idea(self, payload, job_id=None, started=None):
+    def write_idea(self, payload, job_id=None, started=None, session=None):
         cloud = payload.get("idea_engine") == "openrouter"
         if not cloud and not self.writer_ready():
             raise ValueError("The local AI writer is not installed. Choose another writer in Ideas from.")
@@ -577,40 +642,51 @@ class Generator:
                 saved = db.execute("SELECT value FROM library_meta WHERE key='review_settings'").fetchone()
             settings["model"] = json.loads(saved[0])["model"] if saved else "google/gemini-3.8-flash"
             settings["api_key"] = Keychain().get()
-        started = started or time.monotonic()
-        with tempfile.TemporaryDirectory(prefix="writing-", dir=self.store.data_root) as temporary:
-            output, log_path = Path(temporary) / "idea.json", Path(temporary) / "writer.log"
-            with log_path.open("w") as log, self.lock:
-                if self.stop.is_set():
-                    raise ValueError("The studio is closing.")
-                if job_id:
-                    with self.store.db() as db:
-                        if db.execute("SELECT status FROM jobs WHERE id=?", (job_id,)).fetchone()[0] == "cancelling":
-                            raise ValueError("Writing was stopped.")
-                    self.live = {"id": job_id, "title": settings["title"], "stage": "Writing a new song idea",
-                                 "stage_index": 0, "elapsed": 0, "footprint": 0, "peak_footprint": 0}
-                self.writer_cancelled = False
-                self.writer_job_id = job_id
-                self.writer_process = subprocess.Popen(
-                    ([sys.executable, str(ROOT / "writer.py"), "--output", str(output)] if cloud else self.writer_command(output)),
-                    cwd=ROOT, stdin=subprocess.PIPE, stdout=log, stderr=log)
-                proc = self.writer_process
-            try:
+        started = session["started"]
+        cancelled = session["cancelled"]
+        identity = session["id"]
+        proc, reserved = None, False
+
+        def waiting(reason):
+            with self.lock:
+                session["stage"] = reason
+                if job_id and self.live and self.live["id"] == job_id:
+                    self.live.update(stage=reason, elapsed=time.monotonic() - started)
+
+        try:
+            if not cloud:
+                session["reservation"] = self.admission.reserve(identity, settings, "writer", cancelled,
+                                                                 on_wait=waiting, writer_settings=settings)
+                reserved = True
+            with tempfile.TemporaryDirectory(prefix="writing-", dir=self.store.data_root) as temporary:
+                output, log_path = Path(temporary) / "idea.json", Path(temporary) / "writer.log"
+                with log_path.open("w") as log, self.lock:
+                    if self.stop.is_set() or cancelled.is_set():
+                        raise AdmissionCancelled()
+                    session["stage"] = "Writing a new song idea"
+                    if job_id and self.live and self.live["id"] == job_id:
+                        self.live.update(stage=session["stage"], stage_index=0)
+                    proc = subprocess.Popen(
+                        ([sys.executable, "-B", str(ROOT / "writer.py"), "--output", str(output)] if cloud else self.writer_command(output)),
+                        cwd=ROOT, stdin=subprocess.PIPE, stdout=log, stderr=log)
+                    self.writer_process = proc
+                    if reserved:
+                        self.admission.attach(identity, proc)
                 proc.stdin.write(json.dumps(settings).encode())
                 proc.stdin.close()
                 while proc.poll() is None:
                     footprint, memory_peak = self.monitor.read(proc.pid)
                     with self.lock:
-                        if job_id and self.live:
-                            self.live.update(elapsed=time.monotonic() - started,
-                                             footprint=footprint)
-                            self.live["peak_footprint"] = max(self.live["peak_footprint"], memory_peak)
-                        if self.stop.is_set() and proc.poll() is None:
+                        session.update(footprint=footprint, peak_footprint=max(session["peak_footprint"], memory_peak))
+                        if job_id and self.live and self.live["id"] == job_id:
+                            self.live.update(elapsed=time.monotonic() - started, footprint=footprint,
+                                             peak_footprint=max(self.live["peak_footprint"], memory_peak))
+                        if (self.stop.is_set() or cancelled.is_set()) and proc.poll() is None:
                             proc.terminate()
                     time.sleep(.2)
                 proc.wait()
-                if not job_id and self.writer_cancelled:
-                    return {"cancelled": True}
+                if cancelled.is_set() or self.stop.is_set():
+                    raise AdmissionCancelled()
                 if proc.returncode or not output.is_file():
                     message = log_path.read_text().strip().splitlines()
                     raise ValueError(message[-1] if message else "The local writer stopped. Try another idea.")
@@ -622,26 +698,33 @@ class Generator:
                     generation.update(writer_model=result.get("writer_model", "local"),
                                       writer_summary=result.get("summary", result.get("writer_summary", "")))
                     result = {**result, **generation, "generation": generation}
+                if cancelled.is_set() or self.stop.is_set():
+                    raise AdmissionCancelled()
                 return result
-            finally:
+        finally:
+            if proc:
                 if not proc.stdin.closed:
                     try: proc.stdin.close()
                     except OSError: pass
+                if proc.poll() is None:
+                    proc.terminate()
+                proc.wait()
                 with self.lock:
-                    if proc.poll() is None:
-                        proc.terminate()
-                    proc.wait()
-                    self.writer_process = None
-                    self.writer_job_id = None
+                    if self.writer_process is proc:
+                        self.writer_process = None
+            if reserved:
+                self.admission.release(identity)
 
     def submit(self, payload):
         recipe = self.store.prepare_performance(validate_recipe(payload))
         job_id = uuid.uuid4().hex
-        with self.store.db() as db:
-            db.execute("BEGIN IMMEDIATE")
-            position = db.execute("SELECT COALESCE(MAX(queue_position),0)+1 FROM jobs").fetchone()[0]
-            db.execute("INSERT INTO jobs (id,title,created,status,recipe,queue_position) VALUES (?,?,?,'queued',?,?)",
-                       (job_id, recipe["title"], time.time(), json.dumps(recipe), position))
+        with self.lock:
+            self._accepting()
+            with self.store.db() as db:
+                db.execute("BEGIN IMMEDIATE")
+                position = db.execute("SELECT COALESCE(MAX(queue_position),0)+1 FROM jobs").fetchone()[0]
+                db.execute("INSERT INTO jobs (id,title,created,status,recipe,queue_position) VALUES (?,?,?,'queued',?,?)",
+                           (job_id, recipe["title"], time.time(), json.dumps(recipe), position))
         self.wake.set()
         return {"id": job_id, "recipe": recipe, "status": "queued"}
 
@@ -676,13 +759,15 @@ class Generator:
                     db.execute("UPDATE jobs SET status='cancelled',finished=? WHERE id=?", (time.time(), job_id))
                     status = "cancelled"
                 elif row["status"] in ("running", "cancelling"):
-                    if self.process and self.process.poll() is not None:
+                    if self.active_job_id == job_id and self.process and self.process.poll() is not None:
                         raise ValueError("This take has finished and is being saved.")
                     db.execute("UPDATE jobs SET status='cancelling' WHERE id=?", (job_id,))
                     status = "cancelling"
-                    if self.live and self.live["id"] == job_id and self.process and self.process.poll() is None:
+                    if self.active_job_id == job_id and self.job_cancelled:
+                        self.job_cancelled.set()
+                    if self.active_job_id == job_id and self.process and self.process.poll() is None:
                         self.process.terminate()
-                    if self.live and self.live["id"] == job_id and self.writer_process and self.writer_process.poll() is None:
+                    if self.writer_job_id == job_id and self.writer_process and self.writer_process.poll() is None:
                         self.writer_process.terminate()
                 else:
                     raise ValueError("This take has already finished.")
@@ -695,20 +780,26 @@ class Generator:
 
     def work(self):
         while not self.stop.is_set():
+            row = None
             try:
-                with self.store.db() as db:
-                    db.execute("BEGIN IMMEDIATE")
-                    row = db.execute("SELECT * FROM jobs WHERE status='queued' ORDER BY queue_position,created,id LIMIT 1").fetchone()
-                    if row:
-                        db.execute("UPDATE jobs SET status='running',started=? WHERE id=?", (time.time(), row["id"]))
+                with self.lock:
+                    if not self.quiescing and not self.stop.is_set():
+                        with self.store.db() as db:
+                            db.execute("BEGIN IMMEDIATE")
+                            row = db.execute("SELECT * FROM jobs WHERE status='queued' ORDER BY queue_position,created,id LIMIT 1").fetchone()
+                            if row:
+                                db.execute("UPDATE jobs SET status='running',started=? WHERE id=?", (time.time(), row["id"]))
+                                self.active_job_id = row["id"]
+                                self.job_cancelled = threading.Event()
+                                self.live = {"id": row["id"], "title": row["title"], "stage": "Preparing the studio",
+                                             "stage_index": 0, "elapsed": 0, "footprint": 0, "peak_footprint": 0}
             except sqlite3.OperationalError:
                 # Keep the worker alive while storage is temporarily unavailable.
                 # Shutdown interrupts the same polling interval used by rendering.
                 self.stop.wait(.5)
                 continue
             if row:
-                with self.model_gate:
-                    self.execute(dict(row))
+                self.execute(dict(row))
                 continue
             self.wake.wait()
             self.wake.clear()
@@ -722,13 +813,22 @@ class Generator:
         started, peak = time.monotonic(), 0
         returncode, failure, track_id, planned, performed = None, "", None, False, False
         command = []
+        proc, reserved, reservation = None, False, None
+        cancelled = self.job_cancelled
+        identity = f"native:{job_id}"
+
+        def waiting(reason):
+            with self.lock:
+                if self.live and self.live["id"] == job_id:
+                    self.live.update(stage=reason, elapsed=time.monotonic() - started)
+
         try:
             if recipe.get("lyrics_source") == "pending":
                 with self.store.db() as db:
                     if db.execute("SELECT status FROM jobs WHERE id=?", (job_id,)).fetchone()[0] == "cancelling":
                         return
-                with self.writer_gate:
-                    idea = self.write_idea(recipe, job_id, started)
+                with self._writer_slot(job_id, started) as session:
+                    idea = self.write_idea(recipe, job_id, started, session=session)
                 peak = self.live.get("peak_footprint", 0) if self.live else 0
                 recipe = validate_recipe({**recipe, **idea["generation"],
                                           "title": idea["title"] if recipe.get("title_auto") else recipe["title"],
@@ -737,16 +837,17 @@ class Generator:
                 with self.store.db() as db:
                     db.execute("UPDATE jobs SET title=?,recipe=? WHERE id=?", (recipe["title"], json.dumps(recipe), job_id))
             recipe = self.store.prepare_performance(recipe)
+            reservation = self.admission.reserve(identity, recipe, "native", cancelled, on_wait=waiting)
+            reserved = True
             command = self.command_builder(recipe, output)
             with log_path.open("w") as log, self.lock:
-                with self.store.db() as db:
-                    cancelled = db.execute("SELECT status FROM jobs WHERE id=?", (job_id,)).fetchone()[0] == "cancelling"
-                if cancelled or self.stop.is_set():
+                if cancelled.is_set() or self.stop.is_set():
                     return
                 self.live = {"id": job_id, "title": recipe["title"], "stage": "Preparing the studio", "stage_index": 0,
                              "elapsed": 0, "footprint": 0, "peak_footprint": 0}
-                self.process = subprocess.Popen(command, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT)
-            proc = self.process
+                proc = subprocess.Popen(command, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT)
+                self.process = proc
+                self.admission.attach(identity, proc)
             with log_path.open() as log:
                 pending = ""
                 while proc.poll() is None:
@@ -760,12 +861,13 @@ class Generator:
                         observe_generation(self.live, lines)
                         self.live.update(elapsed=time.monotonic() - started,
                                          footprint=footprint, peak_footprint=peak)
-                        if self.stop.is_set() and proc.poll() is None:
+                        if (self.stop.is_set() or cancelled.is_set()) and proc.poll() is None:
                             proc.terminate()
                     time.sleep(0.5)
             returncode = proc.wait()
             metrics = {"wall_seconds": time.monotonic() - started, "exit_code": returncode,
-                       "command": command, "peak_process_memory_bytes": peak, "memory_note": self.monitor.note}
+                       "command": command, "peak_process_memory_bytes": peak, "memory_note": self.monitor.note,
+                       "memory_reservation": reservation}
             if self.monitor.libproc:
                 metrics["macos_lifetime_peak_footprint_bytes_observed"] = peak
             output.with_suffix(".metrics.json").write_text(json.dumps(metrics, indent=2) + "\n")
@@ -790,15 +892,22 @@ class Generator:
                     failure = "The engine finished without an audio file. Try a new seed."
                 else:
                     track_id = self.store.add_track(output, recipe, metrics, job_id)
+        except AdmissionCancelled:
+            pass
         except Exception as exc:
             failure = f"The take could not finish: {exc}"
         finally:
+            # Reap only this operation's child. The standalone writer may be
+            # running independently and owns its own cancellation and lease.
+            if proc:
+                if proc.poll() is None:
+                    proc.terminate()
+                proc.wait()
             with self.lock:
-                # Always reap the owned native child, including an exception in monitoring.
-                if self.process and self.process.poll() is None:
-                    self.process.terminate()
-                    self.process.wait()
-                self.process = None
+                if self.process is proc:
+                    self.process = None
+            if reserved:
+                self.admission.release(identity)
             while True:
                 try:
                     with self.store.db() as db:
@@ -817,13 +926,20 @@ class Generator:
                     if self.stop.wait(.5):
                         break
             with self.lock:
-                self.live = None
+                if self.active_job_id == job_id:
+                    self.live = None
+                    self.active_job_id = None
+                    self.job_cancelled = None
 
     def close(self):
         self.stop.set()
         self.wake.set()
         with self.lock:
             writer = self.writer_process
+            if self.job_cancelled:
+                self.job_cancelled.set()
+            if self.writer_session:
+                self.writer_session["cancelled"].set()
             if self.process and self.process.poll() is None:
                 self.process.terminate()
             if self.writer_process and self.writer_process.poll() is None:
@@ -831,3 +947,7 @@ class Generator:
         if writer:
             writer.wait()
         self.thread.join()
+        # A standalone HTTP writer can still be unwinding a waiting admission.
+        # Its slot is released only after its owned child and lease are reaped.
+        with self.writer_gate:
+            self.admission.close()

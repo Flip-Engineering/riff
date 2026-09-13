@@ -50,15 +50,29 @@ try {
   console.log("PASS Full writer inputs, score, refinement and provenance reach the editable studio and queue; Undo restores the entire draft");
 
   release = true;
+  await page.locator("#idea-engine").selectOption("ai");
+  let writingStage = "Waiting for memory";
+  await page.route("**/api/state", async route => {
+    const response = await route.fetch(), next = await response.json();
+    next.writing = { id: "writer:browser-fixture", job_id: null, stage: writingStage };
+    await route.fulfill({ response, json: next });
+  });
   const pending = page.waitForResponse(r => r.url().endsWith("/api/inspiration"));
   await page.locator("#surprise").click();
   await page.waitForFunction(() => document.querySelector("#surprise").disabled);
+  await page.waitForFunction(() => document.querySelector("#writer-status").textContent === "Waiting for memory");
+  assert(await page.locator("#stop-writing").isVisible(), "Waiting writing remains cancellable");
+  writingStage = "Writing a new song idea";
+  await page.waitForFunction(() => document.querySelector("#writer-status").textContent === "Writing a new song idea");
   await page.locator("#lyrics").fill("My edits take precedence.");
   while (typeof release !== "function") await new Promise(resolve => setTimeout(resolve, 10));
   release(); release = null; await pending;
   await page.waitForFunction(() => !document.querySelector("#surprise").disabled);
   assert.equal(await page.locator("#lyrics").inputValue(), "My edits take precedence.");
   assert.equal(await page.locator("#abc").inputValue(), before.abc);
+  assert.equal(await page.locator("#writer-status").textContent(), "Ready for an idea");
+  await page.unroute("**/api/state");
+  console.log("PASS Local writing shows reservation wait and active writing independently of music progress");
   console.log("PASS A delayed full-recipe proposal cannot overwrite typing in the current draft");
   assert.deepEqual(errors, []);
 } finally { await browser.close(); }
