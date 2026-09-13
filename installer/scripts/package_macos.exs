@@ -1,6 +1,7 @@
 Code.require_file("../../desktop/support.exs", __DIR__)
 Code.require_file("crypto_component.exs", __DIR__)
 Code.require_file("rust_notices.exs", __DIR__)
+Code.require_file("otp_runtime.exs", __DIR__)
 
 defmodule RiffInstaller.MacPackage do
   @moduledoc false
@@ -10,9 +11,7 @@ defmodule RiffInstaller.MacPackage do
     unless Mix.env() == :prod, do: Mix.raise("Build this package with MIX_ENV=prod.")
     crypto = crypto_component!()
     inputs = build_inputs()
-    Mix.Task.reenable("compile")
-    Mix.Task.run("compile", ["--force"])
-    Mix.Task.run("release", ["--overwrite"])
+    otp = Riff.Installer.OtpRuntime.capture!(crypto.host.root, crypto.host.pin["erts_version"])
     root = File.cwd!()
     payload = Riff.Installer.Payload.load(System.get_env("RIFF_INSTALLER_BUNDLE_PAYLOAD"))
     version = if(payload, do: payload.manifest["version"], else: "0.1.0")
@@ -30,7 +29,10 @@ defmodule RiffInstaller.MacPackage do
     runtime = Path.join(resources, "runtime")
     File.mkdir_p!(Path.join(contents, "MacOS"))
     File.mkdir_p!(resources)
-    File.cp_r!("_build/prod/rel/riff_installer", runtime)
+    Mix.Task.reenable("compile")
+    Mix.Task.run("compile", ["--force"])
+    Mix.Task.run("release", ["--path", runtime])
+    Riff.Installer.OtpRuntime.verify_copied!(runtime, otp)
     install_crypto_nifs(runtime, crypto)
     File.write!(Path.join(contents, "Info.plist"), plist(version))
 
@@ -55,14 +57,20 @@ defmodule RiffInstaller.MacPackage do
     # also installed as its own relocatable tree beside the studio runtimes.
     frameworks = Path.join(runtime, "native")
     File.mkdir_p!(frameworks)
+    preserved = Riff.Installer.OtpRuntime.preserve_upstream!(runtime, otp)
     binaries = files(contents) |> Enum.filter(&mach_o?/1)
     bundled = bundle_libraries(binaries, frameworks, MapSet.new(), crypto)
-    for binary <- bundled, do: run!("/usr/bin/codesign", ["--force", "--sign", "-", binary])
+
+    for binary <- bundled,
+        not MapSet.member?(preserved, binary),
+        do: run!("/usr/bin/codesign", ["--force", "--sign", "-", binary])
 
     for app <- Path.wildcard(Path.join(runtime, "lib/riff_installer-*/priv/desktop/Riff.app")),
         do: run!("/usr/bin/codesign", ["--force", "--sign", "-", app])
 
-    Riff.Desktop.Build.inspect_macos!(runtime)
+    otp = Riff.Installer.OtpRuntime.finish!(runtime, otp)
+    public_sources = Riff.Desktop.Build.otp_public_source_files!(Path.dirname(root), runtime, otp)
+    Riff.Desktop.Build.inspect_macos!(runtime, verified_source_files: public_sources)
     verify_loaded_crypto!(runtime, crypto)
 
     unless build_inputs() == inputs,
@@ -82,6 +90,7 @@ defmodule RiffInstaller.MacPackage do
             |> Base.encode16(case: :lower),
           elixir: System.version(),
           otp: System.otp_release(),
+          otp_runtime: otp,
           crypto_component: crypto.receipt["component"]
         },
         pretty: true

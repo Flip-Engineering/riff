@@ -112,7 +112,19 @@ in app/sources.json and app/patches. Their source and notices must accompany rel
 The bundled control release retains the Elixir/OTP dependency licenses.
 """)
 
-B.inspect_macos!(runtime, verified_vendor_directories: ["python"])
+otp_public_sources =
+  B.otp_public_source_files!(
+    app,
+    Path.join(runtime, "control"),
+    control_receipt["otp_runtime"],
+    "control"
+  )
+
+B.inspect_macos!(runtime,
+  verified_vendor_directories: ["python"],
+  verified_source_files: otp_public_sources
+)
+
 python = Path.join(runtime, "python/bin/python3.14")
 
 environment = [

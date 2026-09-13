@@ -226,6 +226,19 @@ defmodule Riff.Desktop.Build do
             |> String.replace("/home/runner/", "/vendor-build/"),
           else: strings
 
+      private_strings =
+        case Keyword.get(options, :verified_source_files, %{})[relative] do
+          nil ->
+            private_strings
+
+          item ->
+            verify!(path, item["bytes"], item["sha256"])
+
+            Enum.reduce(item["public_source_prefixes"], private_strings, fn prefix, text ->
+              String.replace(text, prefix, "/verified-upstream-source/")
+            end)
+        end
+
       if String.contains?(strings, Path.dirname(@root)) or
            String.contains?(private_strings, ["/Users/", "/home/runner/", "/opt/homebrew/Cellar/"]),
          do: raise("Build-host paths remain in #{relative}; rebuild with source-path mapping")
@@ -370,6 +383,68 @@ defmodule Riff.Desktop.Build do
                "Control runtime differs from this application's source; rebuild the control release"
              )
 
+    otp_public_source_files!(app, control, receipt["otp_runtime"])
     receipt
+  end
+
+  # Only exact, unchanged upstream bytes receive their committed public compiler
+  # source prefix. This mapping also follows control into a combined payload;
+  # dependency/loader checks and our own workspace privacy check remain strict.
+  def otp_public_source_files!(app, control, provenance, prefix \\ "")
+  def otp_public_source_files!(_app, _control, nil, _prefix), do: %{}
+
+  def otp_public_source_files!(app, control, provenance, prefix) do
+    unless is_binary(provenance["erts_version"]) and
+             Regex.match?(~r/\A[0-9]+(?:\.[0-9]+)*\z/, provenance["erts_version"]),
+           do: raise("Invalid ERTS version")
+
+    directory = "erts-#{provenance["erts_version"]}/bin/"
+    inputs = provenance["input_files"]
+    packaged = provenance["packaged_files"]
+
+    unless provenance["format_version"] == 1 and is_list(inputs) and inputs != [] and
+             is_list(packaged) and
+             Enum.map(inputs, & &1["path"]) == Enum.map(packaged, & &1["path"]) and
+             Enum.uniq_by(packaged, & &1["path"]) == packaged,
+           do: raise("Invalid ERTS build provenance")
+
+    for item <- packaged do
+      path = item["path"]
+      basename = String.replace_prefix(path, directory, "")
+
+      unless path == directory <> basename and Regex.match?(~r/\A[a-zA-Z0-9_.+-]+\z/, basename),
+        do: raise("Invalid ERTS native path")
+
+      Enum.reduce(Path.split(path), control, fn segment, parent ->
+        next = Path.join(parent, segment)
+        if File.lstat!(next).type == :symlink, do: raise("ERTS provenance cannot follow links")
+        next
+      end)
+
+      verify!(Path.join(control, path), item["bytes"], item["sha256"])
+    end
+
+    if provenance["upstream_component"] do
+      pin = json_read(Path.join(app, "desktop/components.json"))["otp_runtime"]
+
+      expected =
+        pin["native_files"]
+        |> Enum.filter(&String.starts_with?(&1["path"], directory))
+        |> Enum.map(&Map.take(&1, ["path", "bytes", "sha256"]))
+        |> Enum.sort_by(& &1["path"])
+
+      unless provenance["upstream_component"] == Map.delete(pin, "native_files") and
+               inputs == expected and packaged == expected,
+             do: raise("ERTS differs from the pinned upstream archive")
+
+      for item <- pin["native_files"],
+          item["public_source_prefixes"] not in [nil, []],
+          into: %{} do
+        verify!(Path.join(control, item["path"]), item["bytes"], item["sha256"])
+        {Path.join(prefix, item["path"]), item}
+      end
+    else
+      %{}
+    end
   end
 end

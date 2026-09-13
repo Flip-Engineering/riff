@@ -50,5 +50,204 @@
     "bytes": 104393576,
     "sha256": "ce43dc8a29ad6bc1b6dbfc97f053d2e850b4a4c290eca065058d6b33ce476db5",
     "source": "https://github.com/erlang/otp/releases/tag/OTP-28.0.2"
+  },
+  "otp_runtime": {
+    "version": "28.0.2",
+    "erts_version": "16.0.2",
+    "url": "https://github.com/erlef/otp_builds/releases/download/OTP-28.0.2/OTP-28.0.2-macos-arm64.tar.gz",
+    "archive": "OTP-28.0.2-macos-arm64.tar.gz",
+    "bytes": 69844860,
+    "sha256": "0c5c1417f9eb7a567462bbbc1e4080ee0f79ab8663760e7187ec19f8636db539",
+    "source": "https://github.com/erlef/otp_builds/releases/tag/OTP-28.0.2",
+    "native_files": [
+      {
+        "path": "bin/ct_run",
+        "bytes": 69896,
+        "sha256": "2f9a9f86f563e70a664affa4d60b0490cb532e919e6602d69aa509a4b85ff80c"
+      },
+      {
+        "path": "bin/dialyzer",
+        "bytes": 69912,
+        "sha256": "5e4e9302dfc55ffd1111dd9c3dcb26f3b106b79d823a25464920f4544de527e2"
+      },
+      {
+        "path": "bin/erl_call",
+        "bytes": 150504,
+        "sha256": "4afd7337f0206c065a2dccb71ffb561cb5954bc86da5dced2b1b31efeb885bc3"
+      },
+      {
+        "path": "bin/erlc",
+        "bytes": 152088,
+        "sha256": "f953b0b74072a64314c54802ac505028dbe691661f1a097a58d3bcbe242e4693"
+      },
+      {
+        "path": "bin/escript",
+        "bytes": 70488,
+        "sha256": "81e3beb637121ae3ad2f8aaa9283ea8e343355eaede9b39fec84b4f058c32158"
+      },
+      {
+        "path": "bin/run_erl",
+        "bytes": 54344,
+        "sha256": "decba7905cebe8719934be6c887694912cd33c8f5345dbfb186e1bb24dc4935e"
+      },
+      {
+        "path": "bin/to_erl",
+        "bytes": 35416,
+        "sha256": "0bc84e82fd9122cd969a1f50e914329ba57c71c2a97283461ed8add912b40347"
+      },
+      {
+        "path": "bin/typer",
+        "bytes": 53336,
+        "sha256": "b8d94caa2f19f3229d682d8757d33512d0ba30ff5d88bfab7e3656ee979f7746"
+      },
+      {
+        "path": "erts-16.0.2/bin/beam.smp",
+        "bytes": 4720280,
+        "sha256": "131a3fc6ef96a8ae667ce02a40612758da914b56541c8d71184b20edf193a37c",
+        "public_source_prefixes": [
+          "/Users/runner/work/otp_builds/otp_builds/tmp/otp_builds/otp-OTP-28.0.2-src/"
+        ]
+      },
+      {
+        "path": "erts-16.0.2/bin/ct_run",
+        "bytes": 69896,
+        "sha256": "2f9a9f86f563e70a664affa4d60b0490cb532e919e6602d69aa509a4b85ff80c"
+      },
+      {
+        "path": "erts-16.0.2/bin/dialyzer",
+        "bytes": 69912,
+        "sha256": "5e4e9302dfc55ffd1111dd9c3dcb26f3b106b79d823a25464920f4544de527e2"
+      },
+      {
+        "path": "erts-16.0.2/bin/dyn_erl",
+        "bytes": 35224,
+        "sha256": "26e3e57d9f73d3dc302602ed1ba0044e436f21c1698f930f559fcdac4d5c9024"
+      },
+      {
+        "path": "erts-16.0.2/bin/epmd",
+        "bytes": 88776,
+        "sha256": "9019146ba50b2359980cf0087e5f3cdf8cd0ff0a0a29fec06ae223ae078de5de"
+      },
+      {
+        "path": "erts-16.0.2/bin/erl_call",
+        "bytes": 150504,
+        "sha256": "4afd7337f0206c065a2dccb71ffb561cb5954bc86da5dced2b1b31efeb885bc3"
+      },
+      {
+        "path": "erts-16.0.2/bin/erl_child_setup",
+        "bytes": 53168,
+        "sha256": "f814485ae693c62f0c6c4ac5a94c49d1a421eaff077b917654b3e9113e129f20"
+      },
+      {
+        "path": "erts-16.0.2/bin/erlc",
+        "bytes": 152088,
+        "sha256": "f953b0b74072a64314c54802ac505028dbe691661f1a097a58d3bcbe242e4693"
+      },
+      {
+        "path": "erts-16.0.2/bin/erlexec",
+        "bytes": 72120,
+        "sha256": "124ec49eb6b980599d9c2858d0ab2ac6e2b14c139822a2dec8750f4d235fd7ee"
+      },
+      {
+        "path": "erts-16.0.2/bin/escript",
+        "bytes": 70488,
+        "sha256": "81e3beb637121ae3ad2f8aaa9283ea8e343355eaede9b39fec84b4f058c32158"
+      },
+      {
+        "path": "erts-16.0.2/bin/heart",
+        "bytes": 51608,
+        "sha256": "4a02ea68bd50f53c22bc6d698b2c898c3200ae46bde62d6ddc043b3dd16f4edb"
+      },
+      {
+        "path": "erts-16.0.2/bin/inet_gethost",
+        "bytes": 72400,
+        "sha256": "149de33f60961d02bf4121e2ec47afe6fa7aebf1ac072348a49b4b4359cd1c9e"
+      },
+      {
+        "path": "erts-16.0.2/bin/run_erl",
+        "bytes": 54344,
+        "sha256": "decba7905cebe8719934be6c887694912cd33c8f5345dbfb186e1bb24dc4935e"
+      },
+      {
+        "path": "erts-16.0.2/bin/to_erl",
+        "bytes": 35416,
+        "sha256": "0bc84e82fd9122cd969a1f50e914329ba57c71c2a97283461ed8add912b40347"
+      },
+      {
+        "path": "erts-16.0.2/bin/typer",
+        "bytes": 53336,
+        "sha256": "b8d94caa2f19f3229d682d8757d33512d0ba30ff5d88bfab7e3656ee979f7746"
+      },
+      {
+        "path": "erts-16.0.2/bin/yielding_c_fun",
+        "bytes": 154576,
+        "sha256": "40222cd9106e70856f0eeaf72895412b8c52d7a406252b9d0b8341a5f22c72f5"
+      },
+      {
+        "path": "lib/asn1-5.4.1/priv/lib/asn1rt_nif.so",
+        "bytes": 52000,
+        "sha256": "7dd951eefee66379c4fc106eeaf1cba7e4f0bcf3b821cb09fb1bbfbfdc84f8d1"
+      },
+      {
+        "path": "lib/crypto-5.6/priv/lib/crypto.so",
+        "bytes": 3060184,
+        "sha256": "490ed01bb73f00c920ec4a4c9c8835b121b1ed71f962ddffe3dfc8669301dbce"
+      },
+      {
+        "path": "lib/crypto-5.6/priv/lib/otp_test_engine.so",
+        "bytes": 2962048,
+        "sha256": "4248ef683070c0e201b1f8e240f869ad4e257cced3a0773aa5caa810765217f2"
+      },
+      {
+        "path": "lib/erl_interface-5.6/bin/erl_call",
+        "bytes": 150504,
+        "sha256": "4afd7337f0206c065a2dccb71ffb561cb5954bc86da5dced2b1b31efeb885bc3"
+      },
+      {
+        "path": "lib/megaco-4.8/priv/lib/megaco_flex_scanner_drv_mt.so",
+        "bytes": 241584,
+        "sha256": "a43f790ce1a08542118f2529d0d9616caf952751d43d53b503a8e5fe7513667d"
+      },
+      {
+        "path": "lib/megaco-4.8/priv/lib/megaco_flex_scanner_drv.so",
+        "bytes": 241640,
+        "sha256": "4c524010cdba2559151b5af08faa711b6bd864478b5fc421a9ad5d60c6ede233"
+      },
+      {
+        "path": "lib/os_mon-2.11/priv/bin/cpu_sup",
+        "bytes": 34648,
+        "sha256": "f907f0dabf19bfdec317c93e1889cdd35e0d6d7124cf00793c1059fba26b5442"
+      },
+      {
+        "path": "lib/os_mon-2.11/priv/bin/memsup",
+        "bytes": 34568,
+        "sha256": "2c5a54943afd3912caad5dd6f0a89fbcda91a2e40b0e6301f2165a898293deae"
+      },
+      {
+        "path": "lib/runtime_tools-2.2/priv/lib/dyntrace.so",
+        "bytes": 50296,
+        "sha256": "effb068303433980d99f5e06cddf12b03a692f20bf7bde9164a3b36396f490cc"
+      },
+      {
+        "path": "lib/runtime_tools-2.2/priv/lib/trace_file_drv.so",
+        "bytes": 51360,
+        "sha256": "44b9cc25cb9b90b6856be7ec3f4f132d4971ba3fbae56e7bd315922b7f0af10a"
+      },
+      {
+        "path": "lib/runtime_tools-2.2/priv/lib/trace_ip_drv.so",
+        "bytes": 51696,
+        "sha256": "ebe72e737e08bd541c8a2814e189195e6d141ee7827056f38f3fa5b6928ba39f"
+      },
+      {
+        "path": "lib/wx-2.5.1/priv/erl_gl.so",
+        "bytes": 701496,
+        "sha256": "c6ccdff020e0ee93df168b48e967e0078f76b326e9085d4ba07bbdd8270026ec"
+      },
+      {
+        "path": "lib/wx-2.5.1/priv/wxe_driver.so",
+        "bytes": 16019872,
+        "sha256": "1b59dd175222ed99ed4502801f1edefb5c3d7d168defc3b8a23c4dad67b2bcdc"
+      }
+    ]
   }
 }

@@ -118,6 +118,127 @@ defmodule Riff.Desktop.BuildTest do
     end
   end
 
+  test "exact upstream ERTS provenance follows its bytes into the combined payload", %{root: root} do
+    {app, control, item, provenance} = otp_fixture(root)
+    mapping = B.otp_public_source_files!(app, control, provenance, "control")
+    assert mapping == %{("control/" <> item["path"]) => item}
+
+    File.write!(Path.join(control, item["path"]), "different bytes")
+
+    assert_raise RuntimeError, ~r/verification failed/, fn ->
+      B.otp_public_source_files!(app, control, provenance, "control")
+    end
+  end
+
+  test "mutable output metadata cannot grant an upstream exception to different bytes", %{
+    root: root
+  } do
+    {app, control, item, provenance} = otp_fixture(root)
+    path = Path.join(control, item["path"])
+    File.write!(path, "another compiler")
+
+    forged = [
+      %{"path" => item["path"], "bytes" => File.stat!(path).size, "sha256" => B.hash(path)}
+    ]
+
+    provenance = Map.merge(provenance, %{"input_files" => forged, "packaged_files" => forged})
+
+    assert_raise RuntimeError, ~r/differs from the pinned upstream archive/, fn ->
+      B.otp_public_source_files!(app, control, provenance)
+    end
+
+    assert %{} ==
+             B.otp_public_source_files!(
+               app,
+               control,
+               Map.put(provenance, "upstream_component", nil)
+             )
+  end
+
+  @tag skip: :os.type() != {:unix, :darwin}
+  test "pinned public compiler paths do not exempt another home path or loader dependency", %{
+    root: root
+  } do
+    source = Path.join(root, "native.c")
+    binary = Path.join(root, "native")
+    prefix = "/Users/runner/work/otp_builds/otp_builds/tmp/otp_builds/otp-OTP-28.0.2-src/"
+
+    File.write!(
+      source,
+      "const char *path = \"#{prefix}erts/config\"; int main(void) { return path[0]; }"
+    )
+
+    B.run!("/usr/bin/clang", [source, "-o", binary])
+
+    item = %{
+      "bytes" => File.stat!(binary).size,
+      "sha256" => B.hash(binary),
+      "public_source_prefixes" => [prefix]
+    }
+
+    assert :ok == B.inspect_macos!(root, verified_source_files: %{"native" => item})
+    assert_raise RuntimeError, ~r/Build-host paths remain/, fn -> B.inspect_macos!(root) end
+
+    assert_raise RuntimeError, ~r/verification failed/, fn ->
+      B.inspect_macos!(root,
+        verified_source_files: %{"native" => Map.put(item, "sha256", String.duplicate("0", 64))}
+      )
+    end
+
+    File.write!(
+      source,
+      "const char *path = \"#{prefix}erts/config /Users/private-user/source\"; int main(void) { return path[0]; }"
+    )
+
+    B.run!("/usr/bin/clang", [source, "-o", binary])
+    item = Map.merge(item, %{"bytes" => File.stat!(binary).size, "sha256" => B.hash(binary)})
+
+    assert_raise RuntimeError, ~r/Build-host paths remain/, fn ->
+      B.inspect_macos!(root, verified_source_files: %{"native" => item})
+    end
+
+    assert_raise RuntimeError, ~r/Missing or external native dependency/, fn ->
+      B.verify_dependency!(root, binary, prefix <> "libcrypto.3.dylib", [])
+    end
+  end
+
+  defp otp_fixture(root) do
+    app = Path.join(root, "app")
+    control = Path.join(root, "runtime/control")
+    relative = "erts-16.0.2/bin/beam.smp"
+    path = Path.join(control, relative)
+    File.mkdir_p!(Path.dirname(path))
+    File.write!(path, "exact upstream bytes")
+
+    item = %{
+      "path" => relative,
+      "bytes" => File.stat!(path).size,
+      "sha256" => B.hash(path),
+      "public_source_prefixes" => [
+        "/Users/runner/work/otp_builds/otp_builds/tmp/otp_builds/otp-OTP-28.0.2-src/"
+      ]
+    }
+
+    component = %{"version" => "28.0.2", "archive" => "verified-upstream-archive"}
+    File.mkdir_p!(Path.join(app, "desktop"))
+
+    B.json_write(Path.join(app, "desktop/components.json"), %{
+      "otp_runtime" => Map.put(component, "native_files", [item])
+    })
+
+    records = [Map.take(item, ["path", "bytes", "sha256"])]
+
+    provenance = %{
+      "format_version" => 1,
+      "erts_version" => "16.0.2",
+      "input_files" => records,
+      "packaged_files" => records,
+      "upstream_component" => component
+    }
+
+    {app, control, item, provenance}
+  end
+
   test "missing and additional native patches cannot produce a claimed fingerprint", %{root: root} do
     File.mkdir!(Path.join(root, "patches"))
     patch = Path.join(root, "patches/one.patch")
@@ -173,11 +294,14 @@ defmodule Riff.Desktop.BuildTest do
 
     B.json_write(Path.join(control, "control-build.json"), receipt)
     assert B.verify_control!(root, control) == receipt
+
     for changed <- ["runtime/lib/policy.ex", "desktop/build_openssl.exs"] do
       File.write!(Path.join(root, changed), "corrected source")
+
       assert_raise RuntimeError, ~r/Control runtime differs/, fn ->
         B.verify_control!(root, control)
       end
+
       File.write!(Path.join(root, changed), "source fixture")
     end
   end
