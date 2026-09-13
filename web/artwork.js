@@ -54,7 +54,7 @@ const RiffArtwork = (() => {
     return item;
   }
 
-  function scene(seed, seconds = 0, motion = []) {
+  function scene(seed, seconds = 0, motion = [], withFaces = true) {
     const g = geometry(seed), { vertices: v, projected: p, phase } = g;
     const fields = new Map();
     const level = clamp(motion[0]), bass = clamp(motion[1]), middle = clamp(motion[2]), air = clamp(motion[3]);
@@ -115,6 +115,12 @@ const RiffArtwork = (() => {
         p[index * 2 + 1] = 143 + ty * perspective * .93;
       }
     }
+    if (withFaces) shadeFaces(g);
+    return g;
+  }
+
+  function shadeFaces(g) {
+    const v = g.vertices, air = g.sound[2];
     for (const face of g.faces) {
       const a = face.a * 3, b = face.b * 3, d = face.d * 3;
       const ux = v[b] - v[a], uy = v[b + 1] - v[a + 1], uz = v[b + 2] - v[a + 2];
@@ -133,7 +139,6 @@ const RiffArtwork = (() => {
       face.depth = (v[a + 2] + v[b + 2] + v[face.c * 3 + 2] + v[d + 2]) / 4;
     }
     g.faces.sort((a, b) => a.depth - b.depth);
-    return g;
   }
 
   function createSurfaceRenderer() {
@@ -299,7 +304,9 @@ const RiffArtwork = (() => {
       const history = motion.history?.map(scaled);
       motion = Object.assign(scaled(motion), { history });
     }
-    const g = scene(seed, seconds, motion), { palette: c, projected: p } = g;
+    // WebGL computes its own material from vertex normals. Canvas face shading
+    // and depth sorting are only needed when that renderer is unavailable.
+    const g = scene(seed, seconds, motion, false), { palette: c, projected: p } = g;
     g.presence = clamp(appearance.surface ?? defaults.surface);
     g.color = clamp(appearance.color ?? defaults.color);
     g.texture = clamp(appearance.texture ?? defaults.texture);
@@ -314,20 +321,23 @@ const RiffArtwork = (() => {
     shadow.addColorStop(0, c.ink + "38"); shadow.addColorStop(.48, c.ink + "1a"); shadow.addColorStop(1, c.ink + "00");
     context.fillStyle = shadow; context.fillRect(-152, -152, 304, 304); context.restore();
     context.lineJoin = "round";
-    if (!drawSurface(context, g, scale)) for (const face of g.faces) {
-      const a = face.a * 2, b = face.b * 2, cc = face.c * 2, d = face.d * 2;
-      const tint = Math.round(face.chromatic * g.color * 16);
-      context.beginPath(); context.moveTo(p[a], p[a + 1]); context.lineTo(p[b], p[b + 1]);
-      context.lineTo(p[cc], p[cc + 1]); context.lineTo(p[d], p[d + 1]); context.closePath();
-      context.globalAlpha = g.presence;
-      context.fillStyle = g.shades[tint][face.shade]; if (g.presence) context.fill();
-      // Fill shared raster edges; the separate contour is the fine physical ridge.
-      context.strokeStyle = g.shades[tint][face.shade]; context.lineWidth = .3; if (g.presence) context.stroke();
-      context.globalAlpha = 1;
-      context.beginPath(); context.moveTo(p[a], p[a + 1]); context.lineTo(p[d], p[d + 1]);
-      context.strokeStyle = g.edges[tint][face.shade];
-      context.lineWidth = (face.ring % 5 === 0 ? .48 : .30) + g.texture * .14;
-      context.stroke();
+    if (!drawSurface(context, g, scale)) {
+      shadeFaces(g);
+      for (const face of g.faces) {
+        const a = face.a * 2, b = face.b * 2, cc = face.c * 2, d = face.d * 2;
+        const tint = Math.round(face.chromatic * g.color * 16);
+        context.beginPath(); context.moveTo(p[a], p[a + 1]); context.lineTo(p[b], p[b + 1]);
+        context.lineTo(p[cc], p[cc + 1]); context.lineTo(p[d], p[d + 1]); context.closePath();
+        context.globalAlpha = g.presence;
+        context.fillStyle = g.shades[tint][face.shade]; if (g.presence) context.fill();
+        // Fill shared raster edges; the separate contour is the fine physical ridge.
+        context.strokeStyle = g.shades[tint][face.shade]; context.lineWidth = .3; if (g.presence) context.stroke();
+        context.globalAlpha = 1;
+        context.beginPath(); context.moveTo(p[a], p[a + 1]); context.lineTo(p[d], p[d + 1]);
+        context.strokeStyle = g.edges[tint][face.shade];
+        context.lineWidth = (face.ring % 5 === 0 ? .48 : .30) + g.texture * .14;
+        context.stroke();
+      }
     }
     context.setTransform(1, 0, 0, 1, 0, 0);
     const unit = Math.min(width, height);
