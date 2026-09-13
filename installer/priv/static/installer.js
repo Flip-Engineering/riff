@@ -163,7 +163,7 @@
     progress.setAttribute("aria-valuetext", progressDescription || "Setup size pending");
     $("#progress-fill").style.setProperty("--progress", `${percent || 0}%`);
     $("#download-summary").hidden = state !== "idle";
-    text("#download-summary", status ? modelBytes > 0 ? `${bytes(modelBytes)} download, including the music models.` : "The music models download as part of setup." : "Getting ready…");
+    text("#download-summary", status ? modelBytes > 0 ? `${bytes(modelBytes)} of music models, downloaded as needed.` : "Music models are included with setup." : "Getting ready…");
     const suppliedMessage = typeof status?.error === "string" ? status.error
       : !["prepared", "ready", "cancelling"].includes(state) && typeof status?.message === "string" ? status.message : "";
     message("#setup-message", actionNotice || suppliedMessage);
