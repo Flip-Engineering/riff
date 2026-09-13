@@ -92,6 +92,39 @@ The [linear multistep derivation](https://arxiv.org/abs/1610.08417) describes th
 underlying method family; Riff's audio measurements assess this implementation
 on YuE2 separately.
 
+## Saved synthesis and decoder reuse in 0.6.6
+
+The native engine captures the completed acoustic tensor before VAE decoding.
+Finishing that saved synthesis skips symbolic planning, semantic generation and
+all NAR solver evaluations. Its decoder path needs only the selected VAE and
+compatible layout, with its own resource reservation.
+
+A real application queue on the M4 captured an eight-second saved performance,
+then finished it using a model directory containing only the VAE and its sidecar.
+All 1,535,744 PCM bytes matched. Source seed, score, performance and the original
+recording remained unchanged. Observed process footprints were 2.61 GB for
+capture and 338 MB for decoding alone; walls were 13.89 and 3.64 seconds on the
+shared host. These are operation-specific measurements, not a fresh-generation
+speedup or whole-system memory guarantee.
+
+Four 45-second native runs exercised multiple decoder tiles. Replay restored
+captured 1024-frame sections and 16-frame overlap even with different current
+defaults. Explicit 512-frame sections, 24-frame overlap and F32 storage matched
+a full render using those same settings. Every one of the 4,319,872 PCM16 values
+matched within each pair, and the acoustic tensors matched across all runs.
+Changing decoder settings slightly changed the audio relative to the original
+settings, as expected. Recorded decoder footprints were 393 MB and 645 MB.
+
+The Elixir artifact library streams validation and publication without allocating
+a second latent tensor. Actual control/queue/HTTP tests cover source binding,
+changed or partial files, cancellation, interrupted copy retry, shutdown and
+transient control failures, decoding without main weights, and later reuse of a
+decoded take's original score and performance. Browser checks cover direct history
+recovery, decoder defaults and explicit zero, producer seed preservation, musical
+edit detachment/Undo, pending operations and refresh handoff. The current admission
+estimate remains conservative; native allocation telemetry is a separate follow-up.
+See [saved synthesis](acoustic-recovery.md) for the shared studio/agent contract.
+
 ## Producer variations and studio refresh in 0.6.5
 
 Producer recommendations retain the source recording’s exact seed, including zero

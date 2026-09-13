@@ -159,6 +159,8 @@
     if (studySubmitting) return;
     const recipe = formRecipe();
     recipe.performance_source = "";
+    recipe.acoustic_source = "";
+    recipe.decoder = {};
     recipe.render_mode = "music";
     const passage = studySelection();
     if (passage) {

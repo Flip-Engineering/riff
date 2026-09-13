@@ -154,12 +154,12 @@
     const planning = { off: "Direct", melody: "Melody", full: "Melody + harmony" }[take.cot];
     return `<section class="review-take"><p class="review-take-label">Recommended take</p><h3>${esc(take.title)}</h3>
       <div class="review-take-settings"><span>${esc(take.max_seconds)} seconds</span><span>${esc(take.steps)} steps</span><span>${take.solver === "ab2" ? "Multistep AB2" : "Midpoint"}</span><span>${esc(planning)}</span><span>Guidance ${esc(take.cfg_scale)}</span></div>
-      ${take.performance_source ? '<p class="control-hint">Reuses this take’s saved performance and phrasing.</p>' : take.render_mode === "plan" ? '<p class="control-hint">Composes an editable score.</p>' : ""}
+      ${take.acoustic_source ? '<p class="control-hint">Keeps the exact sound synthesis and renders another audio take.</p>' : take.performance_source ? '<p class="control-hint">Reuses this take’s saved performance and phrasing.</p>' : take.render_mode === "plan" ? '<p class="control-hint">Composes an editable score.</p>' : take.render_mode === "sound" ? '<p class="control-hint">Saves the sound to finish as audio later.</p>' : ""}
       <p class="review-take-direction">${esc(take.style)}</p>
       ${take.lyrics ? `<details><summary>Lyrics${review.keep_lyrics ? " · kept" : ""}</summary><pre dir="auto">${esc(take.lyrics)}</pre></details>` : ""}
       ${take.abc ? `<details data-review-score="${review.id}"><summary>Score</summary><div class="review-score-preview" aria-label="Recommended score"></div></details>` : ""}
       <details><summary>Generation recipe</summary><pre class="review-recipe-json">${esc(JSON.stringify(take, null, 2))}</pre><button type="button" class="text-button" data-export-review="${review.id}">Download recipe</button></details>
-      <div class="review-take-actions"><button type="button" class="secondary-button solid" data-generate-review="${review.id}">${take.render_mode === "plan" ? "Compose this score" : take.render_mode === "performance" ? "Create this performance" : take.performance_source ? "Render this performance" : "Generate this take"}</button><button type="button" class="text-button" data-use-review="${review.id}">Edit in studio</button></div></section>`;
+      <div class="review-take-actions"><button type="button" class="secondary-button solid" data-generate-review="${review.id}">${take.acoustic_source ? "Finish audio" : take.render_mode === "plan" ? "Compose this score" : take.render_mode === "sound" ? "Create this sound" : take.render_mode === "performance" ? "Create this performance" : take.performance_source ? "Render this performance" : "Generate this take"}</button><button type="button" class="text-button" data-use-review="${review.id}">Edit in studio</button></div></section>`;
   }
 
   function takeRecipe(review) {
@@ -171,6 +171,7 @@
       ...review.source_recipe, ...review.revision,
       title: review.revision.title || `${currentTrack.title} — revision`,
       seed: String(review.source_recipe.seed ?? review.revision.seed ?? ""), parent_track_id: review.track_id, review_id: review.id,
+      acoustic_source: "", decoder: {},
     };
     if (review.keep_lyrics) recipe.lyrics = review.source_recipe.lyrics;
     else if (typeof review.revision.lyrics === "string") {

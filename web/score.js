@@ -291,7 +291,7 @@
   $("#compose-score").addEventListener("click", async () => {
     try {
       const before = JSON.stringify(scoreFields());
-      const recipe = { ...formRecipe(), cot: $("#score-mode").value, score_source: "", abc: "", abc_draft: "", performance_source: "", render_mode: "plan" };
+      const recipe = { ...formRecipe(), cot: $("#score-mode").value, score_source: "", abc: "", abc_draft: "", performance_source: "", acoustic_source: "", decoder: {}, render_mode: "plan" };
       const job = await api("/api/plans", "POST", recipe);
       const unchanged = JSON.stringify(scoreFields()) === before;
       if (unchanged) restore({ score_source: "", abc: "", abc_draft: "", cot: recipe.cot });

@@ -8,7 +8,7 @@ shape the composition, and collect the takes you want to keep.
 
 ## Install
 
-[Get Riff](https://github.com/Flip-Engineering/riff/releases/latest)
+[Get Riff](https://flip-engineering.github.io/riff/)
 
 The Apple Silicon desktop installer is available in the release assets. Its flow is **open Riff
 Setup → Install → Open Riff**. It includes the application runtime, Metal engine,
@@ -46,7 +46,9 @@ The application license does not change the model's terms.
   and see which musical inputs changed. Reorder waiting takes with keyboard controls.
 - **Shape a performance.** Save its phrasing and score before rendering audio,
   or return to a completed stage after an interruption. Explore acoustic variations
-  from the same performance, with an editable draft and undo.
+  from the same performance, with an editable draft and undo. Once synthesis is
+  saved, **Finish audio** completes the recording without repeating it. Open
+  **Audio refinement** to adjust the decoder while keeping the music and seed.
 - **Granular control.** Melody/chord planning, supplied ABC, guidance, seeds,
   semantic and planning sampling, repetition controls, acoustic solver steps,
   and a multistep synthesis method that reuses earlier velocity estimates.
@@ -62,6 +64,8 @@ The application license does not change the model's terms.
   recommended take: lyrics, direction, score, duration, seed, and sampling settings.
   Generate it directly, edit it in the studio, or export the recipe. The default model is
   `google/gemini-3.8-flash`; the studio never silently substitutes a model.
+  Producer variations retain the source seed and can reuse the saved score,
+  performance or synthesis; the corresponding controls remain editable.
 - **Saved sounds.** Browse, create, edit, and remove reusable sound prompts.
   [Adapter research](docs/adapters.md) distinguishes these from learned LoRAs.
 - **Keep creating.** The desktop runtime can write a new idea while music renders

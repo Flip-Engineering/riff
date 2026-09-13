@@ -1420,6 +1420,17 @@ select,
   color: var(--quiet);
   margin: 20px 0;
 }
+
+.detail-acoustic { margin-top: 1.3rem; padding-top: 1rem; border-top: 1px solid var(--line); }
+.detail-acoustic h3 { font-size: .9rem; font-weight: 500; margin: 0 0 .55rem; }
+.acoustic-context > p:first-child { margin-bottom: .4rem; }
+.acoustic-refinements { margin: .9rem 0; }
+.acoustic-refinements > summary { font-size: .8rem; cursor: pointer; }
+.acoustic-refinements > .control-hint { margin: .7rem 0; }
+.acoustic-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .8rem; }
+.acoustic-grid label { min-width: 0; font-size: .75rem; }
+.acoustic-grid label:last-child { grid-column: 1 / -1; }
+.acoustic-grid input, .acoustic-grid select { display: block; width: 100%; min-width: 0; margin-top: .4rem; }
 .app-footer {
   max-width: 1162px;
   margin: 37px auto 0;

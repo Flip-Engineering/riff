@@ -19,6 +19,7 @@
     <script src="/artwork.js" defer></script>
     <script src="/visualizer.js" defer></script>
     <script src="/updates.js" defer></script>
+    <script src="/acoustics.js" defer></script>
     <script src="/app.js" defer></script>
     <script src="/compare.js" defer></script>
     <script src="/video.js" defer></script>
@@ -193,6 +194,13 @@
                 <p id="performance-caption"></p>
                 <p class="control-hint">Keep the phrasing and length. Explore its sound, or begin a fresh performance.</p>
                 <button type="button" id="fresh-performance" class="text-button">Create a fresh performance instead</button>
+              </div>
+              <div id="acoustic-context" class="performance-context acoustic-context" hidden>
+                <p id="acoustic-caption"></p>
+                <p id="acoustic-status" class="control-hint" role="status"></p>
+                <p class="control-hint">Changing the music starts a new performance.</p>
+                <button type="button" id="fresh-sound" class="text-button">Start a new performance</button>
+                <div id="acoustic-controls"></div>
               </div>
               <div id="words-space">
                 <div class="field-heading">
@@ -496,7 +504,7 @@
                   </div>
                   <div>
                     <label for="render-mode">Output</label>
-                    <select id="render-mode"><option value="music">Music</option><option value="performance">Performance to render later</option><option value="plan">Editable score</option></select>
+                    <select id="render-mode"><option value="music">Music</option><option value="sound" hidden>Sound to finish later</option><option value="performance">Performance to render later</option><option value="plan">Editable score</option></select>
                   </div>
                 </div>
                 <p class="control-hint">
@@ -969,6 +977,12 @@
           </button>
         </div>
       </form>
+      <section id="detail-acoustic" class="detail-acoustic" hidden aria-label="Saved synthesis">
+        <h3>Saved synthesis</h3>
+        <p id="detail-acoustic-status" class="control-hint" role="status"></p>
+        <div id="detail-acoustic-controls"></div>
+        <button type="button" class="secondary-button solid" id="finish-audio" disabled>Render audio again</button>
+      </section>
       <div class="export-row">
         <a id="export-audio" class="text-button"
           ><span data-icon="download"></span>WAV</a

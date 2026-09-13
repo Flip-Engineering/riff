@@ -148,6 +148,9 @@ async function shuffleIdea(part = "all", fromCompass = false) {
         energy: idea.energy,
         texture: idea.texture,
       });
+    if (before.acoustic_source) next.performance_source = "";
+    next.acoustic_source = "";
+    next.decoder = {};
     fillRecipe(next);
     saveDraft();
     $("#undo-idea").disabled = false;

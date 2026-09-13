@@ -336,11 +336,11 @@ try {
   await page.getByRole("navigation").locator("[data-view=library]").click();
   await page.locator("#mini-player").waitFor({ state: "visible" });
   await page.waitForFunction(() => soundAnimation === null);
-  const oldTitle = await page.locator("#mini-title").textContent();
+  const oldTrack = await page.evaluate(() => selected.id);
   await page.locator("#next-track").click();
   await page.waitForFunction(
-    (title) => document.querySelector("#mini-title").textContent !== title,
-    oldTitle,
+    (id) => selected?.id !== id && document.querySelector("#mini-title").textContent === selected?.title,
+    oldTrack,
   );
   await page.waitForFunction(
     () => !audio.paused,

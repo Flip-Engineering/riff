@@ -7,8 +7,8 @@
   // Only creative inputs belong in the handoff. Credentials and settings do not.
   const creative = ["title", "lyrics", "style", "duration", "custom-steps", "solver", "planning", "seed", "abc",
     "creative-brief", "idea-engine", "writer-tokens", "guidance", "temperature", "idea-theme", "energy", "texture",
-    "render-mode", "audition-length", "audition-steps"];
-  const panels = [".creative-controls", ".refinement-controls", ".study-controls", "#producer-panel", "#take-comparison"];
+    "render-mode", "audition-length", "audition-steps", "audio-core", "audio-halo", "audio-storage"];
+  const panels = [".creative-controls", ".refinement-controls", ".study-controls", "#producer-panel", "#take-comparison", "#audio-refinements"];
   let handoff = null, changed = false, saveError = false, refreshing = false, lastCreative = "", fieldsRestored = false;
   try {
     const value = JSON.parse(sessionStorage.getItem(key) || "null");
@@ -20,7 +20,7 @@
     if (typeof videoExport !== "undefined" && videoExport) return "Your video is still being exported.";
     if (!audio.paused) return "Pause playback to refresh.";
     if (ideaBusy || compassPending) return "Your draft is still being written.";
-    return window.RiffScore?.refreshWait?.() || (busySubmit ? "Your take is being queued." : "");
+    return window.RiffAcoustics?.refreshWait?.() || window.RiffScore?.refreshWait?.() || (busySubmit ? "Your take is being queued." : "");
   };
 
   function render(next) {

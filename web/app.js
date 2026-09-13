@@ -176,7 +176,7 @@ let draftScoreSource = "", draftScoreText = "";
 function formRecipe() {
   if (draftScoreSource && ($("#abc").value !== draftScoreText || $("#planning").value === "off"))
     draftScoreSource = "";
-  return {
+  const recipe = {
     ...draftOrigin,
     render_mode: $("#render-mode").value,
     title: $("#title").value.trim(),
@@ -207,12 +207,13 @@ function formRecipe() {
     hold_words: $("#hold-words").getAttribute("aria-pressed") === "true",
     hold_sound: $("#hold-sound").getAttribute("aria-pressed") === "true",
   };
+  return window.RiffAcoustics?.recipe(recipe) || recipe;
 }
 function updateForm() {
   updateExploration();
   $("#local-writer-limit").hidden = $("#idea-engine").value !== "ai";
   $("#cloud-writer-hint").hidden = $("#idea-engine").value !== "openrouter";
-  $("#performance-context").hidden = !draftOrigin.performance_source;
+  $("#performance-context").hidden = !draftOrigin.performance_source || window.RiffAcoustics?.attached();
   $("#performance-caption").textContent = draftOrigin.performance_source
     ? `Performance from ${[...state.tracks, ...state.jobs].find((item) => item.id === draftOrigin.performance_source)?.title || "a saved take"}` : "";
   $("#duration").readOnly = !!draftOrigin.performance_source;
@@ -232,7 +233,7 @@ function updateForm() {
       16: "A little more time to shape the details.",
       32: "More time to shape the performance.",
     }[quality] || `${quality} solver steps.`);
-  const rendersAudio = $("#render-mode").value === "music";
+  const rendersAudio = ["music", "sound"].includes($("#render-mode").value);
   $(".quality-control").hidden = !rendersAudio;
   $("#quality-hint").hidden = !rendersAudio;
   $("#solver-control").hidden = !rendersAudio;
@@ -312,6 +313,8 @@ $("#revision-undo").addEventListener("click", () => {
   notify("Your previous draft is back.");
 });
 function fillRecipe(recipe, variation = false) {
+  recipe = window.RiffAcoustics?.adapt(recipe) || recipe;
+  window.RiffAcoustics?.reset();
   draftOrigin = {};
   for (const name of ["parent_track_id", "review_id", "performance_source", "writer_model", "writer_summary"]) {
     if (recipe[name]) draftOrigin[name] = recipe[name];
@@ -354,7 +357,7 @@ function fillRecipe(recipe, variation = false) {
   $("#style").value = recipe.style || "";
   $("#duration").value = recipe.max_seconds || 30;
   $("#planning").value = recipe.cot || "off";
-  $("#seed").value = variation ? "" : recipe.seed || "";
+  $("#seed").value = variation ? "" : recipe.seed ?? "";
   draftScoreSource = recipe.score_source || "";
   $("#abc").value = draftScoreSource
     ? recipe.abc_draft ?? recipe.symbolic_plan?.abc ?? recipe.abc ?? ""
@@ -362,6 +365,7 @@ function fillRecipe(recipe, variation = false) {
   draftScoreText = $("#abc").value;
   draftRefinement = { ...(recipe.refinement || {}) };
   window.RiffControls?.fill(draftRefinement);
+  window.RiffAcoustics?.fill(recipe, formRecipe());
 
   updateForm();
 }
@@ -627,6 +631,7 @@ $("#variation").addEventListener("click", () => {
       parent_track_id: selected.id,
       review_id: "",
       performance_source: "",
+      acoustic_source: "", decoder: {},
       render_mode: "music",
     },
     true,
@@ -647,7 +652,7 @@ $("#refine-performance").addEventListener("click", () => {
   openRecipe({ ...selected.recipe, title: selected.title,
     ...performanceScore(selected.recipe),
     max_seconds: selected.recipe.performance.frames / 25,
-    parent_track_id: selected.id, performance_source: selected.id, review_id: "", render_mode: "music" }, true);
+    parent_track_id: selected.id, performance_source: selected.id, acoustic_source: "", decoder: {}, review_id: "", render_mode: "music" }, true);
   saveDraft(); showView("studio"); $("#style").focus();
   notify("The performance is kept. Explore its sound.");
 });
@@ -756,6 +761,7 @@ async function openDetails(id) {
     $("#export-audio").href = `/api/tracks/${id}/audio?download=1`;
     $("#export-recipe").href = `/api/tracks/${id}/recipe`;
     errorMessage("#detail-error");
+    window.RiffAcoustics?.details(detailTrack);
     $("#track-dialog").showModal();
   } catch (error) {
     notify(error.message);
@@ -888,10 +894,11 @@ function renderQueue() {
   }
   $("#generate-label").textContent = busySubmit
     ? "Adding your take…"
+    : window.RiffAcoustics?.attached() ? "Finish audio"
     : active.length
       ? "Add to queue"
-      : $("#render-mode").value === "plan" ? "Compose score" : $("#render-mode").value === "performance" ? "Create performance" : draftOrigin.performance_source ? "Render performance" : "Generate take";
-  $("#generate").disabled = busySubmit || !connected || !state.engine.ready;
+      : $("#render-mode").value === "plan" ? "Compose score" : $("#render-mode").value === "sound" ? "Create sound" : $("#render-mode").value === "performance" ? "Create performance" : draftOrigin.performance_source ? "Render performance" : "Generate take";
+  $("#generate").disabled = busySubmit || !connected || (window.RiffAcoustics?.attached() ? !window.RiffAcoustics.ready() : !state.engine.ready);
   $("#engine-label").textContent = !connected
     ? "Reconnecting…"
     : running
@@ -911,11 +918,12 @@ function renderHistory() {
   if (history.dataset.signature === signature) return;
   history.dataset.signature = signature;
   const focused = history.contains(document.activeElement) ? document.activeElement : null;
-  const focusAction = ["finish-performance", "revisit", "play"].find(name => focused?.hasAttribute(`data-${name}`));
+  const focusAction = ["finish-audio", "finish-performance", "revisit", "play"].find(name => focused?.hasAttribute(`data-${name}`));
   const focusSelector = focusAction ? `[data-${focusAction}="${focused.getAttribute(`data-${focusAction}`)}"]` : "";
   const names = {
     done: "Ready to play",
     performed: "Performance ready",
+    synthesized: "Ready to finish",
     planned: "Score ready",
     failed: "Couldn’t finish",
     cancelled: "Cancelled",
@@ -928,10 +936,11 @@ function renderHistory() {
     ? jobs
         .map(
           (job) =>
-            `<div class="history-item ${esc(job.status)}"><div><strong>${esc(job.title)}</strong><p>${esc(job.error || formatDate(job.created))}</p></div><span class="history-status">${names[job.status] || esc(job.status)}</span>${job.track_id ? `<button type="button" class="text-button" data-play="${job.track_id}">Listen</button>` : job.performance_available ? `<button type="button" class="text-button" data-finish-performance="${job.id}">Render performance</button>` : ["failed", "cancelled", "interrupted"].includes(job.status) ? `<button type="button" class="text-button" data-revisit="${job.id}">Reopen draft</button>` : ""}</div>`,
+            `<div class="history-item ${esc(job.status)}"><div><strong>${esc(job.title)}</strong><p>${esc(job.error || formatDate(job.created))}</p></div><span class="history-status">${names[job.status] || esc(job.status)}</span>${job.track_id ? `<button type="button" class="text-button" data-play="${job.track_id}">Listen</button>` : job.acoustic_source ? `<button type="button" class="text-button" data-finish-audio="${job.id}">Finish audio</button>` : job.performance_available ? `<button type="button" class="text-button" data-finish-performance="${job.id}">Render performance</button>` : ["failed", "cancelled", "interrupted"].includes(job.status) ? `<button type="button" class="text-button" data-revisit="${job.id}">Reopen draft</button>` : ""}</div>`,
         )
         .join("")
     : '<p class="history-empty">New takes and their progress will appear here.</p>';
+  window.RiffAcoustics?.actions();
   if (focusSelector) history.querySelector(focusSelector)?.focus({ preventScroll: true });
 }
 document.addEventListener("click", async (event) => {
@@ -956,6 +965,7 @@ document.addEventListener("click", async (event) => {
       const job = await api(`/api/jobs/${finish.dataset.finishPerformance}`);
       const recipe = job.recipe;
       openRecipe({ ...recipe, performance_source: job.id, render_mode: "music",
+        acoustic_source: "", decoder: {},
         ...performanceScore(recipe),
         max_seconds: recipe.performance.frames / 25 });
       $("#style").focus();
@@ -1002,6 +1012,7 @@ $("#generation-form").addEventListener("submit", async (event) => {
   renderQueue();
   try {
     const submitted = formRecipe();
+    window.RiffAcoustics?.validate();
     const job = await api("/api/generations", "POST", submitted);
     if (JSON.stringify(formRecipe()) === JSON.stringify(submitted)) {
       fillRecipe({
@@ -1036,6 +1047,7 @@ async function refresh() {
   window.RiffUpdate?.render(next);
   renderWriting();
   window.RiffControls?.render(next);
+  window.RiffAcoustics?.render(next);
   window.RiffScore?.update(next);
   window.RiffCompare?.render();
   $("#library-count").textContent = state.tracks.filter(
