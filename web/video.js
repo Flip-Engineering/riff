@@ -136,6 +136,7 @@ function videoBusy(busy) {
   $("#render-video").disabled = busy;
   $("#cancel-video").hidden = !busy;
   $$("#video-form input, #video-form select, #video-use-passage").forEach(input => input.disabled = busy);
+  window.RiffUpdate?.render(state);
 }
 
 async function openVideoExport() {
