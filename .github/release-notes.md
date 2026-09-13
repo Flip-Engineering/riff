@@ -1,12 +1,10 @@
-Riff 0.6.3 lets you reuse a composition exactly while developing its sound and performance.
+Riff 0.6.4 makes video export independent of pointer activity and gives the living artwork a fuller musical response.
 
-- Use a saved score in another take, short study or variation without asking YuE2 to compose it again. Its native score tokens stay intact, including empty scores and interrupted plans.
-- Editing notation starts a new score input. Undo restores the saved composition and its planning mode. Direct generation preserves the readable draft.
-- AI writers and producer reviews can recommend an actual saved score, revised notation or a new composition alongside the complete generation settings. Agent discovery exposes the same operation.
-- Captured tokenizer snapshots and verified job inputs preserve scores through interruption and engine changes. Score file work runs in the existing Elixir control runtime, with independent cancellation and scheduling.
+- Video frames encode in a dedicated worker, keeping a single frame in flight and preserving the requested resolution, frame rate and audio. Cancel stops the worker and export together. Browsers without the worker capabilities retain the canvas export path.
+- Bass and phrasing open the connected folds more clearly, with the existing mineral colors, polished highlights and quiet center. Movement, surface, color and texture remain adjustable.
+- GPU drawing skips duplicate Canvas shading while preserving depth ordering and fallback appearance. Matched images remain identical through GPU loss and recovery.
+- Setup identifies the size of the included music models and downloads them as needed. Existing music, models and settings are retained.
 
-The desktop package includes the music engine, media tools and local writer runtime. Riff Setup downloads and verifies the music and writer models, installs the Riff application and supports app-managed updates. Existing music, models and settings are retained.
+The desktop package includes the music engine, media tools and local writer runtime. Open Riff Setup, install, then open Riff. Subsequent updates belong to the app. The graphical macOS download is an ad-hoc signed preview; Developer ID signing and notarization remain separate improvements. NVIDIA desktop packaging remains in development.
 
-The graphical macOS download is an ad-hoc signed preview. It has no Developer ID signature or notarization, so macOS may block its first launch under default security settings. The source archive is a separate developer download. NVIDIA desktop packaging remains in development.
-
-Validation covers native score parsing and conditioning prefixes, exact-score capture/recovery, provider recipes, editor attachment/Undo, direct generation, studies, playback and video export. Paired short neural renders with and without guidance retained identical score tokens, music codes and PCM samples when replaying the saved plan. This verifies those inputs and runs; it is not a guarantee of identical audio across hardware or engine changes. Desktop build and installation evidence is recorded separately.
+Validation covers actual 4K/60 fps exports with stationary and moving pointers, frame ordering and cancellation, renderer comparisons, and the existing studio workflows. Measurements describe the tested browser and device; they are not an overall inference-speed claim.

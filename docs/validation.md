@@ -1,6 +1,6 @@
 # Validation
 
-September 12, 2026. Claims below distinguish model inference, application behavior,
+September 13, 2026. Claims below distinguish model inference, application behavior,
 and compilation. The browser is an isolated Chromium instance; tests do not attach
 to a personal browser or use stored credentials.
 
@@ -210,6 +210,53 @@ quality. Musical reviews use direct audio requests to the explicitly selected
 OpenRouter model. Review notes are subjective observations, separate from measured
 runtime and signal properties. Private recordings and provider responses are not
 included in release artifacts.
+
+## Saved compositions and rendering
+
+The installed 0.6.3 studio completed score-only capture, exact saved-score reuse,
+performance-only generation and audio rendering through its normal controls. The
+82 native score IDs and 200 music codes remained unchanged across those stages.
+The resulting eight-second recording played successfully, and an actual Gemini
+3.8 Flash audio review returned a complete recommended take retaining its saved
+score and performance references. Model/parser validation includes 92 CPU cases,
+16 exact conditioning-prefix comparisons and paired short guided/unguided neural
+renders with identical replayed score IDs, music codes and decoded PCM. These
+checks establish those runs, rather than universal equality across engines or
+hardware. The application and control suites also exercise captured tokenizer
+snapshots, interruption recovery, cancellation, editor attachment/Undo and
+provider generation contracts.
+
+The 0.6.4 artwork comparison keeps the existing material and strengthens connected
+fold deformation. Four mineral palettes, matched audio timestamps and a short
+continuous capture were reviewed; an initially darker candidate was rejected.
+Audio-clock smoothing and oscillation rates are unchanged, while the form travels
+slightly farther in response to the music. The selected geometry remains still
+in silence. Artistic preference remains separate from functional validation.
+
+The renderer now defers Canvas shading during successful WebGL frames. It retains
+per-frame depth ordering because omitting that order changed a few tied-depth
+fallback pixels. The corrected implementation passes 192 public-scene comparisons,
+48 GPU-history-to-Canvas data comparisons, the 14-frame exact tie reproducer and
+52 broader pixel comparisons, including real context loss and restoration. In
+alternating 120-frame batches, median CPU scene preparation fell from 0.938 to
+0.644 ms. This narrow stage measurement excludes complete drawing, PNG encoding,
+transport, video compression and music inference.
+
+Video export uses a dedicated PNG worker when the browser provides Worker,
+OffscreenCanvas.convertToBlob and createImageBitmap. One frame remains in flight;
+encoding does not wait for animation-frame or idle callbacks. In a headed
+Chromium comparison at 3840×2160 and 60 fps, stationary/moving/stationary pointer
+runs measured approximately 51 ms median encoding per frame throughout. The
+original main-thread path measured about 52 ms with a stationary pointer and
+135 ms while it moved. Each worker run produced all 60 frames. This reproduces
+interaction sensitivity; its direction differed from the artist's original
+report, and it does not establish a universal stationary-export speedup.
+
+Browsers without those worker capabilities, or where initialization fails, retain
+the canvas.toBlob fallback and its browser scheduling behavior. Closing or
+suspending the page still interrupts a browser-driven export. Worker checks cover
+exact decoded PNG pixels, startup and feature fallback, cancellation during each
+encoding stage, late callbacks, worker errors, FFmpeg cancellation and retry.
 
 ## Platform coverage
 
