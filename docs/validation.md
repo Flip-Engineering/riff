@@ -92,6 +92,30 @@ The [linear multistep derivation](https://arxiv.org/abs/1610.08417) describes th
 underlying method family; Riff's audio measurements assess this implementation
 on YuE2 separately.
 
+## Producer variations and studio refresh in 0.6.5
+
+Producer recommendations retain the source recording’s exact seed, including zero
+and the full 63-bit range. The structured response schema and application validator
+both preserve it, and the saved proposal, Edit in studio and one-click generation
+carry that value through. The artist can still edit the seed manually. Independent
+song writing remains free to choose a new seed. Reopening an older complete
+recommendation applies the source seed to its returned recipe; historical
+recordings and stored review rows are not rewritten.
+
+The served page carries its asset-build identity. When a newer studio is running,
+an explicit Refresh studio action preserves the tab’s creative inputs, undo,
+selected recording, paused playback position and library context. It waits for
+playback, exports, queue submission and active writing or score revision to finish;
+a pending score suggestion stays available until applied or dismissed. The
+handoff uses tab-scoped storage with an explicit creative-field list and excludes
+API keys and account settings. A storage failure leaves the current tab intact.
+A page loaded before this feature needs one ordinary refresh to receive it.
+
+Focused checks cover provider responses proposing a blank or different seed,
+manual seed editing, delayed real HTTP writing and score requests, a real PNG
+worker/FFmpeg export, raw empty/numeric draft values, tab-specific restoration,
+storage failure, credential exclusion and desktop/mobile refresh-button access.
+
 ## Application checks
 
 - Python 3.9 and 3.14 import/startup preflight, without model files.
