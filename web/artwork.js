@@ -84,7 +84,11 @@ const RiffArtwork = (() => {
       // The delayed pressure travels through the same contours as the signed
       // signal. Their endpoints stay attached while the material opens within.
       const pressure = arrival - attack + resonance * .6;
-      const layer = f + Math.sin(2 * Math.PI * f) * pressure * .028;
+      const layer = f + Math.sin(2 * Math.PI * f) * pressure * .04;
+      // The low register opens a fold from within. Each contour receives the
+      // same breath at its own delay; the silhouette retains one gesture.
+      const carriedBass = bass + resonance;
+      const opening = fold * carriedBass * 8;
       for (let point = 0; point < steps; point++) {
         const angle = point / steps * Math.PI * 2;
         const position = (point / steps + phase / (Math.PI * 2)) % 1;
@@ -92,7 +96,7 @@ const RiffArtwork = (() => {
         const t = angle + fold * signal * .014 + fold * pressure * .018;
         // One connected acoustic shell: sound changes curvature, spacing and
         // material tension together instead of overlaying a separate trace.
-        const strain = middle * 12 * Math.sin(2 * t - time * .32 + phase)
+        const strain = middle * 15 * Math.sin(2 * t - time * .32 + phase)
           + arrival * 6.5 * Math.sin(2 * t + phase + f * 2) + resonance * 10 + signal * (4 + 6 * fold);
         const radius = (100 + layer * 60.75 + 12 * Math.sin(3 * t + phase) * layer) * (1 + bass * .13) + strain;
         const x = Math.cos(t) * radius;
@@ -100,11 +104,11 @@ const RiffArtwork = (() => {
           + Math.sin(t) * signal * 4 * fold;
         // Broad movement belongs to the phrase. Higher frequencies alter a
         // gentle surface fold and its light, without independent fast ripples.
-        const wave = middle * 10 * Math.sin(2 * t + phase - time * .28 + f)
+        const wave = middle * 14 * Math.sin(2 * t + phase - time * .28 + f)
           + (air * .6 + attack * 1.5 + crest * .3) * Math.sin(4 * t + phase + f * 2)
-          + signal * (5 + 8 * fold);
+          + signal * (6 + 10 * fold);
         const z = -22 + layer * 40 + fold * (22 + 22 * Math.sin(2 * t + phase))
-          + 10 * Math.sin(3 * t + phase) * f + (.28 + fold * .72) * wave + arrival * 2 * fold;
+          + 10 * Math.sin(3 * t + phase) * f + (.28 + fold * .72) * wave + arrival * 3 * fold + opening * (0.7 + 0.3 * Math.cos(2 * t + phase));
         const ry = y * ct - z * st, rz = y * st + z * ct;
         const rx = x * cy + rz * sy, depth = -x * sy + rz * cy;
         const tx = rx * cz - ry * sz, ty = rx * sz + ry * cz;
