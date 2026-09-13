@@ -349,17 +349,22 @@ def stage_desktop_release(install_root, release, progress=print, cancelled=None,
     with tempfile.TemporaryDirectory(prefix=".preparing-", dir=updates) as temporary:
         temporary = Path(temporary)
         package = Path(archive) if archive else temporary / "payload.tar.gz"
-        if not archive and (cached_archive.exists() or cached_archive.is_symlink()):
+        downloaded_here = False
+        cached_verified = False
+        cached_invalid = False
+        if cached_archive.exists() or cached_archive.is_symlink():
             _owned_path(updates, cached_archive.name)
             try:
                 verify(cached_archive, release["sha256"], cancelled)
                 if cached_archive.stat().st_size != release["bytes"]:
                     raise ValueError("Incorrect cached archive size")
-                package = cached_archive
+                cached_verified = True
+                if not archive:
+                    package = cached_archive
             except UpdateCancelled:
                 raise
             except ValueError:
-                cached_archive.rename(cached_archive.with_name(cached_archive.name + ".unverified-" + uuid.uuid4().hex))
+                cached_invalid = True
         if not archive and package != cached_archive:
             request = urllib.request.Request(release["url"], headers={"User-Agent": "Riff desktop updater"})
             received = 0
@@ -375,11 +380,13 @@ def stage_desktop_release(install_root, release, progress=print, cancelled=None,
                     progress(f"Downloading Riff {release['version']}: {received / 1e6:.1f} MB")
             if received != release["bytes"]:
                 raise ValueError("The desktop update download was incomplete. Try again.")
+            downloaded_here = True
         check_cancelled(cancelled)
         if package.stat().st_size != release["bytes"]:
             raise ValueError("The desktop update size does not match the release.")
         verify(package, release["sha256"], cancelled)
         progress("Checking the desktop update")
+        reuse_target = False
         if target.exists() or target.is_symlink():
             _owned_path(updates, target.name, directory=True)
             try:
@@ -388,20 +395,30 @@ def stage_desktop_release(install_root, release, progress=print, cancelled=None,
                 if not _matches_archived_manifest(package, target):
                     raise ValueError("Cached desktop manifest differs from the release")
                 validate_desktop_payload(target, release, cancelled)
-                return target
+                reuse_target = True
             except UpdateCancelled:
                 raise
             except (ValueError, KeyError):
                 target.rename(target.with_name(target.name + ".unverified-" + uuid.uuid4().hex))
-        extracted = temporary / "payload"
-        extract_desktop_archive(package, extracted, cancelled)
-        validate_desktop_payload(extracted, release, cancelled)
+        if not reuse_target:
+            extracted = temporary / "payload"
+            extract_desktop_archive(package, extracted, cancelled)
+            validate_desktop_payload(extracted, release, cancelled)
         check_cancelled(cancelled)
-        if package != cached_archive:
-            saved = temporary / "verified-archive.tar.gz"
-            shutil.copyfile(package, saved)
+        if not cached_verified:
+            if downloaded_here:
+                # This invocation owns the verified download, already on the
+                # cache's filesystem. Caller-supplied archives stay untouched.
+                saved = package
+            else:
+                saved = temporary / "verified-archive.tar.gz"
+                shutil.copyfile(package, saved)
+            check_cancelled(cancelled)
+            if cached_invalid:
+                cached_archive.rename(cached_archive.with_name(cached_archive.name + ".unverified-" + uuid.uuid4().hex))
             saved.replace(cached_archive)
-        extracted.rename(target)
+        if not reuse_target:
+            extracted.rename(target)
     return target
 
 
