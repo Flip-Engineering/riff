@@ -24,7 +24,7 @@ def describe():
             "generate": {"method": "POST", "path": "/api/generations", "body": "recipe_schema"},
             "compose": {"method": "POST", "path": "/api/plans", "body": "recipe_schema; cot=melody or full"},
             "revise_score": {"method": "POST", "path": "/api/composition/revise", "body": "abc, cot, brief and current recipe inputs"},
-            "write": {"method": "POST", "path": "/api/inspiration", "body": "brief, mode, style, lyrics, idea_engine=openrouter and optional seed"},
+            "write": {"method": "POST", "path": "/api/inspiration", "body": "recipe_schema with brief and idea_engine; optional write_scope=all|words|sound, hold_words and hold_sound. Library parent/performance references supply prior inputs, symbolic plans and listening notes. Returns summary and a complete editable generation recipe."},
             "review": {"method": "POST", "path": "/api/tracks/{track_id}/reviews", "body": "focus (text), keep_lyrics (boolean)"},
             "review_result": {"method": "GET", "path": "/api/reviews/{review_id}"},
             "job": {"method": "GET", "path": "/api/jobs/{job_id}"},

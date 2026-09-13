@@ -256,7 +256,14 @@ def stop(sig, frame):
     sys.exit(0)
 signal.signal(signal.SIGTERM, stop)
 if settings.get('brief') == 'wait': time.sleep(300)
-output.write_text(json.dumps({'title': 'From the writer', 'lyrics': 'Two moons talk over tea.', 'style': 'warm folk', 'writer_model': 'test'}))
+result = {'title': 'From the writer', 'lyrics': 'Two moons talk over tea.', 'style': 'warm folk', 'writer_model': 'test'}
+if settings.get('brief') == 'full recipe fixture':
+    from review_recipe import FIELDS
+    result['generation'] = {key: settings[key] for key in FIELDS}
+    result['generation'].update(title=result['title'], lyrics=result['lyrics'], style='Prepared piano and oud',
+        cot='full', abc='X:1\\nM:7/8\\nL:1/8\\nK:Dm\\nD2 F A2 G2|', steps=23, solver='ab2',
+        cfg_scale=1.7, temperature=.8, refinement={'abc_temperature':.4, 'semantic_top_p':.72})
+output.write_text(json.dumps(result))
 marker.unlink()
 """
         return [sys.executable, "-u", "-c", script, str(output), str(self.root / "exclusive-worker")]
@@ -278,6 +285,24 @@ marker.unlink()
         self.assertEqual(track["recipe"]["writer_model"], "test")
         self.assertIsNone(generator.writer_process)
         self.assertFalse((self.root / "exclusive-worker").exists())
+
+    def test_automatic_writer_applies_its_complete_recipe_before_generation(self):
+        generator = self.writing_generator()
+        captured = []
+        def command(recipe, output):
+            captured.append(recipe)
+            return self.fake_command(recipe, output)
+        generator.command_builder = command
+        job = generator.submit({"mode": "surprise", "brief": "full recipe fixture", "seed": "42", "max_seconds": 12})["id"]
+        wait_until(lambda: self.status(job) == "done")
+        actual = self.store.track(job)["recipe"]
+        for key, expected in {"style": "Prepared piano and oud", "cot": "full", "steps": 23, "solver": "ab2",
+                              "cfg_scale": 1.7, "temperature": .8, "max_seconds": 12,
+                              "refinement": {"abc_temperature": .4, "semantic_top_p": .72}}.items():
+            self.assertEqual(actual[key], expected)
+            self.assertEqual(captured[0][key], expected)
+        self.assertIn("M:7/8", captured[0]["abc"])
+        self.assertEqual(actual["writer_model"], "test")
 
     def test_cancel_during_automatic_writing_reaps_writer_and_queue_continues(self):
         generator = self.writing_generator()

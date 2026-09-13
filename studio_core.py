@@ -129,6 +129,13 @@ def validate_recipe(payload):
             origin[name] = value
     if origin.get("performance_source") and render_mode == "plan":
         raise ValueError("Choose a fresh composition to create a score, or music to render the saved performance.")
+    holds = {}
+    for name in ("hold_words", "hold_sound"):
+        value = payload.get(name, False)
+        if type(value) is not bool:
+            raise ValueError("Choose whether to hold the words or sound.")
+        holds[name] = value
+    provenance = {name: text(name) for name in ("writer_model", "writer_summary") if payload.get(name)}
     return {"title": title, "title_auto": title_auto, "lyrics": lyrics, "style": style, "abc": abc, "mode": mode, "lyrics_source": source,
             "idea_engine": idea_engine, "brief": text("brief"), "writer_tokens": tokens,
             "cfg_scale": number("cfg_scale", 1., 0., 20.), "temperature": number("temperature", 1., 0., 5.),
@@ -137,7 +144,7 @@ def validate_recipe(payload):
             "theme": payload.get("theme", "anywhere"),
             "max_seconds": seconds, "steps": steps, "solver": solver, "cot": cot, "seed": str(seed),
             "refinement": model_options.validate(payload.get("refinement", {}), seconds), "render_mode": render_mode,
-            "performance_source": "", **origin}
+            "performance_source": "", **origin, **holds, **provenance}
 
 
 def analyze_audio(path):
@@ -507,17 +514,61 @@ class Generator:
             self.writer_process.terminate()
         return {"status": "stopping"}
 
-    def write_idea(self, payload, job_id=None, started=None):
-        cloud = payload.get("idea_engine") == "openrouter"
-        if not cloud and not self.writer_ready():
-            raise ValueError("The local AI writer is not installed. Run setup-writer.sh or choose the phrase shuffler.")
+    def writing_settings(self, payload):
         # Validate the settings without imposing a particular story, genre, or form.
         seed = seed_number(payload.get("seed"))
         checked = validate_recipe({**payload, "seed": str(seed)})
         # Do not turn an unspecified theme or compass position into a constraint.
         settings = {key: value for key, value in checked.items() if value is not None}
+        scope = payload.get("write_scope", "all")
+        if scope not in ("all", "words", "sound"):
+            raise ValueError("Choose a new direction, words, or sound.")
+        settings["write_scope"] = scope
+        from review_recipe import generation_context, symbolic_context
+        reference_id = checked.get("performance_source") or checked.get("parent_track_id")
+        if reference_id:
+            try:
+                reference = self.store.track(reference_id)
+            except KeyError:
+                reference = self.store.job(reference_id)
+            source = reference["recipe"]
+            settings["reference"] = {"id": reference_id, "inputs": generation_context(source),
+                                     "symbolic": symbolic_context(source), "notes": reference.get("notes", "")}
+            if source.get("performance"):
+                try:
+                    self.store.performance_path(reference_id)
+                except (ValueError, OSError):
+                    if checked.get("performance_source"):
+                        raise
+                    # A fresh variation can still use the recording's score
+                    # and notes when its optional native codes are unavailable.
+                    settings["reference"]["performance_available"] = False
+                else:
+                    settings["performance_track_id"] = reference_id
+                    settings["reference"]["performance_available"] = True
+                    settings["reference"]["performance"] = source["performance"]
+            with self.store.db() as db:
+                if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='reviews'").fetchone():
+                    # A chosen review is precise context; otherwise use the most
+                    # recent completed listening notes for this source recording.
+                    review_id = checked.get("review_id")
+                    clause = "AND id=?" if review_id else ""
+                    params = (reference_id, review_id) if review_id else (reference_id,)
+                    review = db.execute("SELECT id,model,focus,notes,summary,generation FROM reviews "
+                        "WHERE track_id=? AND status='done' " + clause + " ORDER BY created DESC LIMIT 1", params).fetchone()
+                    if review:
+                        settings["reference"]["review"] = {key: review[key] for key in ("id", "model", "focus", "notes", "summary")}
+                        settings["reference"]["review"]["generation"] = generation_context(json.loads(review["generation"]))
+        return settings
+
+    def write_idea(self, payload, job_id=None, started=None):
+        cloud = payload.get("idea_engine") == "openrouter"
+        if not cloud and not self.writer_ready():
+            raise ValueError("The local AI writer is not installed. Choose another writer in Ideas from.")
+        settings = self.writing_settings(payload)
+        settings["queued_generation"] = bool(job_id)
         if payload.get("task") == "score":
-            if not cloud or not checked["abc"].strip() or not checked["brief"].strip():
+            if not cloud or not settings["abc"].strip() or not settings["brief"].strip():
                 raise ValueError("Open a score and describe the change you want.")
             settings["task"] = "score"
         if cloud:
@@ -536,7 +587,7 @@ class Generator:
                     with self.store.db() as db:
                         if db.execute("SELECT status FROM jobs WHERE id=?", (job_id,)).fetchone()[0] == "cancelling":
                             raise ValueError("Writing was stopped.")
-                    self.live = {"id": job_id, "title": checked["title"], "stage": "Writing a new song idea",
+                    self.live = {"id": job_id, "title": settings["title"], "stage": "Writing a new song idea",
                                  "stage_index": 0, "elapsed": 0, "footprint": 0, "peak_footprint": 0}
                 self.writer_cancelled = False
                 self.writer_job_id = job_id
@@ -563,7 +614,15 @@ class Generator:
                 if proc.returncode or not output.is_file():
                     message = log_path.read_text().strip().splitlines()
                     raise ValueError(message[-1] if message else "The local writer stopped. Try another idea.")
-                return json.loads(output.read_text())
+                result = json.loads(output.read_text())
+                if payload.get("task") != "score":
+                    from writer import written_generation
+                    generation = written_generation(result, settings, partial=not cloud)
+                    generation = self.store.prepare_performance(generation)
+                    generation.update(writer_model=result.get("writer_model", "local"),
+                                      writer_summary=result.get("summary", result.get("writer_summary", "")))
+                    result = {**result, **generation, "generation": generation}
+                return result
             finally:
                 if not proc.stdin.closed:
                     try: proc.stdin.close()
@@ -671,9 +730,8 @@ class Generator:
                 with self.writer_gate:
                     idea = self.write_idea(recipe, job_id, started)
                 peak = self.live.get("peak_footprint", 0) if self.live else 0
-                recipe = validate_recipe({**recipe, "lyrics": idea["lyrics"],
+                recipe = validate_recipe({**recipe, **idea["generation"],
                                           "title": idea["title"] if recipe.get("title_auto") else recipe["title"],
-                                          "style": recipe["style"] or idea["style"],
                                           "lyrics_source": "ai"})
                 recipe["writer_model"] = idea.get("writer_model", "local")
                 with self.store.db() as db:

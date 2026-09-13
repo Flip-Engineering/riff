@@ -5,6 +5,7 @@ let ideaBusy = false;
 let ideaCancelled = false;
 let managedSound = null;
 let compassUsed = false;
+let compassPending = null;
 
 function creationMode() {
   return $("[name=creation-mode]:checked").value;
@@ -64,10 +65,14 @@ function updateExploration() {
 }
 
 async function shuffleIdea(part = "all", fromCompass = false) {
-  if (ideaBusy) return;
+  if (ideaBusy) {
+    if (fromCompass) compassPending = JSON.stringify(formRecipe());
+    return;
+  }
+  compassPending = null;
   const before = formRecipe();
   if (
-    part === "all" &&
+    before.idea_engine === "phrases" && part === "all" &&
     before.hold_sound &&
     (["free", "instrumental"].includes(before.mode) || before.hold_words)
   ) {
@@ -80,14 +85,11 @@ async function shuffleIdea(part = "all", fromCompass = false) {
   const buttons = ["#surprise", "#spark", "#shuffle-lyrics"];
   buttons.forEach((id) => ($(id).disabled = true));
   try {
-    const request = {
-      mode: before.mode,
-      theme: before.theme,
-      idea_engine: before.idea_engine,
-      brief: before.brief,
-      writer_tokens: before.writer_tokens,
-    };
-    if (part === "words" || before.hold_sound) request.style = before.style;
+    const request = { ...before, write_scope: part };
+    // Draft-only text stays in this tab. Active notation and all generation
+    // controls accompany every writer request, including focused revisions.
+    delete request.abc_draft; delete request.lyrics_draft;
+    if (before.idea_engine === "phrases" && part !== "words" && !before.hold_sound) delete request.style;
     $("#writer-status").textContent =
       before.idea_engine === "phrases" ? "Shuffling…" : "Writing a new idea…";
     if (fromCompass)
@@ -107,12 +109,19 @@ async function shuffleIdea(part = "all", fromCompass = false) {
       return;
     }
     ideaUndo = before;
-    const next = { ...before };
+    const next = { ...before, ...(idea.generation || {}) };
+    if (idea.generation) {
+      for (const key of ["writer_model", "writer_summary", "lyrics_source"]) next[key] = idea[key];
+      next.lyrics_draft = ["free", "instrumental"].includes(next.mode) ? before.lyrics_draft : next.lyrics;
+      next.abc_draft = next.cot === "off" ? before.abc_draft : next.abc;
+      // Source lineage and UI holds belong to the artist, not the response.
+      for (const key of ["parent_track_id", "review_id", "hold_words", "hold_sound"]) next[key] = before[key];
+    }
     const changeWords =
       part === "words" || (part === "all" && !before.hold_words);
     const changeSound =
       part === "sound" || (part === "all" && !before.hold_sound);
-    if (changeWords) {
+    if (!idea.generation && changeWords) {
       next.title = idea.title;
       if (!["free", "instrumental"].includes(before.mode)) {
         next.lyrics = idea.lyrics;
@@ -120,13 +129,12 @@ async function shuffleIdea(part = "all", fromCompass = false) {
         next.lyrics_source = idea.lyrics_source;
       }
     }
-    if (changeSound)
+    if (!idea.generation && changeSound)
       Object.assign(next, {
         style: idea.style,
         energy: idea.energy,
         texture: idea.texture,
       });
-    // Keep the user's duration, quality, seed, and score controls intact.
     fillRecipe(next);
     saveDraft();
     $("#undo-idea").disabled = false;
@@ -147,6 +155,9 @@ async function shuffleIdea(part = "all", fromCompass = false) {
     $("#stop-writing").hidden = true;
     $("#writer-status").textContent = "Ready for an idea";
     buttons.forEach((id) => ($(id).disabled = false));
+    const pending = compassPending; compassPending = null;
+    if (!ideaCancelled && pending && pending === JSON.stringify(formRecipe()))
+      queueMicrotask(() => shuffleIdea("sound", true));
   }
 }
 
@@ -221,49 +232,43 @@ document.addEventListener("DOMContentLoaded", () => {
     }),
   );
   const pad = $("#compass-pad");
+  let compassPointer = null;
   function movePoint(event) {
+    const svg = $("svg", pad), matrix = svg.getScreenCTM();
+    if (!matrix) return;
+    const point = new DOMPoint(event.clientX, event.clientY).matrixTransform(matrix.inverse());
     compassUsed = true;
-    const rect = pad.getBoundingClientRect();
-    $("#texture").value = Math.round(
-      Math.max(
-        0,
-        Math.min(
-          1,
-          (((event.clientX - rect.left) / rect.width) * 360 - 26) / 308,
-        ),
-      ) * 100,
-    );
-    $("#energy").value = Math.round(
-      Math.max(
-        0,
-        Math.min(
-          1,
-          (112 - ((event.clientY - rect.top) / rect.height) * 134) / 90,
-        ),
-      ) * 100,
-    );
+    $("#texture").value = Math.round(Math.max(0, Math.min(1, (point.x - 26) / 308)) * 100);
+    $("#energy").value = Math.round(Math.max(0, Math.min(1, (112 - point.y) / 90)) * 100);
     updateCompass();
   }
   pad.addEventListener("pointerdown", (event) => {
-    if (ideaBusy) return;
+    if (!event.isPrimary || event.button !== 0 || compassPointer !== null) return;
+    event.preventDefault();
+    compassPointer = event.pointerId;
     pad.setPointerCapture(event.pointerId);
     movePoint(event);
   });
   pad.addEventListener("pointermove", (event) => {
-    if (pad.hasPointerCapture(event.pointerId)) movePoint(event);
+    if (compassPointer === event.pointerId) movePoint(event);
   });
   pad.addEventListener("pointerup", (event) => {
-    if (!pad.hasPointerCapture(event.pointerId)) return;
-    pad.releasePointerCapture(event.pointerId);
+    if (compassPointer !== event.pointerId) return;
+    movePoint(event); compassPointer = null;
+    if (pad.hasPointerCapture(event.pointerId)) pad.releasePointerCapture(event.pointerId);
     saveDraft();
     shuffleIdea("sound", true);
+  });
+  for (const name of ["pointercancel", "lostpointercapture"]) pad.addEventListener(name, event => {
+    if (compassPointer !== event.pointerId) return;
+    compassPointer = null; saveDraft();
   });
   for (const id of ["#energy", "#texture"]) {
     $(id).addEventListener("input", () => {
       compassUsed = true;
       updateCompass();
     });
-    $(id).addEventListener("change", () => shuffleIdea("sound", true));
+    $(id).addEventListener("change", () => { saveDraft(); shuffleIdea("sound", true); });
   }
   $("#manage-sounds").addEventListener("click", () => {
     drawSoundManager();

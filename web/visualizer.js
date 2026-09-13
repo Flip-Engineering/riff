@@ -6,6 +6,7 @@ let soundMotionTrack = null;
 let soundSnapshotPending = false;
 const quietMotion = matchMedia("(prefers-reduced-motion: reduce)");
 const motionCache = new Map();
+const settledMotion = new WeakMap();
 let soundAppearance = { ...RiffArtwork.defaults };
 try {
   const saved = JSON.parse(localStorage.getItem("riff.soundAppearance") || "{}");
@@ -31,14 +32,34 @@ function visualizationFor(trackId) {
 
 function motionAt(data, seconds) {
   if (!data?.frames?.length) return Array(8).fill(0);
+  if (!settledMotion.has(data)) {
+    // Let the material carry an impulse instead of redrawing its silhouette
+    // at waveform speed. The filter uses seconds, independent of analysis fps.
+    // Cache the causal result, so seeking and export need no playback history.
+    const dt = 1 / data.fps, frames = [], waveforms = [];
+    let body = Array(8).fill(0), trace = Array(data.waveforms?.[0]?.length || 0).fill(0);
+    for (let i = 0; i < data.frames.length; i++) {
+      // Each frame is the state at its timestamp, before that sample's
+      // interval. This avoids an analysis-rate-dependent head start.
+      frames.push(body);
+      if (data.waveforms?.[i]) waveforms.push(trace);
+      body = body.map((previous, band) => {
+        const input = data.frames[i][band] || 0;
+        const time = band === 4 || band === 5 ? .75 : input > previous ? .14 : .65;
+        return previous + (input - previous) * (1 - Math.exp(-dt / time));
+      });
+      if (data.waveforms?.[i]) {
+        trace = trace.map((previous, point) => previous + (data.waveforms[i][point] - previous) * (1 - Math.exp(-dt / .3)));
+      }
+    }
+    settledMotion.set(data, { fps: data.fps, frames, waveforms });
+  }
+  data = settledMotion.get(data);
   const frame = offset => data.frames[Math.min(data.frames.length - 1, Math.max(0, offset))];
-  // A symmetric window softens frame boundaries without accumulating state.
-  const smooth = offset => Array.from({ length: 8 }, (_, band) =>
-    ((frame(offset - 1)[band] || 0) + 2 * (frame(offset)[band] || 0) + (frame(offset + 1)[band] || 0)) / 4);
   const at = time => {
     if (time < 0) return Array(8).fill(0);
     const position = time * data.fps, index = Math.floor(position), blend = position - index;
-    const a = smooth(index), b = smooth(index + 1);
+    const a = frame(index), b = frame(index + 1);
     const values = a.map((value, band) => value + (b[band] - value) * blend);
     if (data.waveforms?.length) {
       const first = data.waveforms[Math.min(index, data.waveforms.length - 1)];
@@ -50,7 +71,7 @@ function motionAt(data, seconds) {
   const motion = at(seconds);
   // A beat travels through the surface using its real, recent envelope.
   // Sampling the audio clock makes seeking and exported frames reproducible.
-  motion.history = Array.from({ length: 20 }, (_, i) => at(seconds - i / 19));
+  motion.history = Array.from({ length: 20 }, (_, i) => at(seconds - i * 1.8 / 19));
   return motion;
 }
 

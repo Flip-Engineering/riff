@@ -62,9 +62,9 @@ const RiffArtwork = (() => {
     const time = Number.isFinite(seconds) ? seconds : 0;
     g.sound = [bass, middle, air, attack];
     g.lightPhase = phase + Math.sin(time * .19) * level * .24;
-    const tilt = .59 + balance * .17 + bass * .06;
-    const yaw = -.25 + spread * .15 + middle * .035 * Math.sin(time * .45);
-    const turn = g.twist - .22 + level * .025 * Math.sin(time * .32);
+    const tilt = .59 + balance * .08 + bass * .045;
+    const yaw = -.25 + spread * .10 + middle * .028 * Math.sin(time * .18);
+    const turn = g.twist - .22 + level * .014 * Math.sin(time * .12);
     const ct = Math.cos(tilt), st = Math.sin(tilt), cy = Math.cos(yaw), sy = Math.sin(yaw);
     const cz = Math.cos(turn), sz = Math.sin(turn);
     for (let ring = 0; ring < rings; ring++) {
@@ -84,27 +84,27 @@ const RiffArtwork = (() => {
       // The delayed pressure travels through the same contours as the signed
       // signal. Their endpoints stay attached while the material opens within.
       const pressure = arrival - attack + resonance * .6;
-      const layer = f + Math.sin(2 * Math.PI * f) * pressure * .055;
+      const layer = f + Math.sin(2 * Math.PI * f) * pressure * .028;
       for (let point = 0; point < steps; point++) {
         const angle = point / steps * Math.PI * 2;
         const position = (point / steps + phase / (Math.PI * 2)) % 1;
         const signal = fieldSample(first, position) * (1 - blend) + fieldSample(next, position) * blend;
-        const t = angle + fold * signal * .028 + fold * pressure * .045;
+        const t = angle + fold * signal * .014 + fold * pressure * .018;
         // One connected acoustic shell: sound changes curvature, spacing and
         // material tension together instead of overlaying a separate trace.
-        const strain = middle * 6 * Math.sin(3 * t - time * 1.4 + phase)
-          + arrival * 7 * Math.sin(2 * t + phase + f * 4) + resonance * 12 + signal * (5 + 7 * fold);
-        const radius = (100 + layer * 60.75 + 12 * Math.sin(3 * t + phase) * layer) * (1 + bass * .095) + strain;
+        const strain = middle * 12 * Math.sin(2 * t - time * .32 + phase)
+          + arrival * 6.5 * Math.sin(2 * t + phase + f * 2) + resonance * 10 + signal * (4 + 6 * fold);
+        const radius = (100 + layer * 60.75 + 12 * Math.sin(3 * t + phase) * layer) * (1 + bass * .13) + strain;
         const x = Math.cos(t) * radius;
-        const y = (Math.sin(t) * (68 + layer * 35.1) + 30 * Math.sin(2 * t + phase) * layer) * (1 + bass * .065)
-          + Math.sin(t) * signal * 6 * fold;
-        const wave = middle * 4 * Math.sin(3 * t + phase - time * 1.2 + f * 2)
-          + air * 1.2 * Math.sin(15 * t - time * 5.5 + f * 8)
-          + attack * 4 * Math.sin(6 * t - time * 3.8 + f * 13)
-          + crest * .7 * Math.sin(27 * t - time * 6 + f * 15)
-          + signal * (8 + 14 * fold);
+        const y = (Math.sin(t) * (68 + layer * 35.1) + 30 * Math.sin(2 * t + phase) * layer) * (1 + bass * .075)
+          + Math.sin(t) * signal * 4 * fold;
+        // Broad movement belongs to the phrase. Higher frequencies alter a
+        // gentle surface fold and its light, without independent fast ripples.
+        const wave = middle * 10 * Math.sin(2 * t + phase - time * .28 + f)
+          + (air * .6 + attack * 1.5 + crest * .3) * Math.sin(4 * t + phase + f * 2)
+          + signal * (5 + 8 * fold);
         const z = -22 + layer * 40 + fold * (22 + 22 * Math.sin(2 * t + phase))
-          + 10 * Math.sin(3 * t + phase) * f + (.28 + fold * .72) * wave + arrival * 7 * fold;
+          + 10 * Math.sin(3 * t + phase) * f + (.28 + fold * .72) * wave + arrival * 2 * fold;
         const ry = y * ct - z * st, rz = y * st + z * ct;
         const rx = x * cy + rz * sy, depth = -x * sy + rz * cy;
         const tx = rx * cz - ry * sz, ty = rx * sz + ry * cz;

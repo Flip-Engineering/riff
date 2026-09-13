@@ -35,6 +35,9 @@ The application license does not change the model's terms.
 - **An open starting point.** Free play, instrumental direction, supplied lyrics,
   or an original surprise song. Hold the words or sound while exploring the other.
   Write with optional local AI, OpenRouter, or instant phrase suggestions.
+  AI writers work with the complete generation recipe: words, sound, score,
+  planning, sampling and acoustic controls. Variations include the source score
+  and listening notes; the result fills editable controls with a complete Undo.
 - **Composition.** Generate YuE2's symbolic plan before rendering music. Edit its
   melody and harmony in a score workspace, change tempo/meter/key, transpose, edit
   notes, audition tones, and import/export ABC or MIDI. Describe a musical change

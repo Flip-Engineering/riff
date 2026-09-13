@@ -207,6 +207,7 @@ function formRecipe() {
 function updateForm() {
   updateExploration();
   $("#local-writer-limit").hidden = $("#idea-engine").value !== "ai";
+  $("#cloud-writer-hint").hidden = $("#idea-engine").value !== "openrouter";
   $("#performance-context").hidden = !draftOrigin.performance_source;
   $("#performance-caption").textContent = draftOrigin.performance_source
     ? `Performance from ${[...state.tracks, ...state.jobs].find((item) => item.id === draftOrigin.performance_source)?.title || "a saved take"}` : "";
@@ -307,7 +308,7 @@ $("#revision-undo").addEventListener("click", () => {
 });
 function fillRecipe(recipe, variation = false) {
   draftOrigin = {};
-  for (const name of ["parent_track_id", "review_id", "performance_source"]) {
+  for (const name of ["parent_track_id", "review_id", "performance_source", "writer_model", "writer_summary"]) {
     if (recipe[name]) draftOrigin[name] = recipe[name];
   }
   const mode = ["free", "instrumental", "lyrics", "surprise"].includes(

@@ -81,6 +81,29 @@ try {
   });
   for (const [property, passed] of Object.entries(integrated)) assert(passed, property);
   console.log("PASS Signed waveform and its history bend the mesh itself, DC stays at rest, and the aperture contains no separate trace");
+  const settling = await page.evaluate(() => {
+    function pulse(fps) {
+      const frames = Array.from({ length: fps * 7 }, (_, i) => Array(8).fill(i >= fps && i < 2 * fps ? 1 : 0));
+      const waveforms = frames.map(frame => Array.from({ length: 64 }, (_, p) => frame[0] * Math.sin(p * Math.PI / 16)));
+      return { fps, frames, waveforms };
+    }
+    const a = pulse(24), b = pulse(60);
+    const silence = motionAt(a, .5), peak = motionAt(a, 1.9), tail = motionAt(a, 6);
+    const expected = JSON.stringify(motionAt(a, 1.4));
+    motionAt(a, 6); motionAt(a, 0);
+    const sought = JSON.stringify(motionAt(a, 1.4));
+    const difference = Math.max(...Array.from({ length: 300 }, (_, i) => Math.abs(motionAt(a, i / 60)[0] - motionAt(b, i / 60)[0])));
+    const alternating = { fps: 60, frames: Array.from({ length: 120 }, (_, i) => Array(8).fill(i % 2)) };
+    const travel = Array.from({ length: 60 }, (_, i) => Math.abs(motionAt(alternating, 1 + i / 60)[0] - motionAt(alternating, 1 + (i - 1) / 60)[0]));
+    return { silence: silence.every(x => x === 0), peak: peak[0], tail: tail[0],
+      signed: peak.waveform.some(x => x < -.5) && peak.waveform.some(x => x > .5),
+      deterministic: expected === sought, difference, rapidTravel: Math.max(...travel) };
+  });
+  assert(settling.silence && settling.signed && settling.deterministic, JSON.stringify(settling));
+  assert(settling.peak > .8 && settling.tail < .02, "A sustained phrase still opens the form and settles after silence");
+  assert(settling.difference < .05, `Response stays consistent across 24/60 fps analysis: ${JSON.stringify(settling)}`);
+  assert(settling.rapidTravel < .05, `Rapid frame changes are attenuated by at least 95%: ${JSON.stringify(settling)}`);
+  console.log("PASS Motion carries sustained phrases, softens rapid changes, settles in silence and stays consistent across seeking and analysis rates");
   await page.locator("[data-visual=sound]").click();
   await page.waitForFunction(() => soundMotion?.frames.length);
   await page.emulateMedia({ reducedMotion: "no-preference" });

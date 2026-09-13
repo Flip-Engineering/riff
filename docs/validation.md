@@ -188,6 +188,23 @@ on YuE2 separately.
   Same-seed artwork comparison rejected an overly dark first material candidate;
   revised lighting retains contour legibility with internal mineral hue variation.
 
+- v0.5.3 passes 97 application tests and the complete browser workflows. Compass
+  coverage includes SVG coordinate mapping at desktop and phone widths, actual
+  touch events, cancelled gestures, pointer capture outside the pad, keyboard
+  input, overlapping writing requests and preserved drafts. AI writing passes the
+  complete generation contract through the editable studio and native queue.
+  An actual Gemini 3.8 Flash proposal produced an 11.9987-second native take with
+  ABC, sampling overrides and AB2; the local writer also returned a valid recipe.
+- Motion comparisons distinguish temporal smoothing from material rendering.
+  The first smoothed candidate was overly still. Broad deformation was restored
+  while independent fast ripples remained removed. Source-time filtering retains
+  waveform polarity, settles in silence and stays consistent across analysis
+  rates and seeks. Both actual Metal/WebGL and Canvas fallback rendering are
+  exercised: headless Chromium's default can otherwise hide the shader path.
+  Matched 16-second GPU exports produced all 960 frames and complete audio. Direct
+  frames and decoded exports show the same changing shape; provider opinions
+  about its subtlety remain subjective, not artist acceptance.
+
 Browser/provider fixtures validate interface behavior; they do not establish model
 quality. Musical reviews use direct audio requests to the explicitly selected
 OpenRouter model. Review notes are subjective observations, separate from measured

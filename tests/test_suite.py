@@ -213,9 +213,11 @@ class ComposerTests(unittest.TestCase):
                 writer.openrouter_text({"model": "selected", "api_key": "test"}, [])
 
     def test_cloud_songwriting_ignores_legacy_local_limit_and_accepts_complete_long_draft(self):
+        from review_recipe import FIELDS
         lyrics = "\n\n".join(f"[Verse {n}]\nOne wave answers another.\nأرضنا لنا / 우리의 땅" for n in range(24))
+        take = validate_recipe({"title": "Across the water", "style": "Orchestral chant", "lyrics": lyrics})
         reply = {"choices": [{"finish_reason": "stop", "message": {"content": json.dumps({
-            "title": "Across the water", "style": "Orchestral chant", "lyrics": lyrics})}}]}
+            "summary": "An interwoven call and response", "generation": {key: take[key] for key in FIELDS}})}}]}
         for limit in (None, 1, 768, 4096):
             payload = {"idea_engine": "openrouter", "seed": "7", "mode": "lyrics",
                        "model": "google/gemini-3.8-flash", "api_key": "test-writer-credential"}
@@ -228,7 +230,9 @@ class ComposerTests(unittest.TestCase):
                 self.assertNotIn("reasoning", body)
                 self.assertEqual(body["model"], payload["model"])
                 self.assertTrue(body["provider"]["require_parameters"])
-                self.assertEqual(body["response_format"]["json_schema"]["schema"]["required"], ["title", "style", "lyrics"])
+                schema = body["response_format"]["json_schema"]["schema"]
+                self.assertEqual(schema["required"], ["summary", "generation"])
+                self.assertEqual(schema["properties"]["generation"]["required"], list(FIELDS))
                 self.assertEqual(result["lyrics"], lyrics)
 
     def test_cloud_provider_failure_and_empty_response_are_readable_and_redacted(self):

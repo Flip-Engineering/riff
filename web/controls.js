@@ -83,9 +83,6 @@
   }
   $("#system-open").addEventListener("click", openSettings);
   $("#setup-open").addEventListener("click", openSettings);
-  function writerDisclosure() { $("#cloud-writer-hint").hidden = $("#idea-engine").value !== "openrouter"; }
-  $("#idea-engine").addEventListener("change", writerDisclosure);
-  writerDisclosure();
   $("#reset-refinement").addEventListener("click", () => { draftRefinement = {}; fill({}); saveDraft(); });
   $("#engine-form").addEventListener("submit", async (event) => {
     event.preventDefault();

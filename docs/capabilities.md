@@ -14,6 +14,7 @@ of this pipeline. Its low-memory default uses Q4 main weights and an F16 VAE.
 | Compose before rendering audio | Compose a new score |
 | Supply or reuse a composition | ABC import, prior score, editable draft |
 | Reharmonize or change arrangement | Score editor and optional plain-language composer |
+| Develop a complete musical idea | Local AI or OpenRouter writer; complete editable generation recipe, source score and listening context |
 | Reinterpret an existing score | Import ABC, supply lyrics/style, choose a planning mode |
 | Sampling and repeatability | Temperature, top-p/top-k, penalties, windows, seed |
 | Planning length | Minimum/maximum ABC tokens |
@@ -80,6 +81,21 @@ private-network access checks. Read a track or review, then submit its proposed
 recipe to `POST /api/generations`; add `parent_track_id` and `review_id` to preserve
 its ancestry, then poll the returned job ID. A `performance_source`
 is an owned library track or completed-stage job ID, never a caller-supplied filesystem path.
+
+The optional AI writers use the same generation contract. `POST /api/inspiration`
+accepts the current recipe, `idea_engine` (`ai`, `openrouter` or `phrases`), an
+optional `brief`, and `write_scope` (`all`, `words` or `sound`). AI responses include
+`generation`, `writer_model` and `writer_summary`. They can return complete ABC,
+planning mode, every supported sampling override, solver settings and output type.
+The local writer may omit unchanged fields; the studio merges them with the source
+before validation. Selecting a source recording adds its original inputs, generated
+score, artist notes and selected or latest completed producer review. Only valid
+library IDs can supply a reusable performance. Holds preserve the artist's words
+or sound, and writing for an already queued generation retains its requested
+duration and output. Standalone writing fills editable controls and supports Undo;
+typing while a request runs takes precedence over its response. OpenRouter uses
+the saved connection and its provider's output capacity. Its writing requests do
+not inherit the separate local writer token setting.
 
 Video exports accept optional `start_seconds` and `end_seconds`. Both refer to the
 original recording; omitting them exports the whole song. The returned

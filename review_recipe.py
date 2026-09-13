@@ -10,7 +10,7 @@ FIELDS = ("title", "lyrics", "style", "abc", "mode", "cot", "max_seconds",
 
 def generation_context(source):
     keys = (*FIELDS, "brief", "idea_engine", "writer_tokens", "lyrics_source", "energy", "texture", "theme",
-            "performance", "performance_track_id")
+            "performance", "performance_track_id", "writer_model", "writer_summary")
     return {key: source[key] for key in keys if key in source}
 
 
@@ -102,12 +102,10 @@ def response_schema(source, keep_lyrics):
                                "required": list(FIELDS), "additionalProperties": False}}}
 
 
-def recommended_generation(value, source, keep_lyrics):
-    if isinstance(value, dict):
-        # Recommendations made by earlier installed producers remain runnable.
-        value = {"performance_source": "", "render_mode": "music", "solver": "midpoint", **value}
+def validate_generation(value, source, keep_lyrics=False):
+    """Validate a complete composer or producer recipe at the common boundary."""
     if not isinstance(value, dict) or set(value) != set(FIELDS):
-        raise ValueError("The review did not return a complete generation recipe. Review again to retry.")
+        raise ValueError("The model did not return a complete generation recipe. Your current draft is kept.")
     for key in ("title", "lyrics", "style", "abc", "mode", "cot", "seed", "performance_source", "render_mode", "solver"):
         if not isinstance(value[key], str):
             raise ValueError(f"The recommended {key} must be text.")
@@ -118,7 +116,7 @@ def recommended_generation(value, source, keep_lyrics):
         raise ValueError("The recommended solver steps must be a whole number.")
     lyrics = source.get("lyrics", "") if keep_lyrics else value["lyrics"]
     if value["performance_source"] and value["performance_source"] != source.get("performance_track_id"):
-        raise ValueError("The producer selected a performance that was not supplied for this review.")
+        raise ValueError("The model selected a performance that was not supplied for this request.")
     # These are the same validation and defaults used by POST /api/generations.
     # Origin links come from the studio, never from the model.
     result = validate_recipe({**source, **value, "lyrics": lyrics, "title_auto": False,
@@ -127,3 +125,10 @@ def recommended_generation(value, source, keep_lyrics):
     for key in ("parent_track_id", "review_id"):
         result.pop(key, None)
     return result
+
+
+def recommended_generation(value, source, keep_lyrics):
+    if isinstance(value, dict):
+        # Recommendations made by earlier installed producers remain runnable.
+        value = {"performance_source": "", "render_mode": "music", "solver": "midpoint", **value}
+    return validate_generation(value, source, keep_lyrics)
