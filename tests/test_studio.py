@@ -180,14 +180,15 @@ import array, os, sys, time, wave
 from pathlib import Path
 mode, target, marker = sys.argv[1:]
 if mode == 'fail': sys.exit(23)
-fd = os.open(marker, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-os.close(fd)
 if mode == 'wait':
     import signal
     def finish(sig, frame):
         Path(marker).unlink(missing_ok=True)
         sys.exit(0)
     signal.signal(signal.SIGTERM, finish)
+fd = os.open(marker, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+os.close(fd)
+if mode == 'wait':
     time.sleep(300)
 time.sleep(.1)
 with wave.open(target, 'wb') as wav:
