@@ -142,6 +142,7 @@ defmodule Riff.Desktop.BuildTest do
           "installer/mix.exs",
           "installer/mix.lock",
           "sources.json",
+          "desktop/build_openssl.exs",
           "desktop/support.exs",
           "runtime/lib/policy.ex"
         ] do
@@ -172,10 +173,12 @@ defmodule Riff.Desktop.BuildTest do
 
     B.json_write(Path.join(control, "control-build.json"), receipt)
     assert B.verify_control!(root, control) == receipt
-    File.write!(Path.join(root, "runtime/lib/policy.ex"), "corrected source")
-
-    assert_raise RuntimeError, ~r/Control runtime differs/, fn ->
-      B.verify_control!(root, control)
+    for changed <- ["runtime/lib/policy.ex", "desktop/build_openssl.exs"] do
+      File.write!(Path.join(root, changed), "corrected source")
+      assert_raise RuntimeError, ~r/Control runtime differs/, fn ->
+        B.verify_control!(root, control)
+      end
+      File.write!(Path.join(root, changed), "source fixture")
     end
   end
 end

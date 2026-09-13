@@ -314,6 +314,7 @@ defmodule Riff.Desktop.Build do
       "installer/mix.lock",
       "sources.json",
       "desktop/components.json",
+      "desktop/build_openssl.exs",
       "desktop/support.exs"
     ]
 

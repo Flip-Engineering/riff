@@ -6,9 +6,10 @@ The Apple Silicon installer preview includes the application runtime, Metal
 engine, media tools and local writer libraries. Open Riff Setup, choose Install,
 and follow the model download progress. Setup verifies and reuses existing model
 files, then offers Open Riff and installs a persistent Riff app in Applications.
-The intended desktop flow needs no terminal, Python installation or developer
-tools. Public Developer ID signing, notarization and complete delivery acceptance
-remain tracked requirements; see [desktop delivery](../desktop/README.md).
+The desktop flow needs no terminal, Python installation or developer tools.
+Web previews use ad-hoc signatures; organization signing and notarization remain
+separate improvements. See [desktop delivery](../desktop/README.md) for package
+availability and validation.
 
 The desktop preview requires Apple Silicon and macOS 15 or newer. Graphical
 NVIDIA packaging is separate work; current CUDA support uses the source path

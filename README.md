@@ -14,8 +14,8 @@ The new Apple Silicon desktop installer is in validation. Its flow is **open Rif
 Setup → Install → Open Riff**. It includes the application runtime, Metal engine,
 media tools and local writer, downloads the required models with resumable
 progress, and adds Riff to Applications. Subsequent updates belong to the app.
-Public signed/notarized desktop delivery remains pending; a local packaging proof
-is not presented as a finished public installer.
+Web previews use ad-hoc signatures. Organization signing and notarization remain
+separate improvements; available builds appear in the release assets.
 
 The current source distribution supports Apple Silicon Metal, Linux NVIDIA CUDA,
 and CPU. Developer setup and the existing source installer are documented in

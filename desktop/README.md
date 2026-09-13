@@ -112,9 +112,12 @@ versions and the runner image version are saved in the receipts. The image can c
 so this is a recorded build environment, not a claim that all future binaries
 will be byte-identical. [Pinned setup-beam contract](https://github.com/erlef/setup-beam/blob/54075bcc5e249e4758d363f27d099f55d843f124/README.md).
 
-The build uses the committed scripts in this order: native engine, media tools,
-portable application runtime, private OpenSSL, sanitized control release,
-curated source archive, verified desktop payload, and outer graphical app.
+The build records the supplied OTP crypto module's linkage, imports, exports,
+load commands and hash before compilation. It then builds private OpenSSL and
+the sanitized control release ahead of the native engine, media tools and
+portable application runtime. This exposes host-runtime portability failures
+early. The curated source archive, verified payload and outer graphical app
+follow those component builds.
 Control, scheduling, packaging, launcher and application tests must pass. The
 payload checks relocated component startup, verifies every component receipt,
 and includes the local writer libraries. Music and writer model weights remain
@@ -123,8 +126,9 @@ the installer's verified downloads.
 Successful runs attach one preview artifact containing the setup `.app` in
 `Riff-Setup-macos-arm64.zip`, which preserves its executable files, the desktop update archive, the source
 archive, component and toolchain receipts, `preview.json`, and `SHA256SUMS`.
-The workflow summary links to that artifact. Diagnostic logs are retained
-separately even if a build fails; incomplete installers are not uploaded as
+The workflow summary links to that artifact. Component-internal build logs,
+available receipts and OTP linkage diagnostics are retained even if a build
+fails; incomplete installers are not uploaded as
 successful previews. Preview artifacts expire after 14 days. [Actions artifact
 behavior](https://github.com/actions/upload-artifact/tree/043fb46d1a93c77aae656e7c1c64a875d1fc6a0a).
 

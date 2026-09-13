@@ -2,7 +2,7 @@
 
 The installer is an Elixir/OTP application with a small Rust macOS entry point. A packaged user opens **Riff Setup**, chooses **Install Riff**, and then **Open Riff**. Setup includes the pinned music models and sidecars. When the desktop payload includes the local writer runtime, it includes the writer's weights, vocabulary and configuration too. The installed **Riff.app** starts the existing studio service and opens it without a terminal. Updates use the same verified preparation and activation operation.
 
-This directory contains the implementation and local acceptance fixtures. Developer package builds use ad-hoc signing. A public macOS installer still needs the organization's signing, notarization, release and complete installation acceptance; an ad-hoc package is not that release. A control-only development build honestly stops at **Music models are ready** and cannot claim that Riff can generate music.
+This directory contains the implementation and local acceptance fixtures. Web previews use ad-hoc signing and verified release assets. Organization signing and notarization are separate delivery improvements. A control-only development build stops at **Music models are ready**; the complete installer includes the studio, runtime, engine and model downloads.
 
 ## Runtime and data boundaries
 

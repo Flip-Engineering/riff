@@ -27,6 +27,10 @@ class UpdateCancelled(ValueError):
     pass
 
 
+class DesktopUpdatePending(ValueError):
+    """A published version is still awaiting its desktop download."""
+
+
 def check_cancelled(cancelled):
     if cancelled and cancelled():
         raise UpdateCancelled("Update preparation was stopped. Your current Riff is unchanged.")
@@ -45,7 +49,7 @@ def default_install_root():
     return Path(os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local/share"))) / "riff"
 
 
-def get_release(desktop_platform=None):
+def get_release(desktop_platform=None, *, newer_than=None):
     request = urllib.request.Request(API + "/releases/latest", headers={"Accept": "application/vnd.github+json", "User-Agent": "Riff updater"})
     try:
         with urllib.request.urlopen(request, timeout=30) as response:
@@ -60,14 +64,21 @@ def get_release(desktop_platform=None):
     version_tuple(tag)
     if desktop_platform and not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9_]+)+", desktop_platform):
         raise ValueError("The installed desktop platform is invalid. Reopen Riff Setup.")
+    # Checking an already installed version needs only release metadata. An
+    # archive becomes relevant when there is actually a newer version to offer.
+    if newer_than is not None and version_tuple(tag) <= version_tuple(newer_than):
+        return None
+    downloads = release.get("assets")
+    if not isinstance(downloads, list) or any(not isinstance(item, dict) for item in downloads):
+        raise ValueError("The release download list is invalid. Try again later.")
     name = f"riff-{tag}-{desktop_platform}.payload.tar.gz" if desktop_platform else f"riff-{tag}.tar.gz"
-    assets = [item for item in release.get("assets", []) if item.get("name") == name]
+    assets = [item for item in downloads if item.get("name") == name]
     if len(assets) > 1:
         raise ValueError("The release contains conflicting update archives. Try again later.")
     asset = assets[0] if assets else None
     if not asset:
         if desktop_platform:
-            raise ValueError("A compatible desktop update is not available yet. Your current Riff is unchanged; check again later.")
+            raise DesktopUpdatePending("A compatible desktop update is not available yet. Your current Riff is unchanged; check again later.")
         raise ValueError("This release does not include the Riff installer archive.")
     digest = asset.get("digest", "")
     if not re.fullmatch(r"sha256:[a-f0-9]{64}", digest):

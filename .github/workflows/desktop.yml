@@ -78,6 +78,29 @@ jobs:
           elixir-version: '1.18.4'
           version-type: strict
 
+      - name: Record the supplied OTP crypto module
+        run: |
+          elixir -r desktop/support.exs -e '
+            alias Riff.Desktop.Build, as: B
+            root = System.fetch_env!("RIFF_PREVIEW_ROOT")
+            nif = Path.join(List.to_string(:code.priv_dir(:crypto)), "lib/crypto.so")
+            for {name, command, arguments} <- [
+              {"linkage", "/usr/bin/otool", ["-L", nif]},
+              {"load-commands", "/usr/bin/otool", ["-l", nif]},
+              {"imports", "/usr/bin/nm", ["-mu", nif]},
+              {"exports", "/usr/bin/nm", ["-gjU", nif]}
+            ] do
+              File.write!(Path.join(root, "logs/otp-crypto-" <> name <> ".txt"), B.run!(command, arguments))
+            end
+            {:ok, _} = Application.ensure_all_started(:crypto)
+            libraries = for {name, number, version} <- :crypto.info_lib(),
+              do: %{name: to_string(name), number: number, version: to_string(version)}
+            B.json_write(Path.join(root, "artifacts/receipts/otp-crypto.json"), %{
+              otp: System.otp_release(), erts: List.to_string(:erlang.system_info(:version)),
+              path: nif, bytes: File.stat!(nif).size, sha256: B.hash(nif), libraries: libraries
+            })
+          '
+
       - name: Prepare pinned build tools
         run: |
           rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal
@@ -133,6 +156,19 @@ jobs:
           elixir desktop/test/build_test.exs 2>&1 | tee "$RIFF_PREVIEW_ROOT/logs/desktop-tests.log"
           python3 -B -m unittest discover -s installer/test -p '*_test.py' -v 2>&1 | tee "$RIFF_PREVIEW_ROOT/logs/launcher-tests.log"
 
+      - name: Build the private crypto component
+        run: |
+          elixir desktop/build_openssl.exs --output "$RIFF_PREVIEW_ROOT/openssl" --jobs 2 2>&1 | tee "$RIFF_PREVIEW_ROOT/logs/openssl.log"
+
+      - name: Build and inspect the control release
+        env:
+          MIX_ENV: prod
+        run: |
+          export RIFF_INSTALLER_CRYPTO_RECEIPT="$RIFF_PREVIEW_ROOT/openssl/openssl.json"
+          export RIFF_INSTALLER_PACKAGE_PATH="$RIFF_PREVIEW_ROOT/control/Riff Setup.app"
+          mix run --no-start scripts/package_macos.exs 2>&1 | tee "$RIFF_PREVIEW_ROOT/logs/control-package.log"
+        working-directory: installer
+
       - name: Fetch the exact native source
         run: |
           elixir -r desktop/support.exs -e '
@@ -163,19 +199,6 @@ jobs:
       - name: Build the portable application runtime
         run: |
           elixir desktop/build_python.exs --output "$RIFF_PREVIEW_ROOT/python" 2>&1 | tee "$RIFF_PREVIEW_ROOT/logs/python.log"
-
-      - name: Build the private crypto component
-        run: |
-          elixir desktop/build_openssl.exs --output "$RIFF_PREVIEW_ROOT/openssl" --jobs 2 2>&1 | tee "$RIFF_PREVIEW_ROOT/logs/openssl.log"
-
-      - name: Build and inspect the control release
-        env:
-          MIX_ENV: prod
-        run: |
-          export RIFF_INSTALLER_CRYPTO_RECEIPT="$RIFF_PREVIEW_ROOT/openssl/openssl.json"
-          export RIFF_INSTALLER_PACKAGE_PATH="$RIFF_PREVIEW_ROOT/control/Riff Setup.app"
-          mix run --no-start scripts/package_macos.exs 2>&1 | tee "$RIFF_PREVIEW_ROOT/logs/control-package.log"
-        working-directory: installer
 
       - name: Package the exact source snapshot
         run: |
@@ -260,7 +283,20 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: desktop-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ env.RIFF_PREVIEW_ROOT }}/logs/
+          path: |
+            ${{ env.RIFF_PREVIEW_ROOT }}/logs/
+            ${{ env.RIFF_PREVIEW_ROOT }}/artifacts/receipts/
+            ${{ env.RIFF_PREVIEW_ROOT }}/openssl/*.log
+            ${{ env.RIFF_PREVIEW_ROOT }}/openssl/*.json
+            ${{ env.RIFF_PREVIEW_ROOT }}/engine/*.log
+            ${{ env.RIFF_PREVIEW_ROOT }}/engine/engine.json
+            ${{ env.RIFF_PREVIEW_ROOT }}/media/*.log
+            ${{ env.RIFF_PREVIEW_ROOT }}/media/build.json
+            ${{ env.RIFF_PREVIEW_ROOT }}/python/install.log
+            ${{ env.RIFF_PREVIEW_ROOT }}/python/imports.json
+            ${{ env.RIFF_PREVIEW_ROOT }}/python/python.json
+            ${{ env.RIFF_PREVIEW_ROOT }}/control/package-proof.json
+            ${{ env.RIFF_PREVIEW_ROOT }}/setup/package-proof.json
           if-no-files-found: warn
           retention-days: 14
 

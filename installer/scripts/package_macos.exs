@@ -1,4 +1,5 @@
 Code.require_file("../../desktop/support.exs", __DIR__)
+Code.require_file("crypto_component.exs", __DIR__)
 
 defmodule RiffInstaller.MacPackage do
   @moduledoc false
@@ -29,6 +30,7 @@ defmodule RiffInstaller.MacPackage do
     File.mkdir_p!(Path.join(contents, "MacOS"))
     File.mkdir_p!(resources)
     File.cp_r!("_build/prod/rel/riff_installer", runtime)
+    install_crypto_nifs(runtime, crypto)
     File.write!(Path.join(contents, "Info.plist"), plist(version))
 
     run!("rustc", [
@@ -59,6 +61,9 @@ defmodule RiffInstaller.MacPackage do
     for app <- Path.wildcard(Path.join(runtime, "lib/riff_installer-*/priv/desktop/Riff.app")),
         do: run!("/usr/bin/codesign", ["--force", "--sign", "-", app])
 
+    Riff.Desktop.Build.inspect_macos!(runtime)
+    verify_loaded_crypto!(runtime, crypto)
+
     unless build_inputs() == inputs,
       do: Mix.raise("Control sources changed during the build. Rebuild from one source snapshot.")
 
@@ -88,7 +93,7 @@ defmodule RiffInstaller.MacPackage do
       Riff.Installer.Payload.copy_package!(payload, Path.join(resources, "payload"))
     end
 
-    # Ad-hoc signing is solely for this local packaging proof, not Developer ID.
+    # Web previews use ad-hoc signatures; no personal Developer ID is used.
     run!("/usr/bin/codesign", ["--force", "--sign", "-", output])
 
     File.write!(
@@ -99,7 +104,7 @@ defmodule RiffInstaller.MacPackage do
           version: version,
           built_at: DateTime.utc_now(),
           runtime_bundled: true,
-          signing: "ad-hoc local proof; not notarized or a public installer",
+          signing: "ad-hoc web preview; not notarized",
           application_integration:
             if(payload,
               do: "Verified desktop payload included; isolated installation acceptance required",
@@ -171,11 +176,93 @@ defmodule RiffInstaller.MacPackage do
              Enum.all?(receipt["licenses"], &files[&1]),
            do: Mix.raise("The crypto component is missing its library or notices.")
 
+    for {record, source} <- [
+          {"crypto/build_openssl.exs", Path.expand("../desktop/build_openssl.exs")},
+          {"crypto/crypto_component.exs", Path.expand("scripts/crypto_component.exs")}
+        ] do
+      unless files[record] &&
+               Riff.Desktop.Build.hash(files[record]) == Riff.Desktop.Build.hash(source),
+             do: Mix.raise("Crypto component build inputs changed; rebuild the pinned component.")
+    end
+
+    otp = receipt["otp_crypto"]
+    host = Riff.Installer.CryptoComponent.host!()
+
+    expected_nifs =
+      Enum.map(Riff.Installer.CryptoComponent.nif_names(), &Path.join("crypto/nif", &1))
+
+    unless is_map(otp) and otp["component"] == host.pin and
+             otp["original_nif_sha256"] == Riff.Desktop.Build.hash(host.nif) and
+             otp["files"] == expected_nifs and Enum.all?(expected_nifs, &files[&1]),
+           do:
+             Mix.raise("Rebuild the pinned crypto NIF component for this exact OTP installation.")
+
+    Riff.Installer.CryptoComponent.verify_nif!(
+      files["crypto/nif/crypto.so"],
+      files[receipt["library"]],
+      host.beam
+    )
+
     %{
       library: files[receipt["library"]],
-      licenses: Enum.map(receipt["licenses"], &files[&1]),
+      nifs: Enum.map(expected_nifs, &{Path.basename(&1), files[&1]}),
+      host: host,
+      licenses:
+        Enum.map(receipt["licenses"], fn path ->
+          unless String.starts_with?(path, "crypto/licenses/"),
+            do: Mix.raise("Crypto notices must have an owned relative path.")
+
+          {String.replace_prefix(path, "crypto/licenses/", ""), files[path]}
+        end),
       receipt: receipt
     }
+  end
+
+  defp install_crypto_nifs(runtime, crypto) do
+    directory = Path.join(runtime, "lib/crypto-#{crypto.host.pin["crypto_version"]}/priv/lib")
+    original = Path.join(directory, "crypto.so")
+
+    unless Riff.Desktop.Build.hash(original) ==
+             crypto.receipt["otp_crypto"]["original_nif_sha256"],
+           do:
+             Mix.raise(
+               "The release copied a different OTP crypto NIF than the verified build input."
+             )
+
+    for {name, source} <- crypto.nifs, do: File.cp!(source, Path.join(directory, name))
+    beam = Path.join(runtime, "erts-#{crypto.host.pin["erts_version"]}/bin/beam.smp")
+    Riff.Installer.CryptoComponent.verify_nif!(original, crypto.library, beam)
+  end
+
+  defp verify_loaded_crypto!(runtime, crypto) do
+    version = crypto.receipt["component"]["version"]
+    expected = :crypto.hash(:sha256, "riff crypto runtime") |> Base.encode16(case: :lower)
+
+    expression = """
+    {:ok, _} = Application.ensure_all_started(:crypto)
+    [{_, _, version}] = :crypto.info_lib()
+    true = String.starts_with?(to_string(version), "OpenSSL #{version} ")
+    "#{expected}" = :crypto.hash(:sha256, "riff crypto runtime") |> Base.encode16(case: :lower)
+    true = :crypto.hash_equals("riff", "riff")
+    false = :crypto.hash_equals("riff", "diff")
+    {:ok, _} = Application.ensure_all_started(:ssl)
+    IO.puts("Pinned crypto runtime loaded")
+    """
+
+    dyld = for {key, _} <- System.get_env(), String.starts_with?(key, "DYLD_"), do: {key, nil}
+
+    Riff.Desktop.Build.run!(Path.join(runtime, "bin/riff_installer"), ["eval", expression],
+      env:
+        dyld ++
+          [
+            {"PATH", "/usr/bin:/bin"},
+            {"RELEASE_DISTRIBUTION", "none"},
+            {"ERL_LIBS", nil},
+            {"ERL_FLAGS", nil},
+            {"ERL_AFLAGS", nil},
+            {"ERL_ZFLAGS", nil}
+          ]
+    )
   end
 
   defp copy_licenses(runtime, crypto) do
@@ -192,20 +279,29 @@ defmodule RiffInstaller.MacPackage do
       destination
     )
 
-    copy_license_group(
-      license_root(:code.root_dir() |> List.to_string()),
-      "erlang-otp",
-      destination
-    )
-
-    for path <- crypto.licenses, do: File.cp!(path, Path.join(destination, Path.basename(path)))
+    # setup-beam's OTP archive contains no notices. These come from the exact
+    # pinned OTP source archive, alongside the rebuilt NIF and OpenSSL notices.
+    for {relative, path} <- crypto.licenses do
+      target = Path.join(destination, relative)
+      File.mkdir_p!(Path.dirname(target))
+      File.cp!(path, target)
+    end
 
     File.write!(
       Path.join(runtime, "crypto-build.json"),
       Jason.encode!(
         Map.take(
           crypto.receipt,
-          ["format_version", "component", "library", "licenses", "files", "configure", "platform"]
+          [
+            "format_version",
+            "component",
+            "otp_crypto",
+            "library",
+            "licenses",
+            "files",
+            "configure",
+            "platform"
+          ]
         ),
         pretty: true
       )

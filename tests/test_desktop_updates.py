@@ -147,6 +147,54 @@ class DesktopUpdateTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "outside"):
                 install.get_release("macos-arm64")
 
+    def test_current_desktop_version_check_needs_no_download(self):
+        for tag in ("v0.5.3", "v0.5.2"):
+            with self.subTest(tag=tag), patch("install.urllib.request.urlopen", return_value=BytesIO(
+                    json.dumps({"tag_name": tag, "assets": []}).encode())):
+                self.assertIsNone(install.get_release("macos-arm64", newer_than="0.5.3"))
+        with patch("install.urllib.request.urlopen", return_value=BytesIO(
+                b'{"tag_name":"invalid","assets":[]}')):
+            with self.assertRaisesRegex(ValueError, "version"):
+                install.get_release("macos-arm64", newer_than="0.5.3")
+
+    def test_desktop_check_waits_for_publication_and_keeps_download_validation(self):
+        current_runtime(self.install_root)
+        maintenance, app = self.maintenance()
+        archive = {"name": self.release["name"], "digest": "sha256:" + self.release["sha256"],
+                   "size": self.release["bytes"], "browser_download_url": self.release["url"]}
+        cases = [
+            ({"tag_name": "v0.5.3", "assets": []}, "done", "Riff is up to date", False),
+            ({"tag_name": "v0.5.4", "assets": []}, "done", "An update is being prepared.", False),
+            ({"tag_name": "v0.5.4", "assets": [archive]}, "done", "An update is available", True),
+            ({"tag_name": "v0.5.4", "assets": [{**archive, "digest": "unverified"}]},
+             "failed", "SHA-256", False),
+            *[({"tag_name": "v0.5.4", "assets": malformed}, "failed", "download list", False)
+              for malformed in ({}, "", None, [None])],
+        ]
+        for release, status, message, offered in cases:
+            with self.subTest(release=release), patch("maintenance.DATA", self.library), patch("maintenance.ROOT", app), \
+                    patch("install.urllib.request.urlopen", return_value=BytesIO(json.dumps(release).encode())), \
+                    patch("install.stage_desktop_release") as stage, patch("setup_engine.prepare") as compiler:
+                maintenance.task = {"status": "running", "action": "check"}
+                maintenance.work("check", {})
+                self.assertEqual(maintenance.task["status"], status, maintenance.task)
+                self.assertIn(message, maintenance.task["message"])
+                self.assertEqual(bool(maintenance.release), offered)
+                self.assertIsNone(maintenance.pending)
+                self.assertFalse(maintenance.generator.quiescing)
+                stage.assert_not_called()
+                compiler.assert_not_called()
+                self.unchanged()
+        maintenance.release = self.release
+        (self.install_root / "runtime.json").write_text('{"format_version":0}')
+        with patch("install.get_release") as lookup:
+            maintenance.task = {"status": "running", "action": "check"}
+            maintenance.work("check", {})
+            self.assertEqual(maintenance.task["status"], "failed")
+            self.assertIsNone(maintenance.release)
+            lookup.assert_not_called()
+            self.unchanged()
+
     def test_verified_staging_is_reusable_without_changing_selection(self):
         target = install.stage_desktop_release(self.install_root, self.release, archive=self.archive)
         self.assertEqual(target.parent, self.install_root.resolve() / ".desktop-updates")

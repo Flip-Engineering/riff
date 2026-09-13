@@ -26,9 +26,9 @@ ready, not merely that the application files were copied. Subsequent updates
 belong to the app and activate when current work has finished.
 
 The Elixir installer work starts with this download and installation contract.
-Native packaging, release signing, clean-host acceptance and the equivalent
-NVIDIA distribution remain delivery requirements. A working prototype is not
-advertised as a complete signed installer.
+Native packaging, verified web releases, clean-host acceptance and the equivalent
+NVIDIA distribution remain delivery requirements. Web previews use ad-hoc
+signatures; organization signing and notarization are separate improvements.
 
 ## Migration acceptance
 

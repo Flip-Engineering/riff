@@ -90,6 +90,8 @@ class Maintenance:
     def work(self, action, payload):
         quiesced, status = False, "failed"
         try:
+            if action == "check":
+                self.release = None
             if action != "check":
                 with self.lock:
                     # A writer or queued take may arrive after start's idle
@@ -106,10 +108,14 @@ class Maintenance:
                                      jobs=payload.get("jobs"), cuda_arch=payload.get("cuda_arch"))
                 self.progress("Ready to make music")
             elif action == "check":
-                self.release = install.get_release(runtime["platform"]) if runtime else install.get_release()
-                if install.version_tuple(self.release["version"]) <= install.version_tuple(self.version):
-                    self.release = None
-                self.progress("An update is available" if self.release else "Riff is up to date")
+                try:
+                    self.release = install.get_release(runtime["platform"], newer_than=self.version) if runtime else install.get_release()
+                except install.DesktopUpdatePending:
+                    self.progress("An update is being prepared.")
+                else:
+                    if self.release and install.version_tuple(self.release["version"]) <= install.version_tuple(self.version):
+                        self.release = None
+                    self.progress("An update is available" if self.release else "Riff is up to date")
             elif action == "update":
                 if not self.install_root:
                     raise ValueError("Use the Riff installer to enable managed updates. Source checkouts stay under Git control.")
