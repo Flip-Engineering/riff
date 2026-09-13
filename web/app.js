@@ -636,10 +636,16 @@ $("#variation").addEventListener("click", () => {
   $("#title").focus();
   notify("A new take, starting from the same feeling.");
 });
+function performanceScore(recipe) {
+  const score_source = recipe.score_source || recipe.symbolic_plan?.artifact_id || "";
+  const abc = recipe.abc || recipe.symbolic_plan?.abc || "";
+  return { score_source, abc: score_source ? "" : abc,
+    abc_draft: score_source ? recipe.abc_draft ?? recipe.symbolic_plan?.abc ?? recipe.abc ?? "" : abc };
+}
 $("#refine-performance").addEventListener("click", () => {
   if (!selected?.recipe?.performance) return;
   openRecipe({ ...selected.recipe, title: selected.title,
-    abc: selected.recipe.score_source ? "" : selected.recipe.abc || selected.recipe.symbolic_plan?.abc || "",
+    ...performanceScore(selected.recipe),
     max_seconds: selected.recipe.performance.frames / 25,
     parent_track_id: selected.id, performance_source: selected.id, review_id: "", render_mode: "music" }, true);
   saveDraft(); showView("studio"); $("#style").focus();
@@ -950,7 +956,7 @@ document.addEventListener("click", async (event) => {
       const job = await api(`/api/jobs/${finish.dataset.finishPerformance}`);
       const recipe = job.recipe;
       openRecipe({ ...recipe, performance_source: job.id, render_mode: "music",
-        abc: recipe.score_source ? "" : recipe.abc || recipe.symbolic_plan?.abc || "",
+        ...performanceScore(recipe),
         max_seconds: recipe.performance.frames / 25 });
       $("#style").focus();
       notify("Your performance is ready to shape.");

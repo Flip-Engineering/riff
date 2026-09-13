@@ -5,7 +5,7 @@ import { mkdirSync } from "node:fs";
 import { chromium } from "playwright";
 
 const server = spawn(process.env.RIFF_PYTHON || "python3", ["-u", "tests/review_browser_server.py"]);
-let diagnostics = "", browser;
+let diagnostics = "", browser, page;
 server.stderr.on("data", chunk => diagnostics += chunk);
 const fixture = await new Promise((resolve, reject) => {
   let text = "";
@@ -23,10 +23,12 @@ const initial = { title: "Exact composition", mode: "lyrics", lyrics: "[Verse]\n
 const fields = recipe => ({ score_source: recipe.score_source, abc: recipe.abc, abc_draft: recipe.abc_draft, cot: recipe.cot });
 let available = true, proposalText = score, capturedPlan = null, heldPlan = null, holdPlan = false, notifyHeld;
 const submissions = [], compositions = [], edits = [];
+let performanceFixture = null;
+const performanceJobId = "7".repeat(32);
 
 try {
   browser = await chromium.launch({ headless: true, executablePath: process.env.RIFF_BROWSER_EXECUTABLE });
-  const page = await browser.newPage({ viewport: { width: 1365, height: 1000 }, reducedMotion: "reduce" });
+  page = await browser.newPage({ viewport: { width: 1365, height: 1000 }, reducedMotion: "reduce" });
   const errors = []; page.on("pageerror", error => errors.push(error.message));
   await page.addInitScript(recipe => {
     if (!localStorage.getItem("riff.draft")) localStorage.setItem("riff.draft", JSON.stringify(recipe));
@@ -38,7 +40,9 @@ try {
     const response = await route.fetch(), next = await response.json();
     next.engine = { ...next.engine, capabilities: { ...next.engine?.capabilities, exact_score_replay: available } };
     next.tracks[0].recipe = { ...next.tracks[0].recipe, ...initial,
-      symbolic_plan: { artifact_id: firstId, abc: score, token_count: 37, truncated: false } };
+      symbolic_plan: { artifact_id: firstId, abc: score, token_count: 37, truncated: false }, ...performanceFixture };
+    if (performanceFixture) next.jobs.push({ id: performanceJobId, title: "Captured performance", status: "performed",
+      created: 1789300800, finished: 1789300801, performance_available: true, recipe: performanceFixture });
     next.plans = [plan("1".repeat(32), "Captured melody", melodyId, melody, "melody"),
       plan("2".repeat(32), "Blank captured score", emptyId, "", "full", 0),
       plan("3".repeat(32), "Legacy written score", "", score, "full"),
@@ -51,9 +55,11 @@ try {
     if (route.request().method() !== "GET") return route.continue();
     const response = await route.fetch(), track = await response.json();
     track.recipe = { ...track.recipe, ...initial,
-      symbolic_plan: { artifact_id: firstId, abc: score, token_count: 37, truncated: false } };
+      symbolic_plan: { artifact_id: firstId, abc: score, token_count: 37, truncated: false }, ...performanceFixture };
     await route.fulfill({ response, json: track });
   });
+  await page.route(`**/api/jobs/${performanceJobId}`, route => route.fulfill({ status: 200,
+    json: { id: performanceJobId, status: "performed", recipe: { ...initial, ...performanceFixture } } }));
   await page.route("**/api/generations", async route => {
     const recipe = route.request().postDataJSON(); submissions.push(recipe);
     // Exercise the UI contract without invoking a model or requiring an owned
@@ -219,7 +225,39 @@ try {
   assert(!await page.locator("#score-dialog").innerText().then(text => text.includes("riff-score-v1:") || text.includes("151643")));
   assert.deepEqual(errors, []);
   console.log("PASS Attachment controls fit narrow screens and expose no artifact paths or token arrays");
+
+  await close(); await page.setViewportSize({ width: 1365, height: 1000 });
+  for (const shape of [
+    { name: "newly generated score", source: "", artifact: firstId, text: score, cot: "full", tokens: 37 },
+    { name: "explicit saved score", source: melodyId, artifact: firstId, text: melody, cot: "melody", tokens: 37 },
+    { name: "empty captured score", source: "", artifact: emptyId, text: "", cot: "full", tokens: 0 },
+    { name: "legacy readable score", source: "", artifact: "", text: score, cot: "full", tokens: 37 },
+  ]) {
+    const expectedSource = shape.source || shape.artifact;
+    performanceFixture = { score_source: shape.source, abc: "", abc_draft: undefined, cot: shape.cot,
+      symbolic_plan: { artifact_id: shape.artifact, abc: shape.text, token_count: shape.tokens, truncated: false },
+      performance: { frames: 300, seconds: 12, truncated: false } };
+    await page.reload(); await page.locator("#refine-performance").waitFor();
+    for (const action of ["refine", "finish"]) {
+      if (action === "refine") await page.locator("#refine-performance").click();
+      else {
+        await page.evaluate(() => showView("library"));
+        await page.locator(`[data-finish-performance="${performanceJobId}"]`).click();
+        await page.waitForFunction(id => formRecipe().performance_source === id, performanceJobId);
+      }
+      const expectedPerformance = action === "refine" ? fixture.track_id : performanceJobId;
+      const outgoing = await submit("#generate");
+      assert.equal(outgoing.score_source, expectedSource, `${action}: ${shape.name}`);
+      assert.equal(outgoing.abc, expectedSource ? "" : shape.text, `${action}: ${shape.name}`);
+      assert.equal(outgoing.abc_draft, shape.text);
+      assert.equal(outgoing.cot, shape.cot); assert.equal(outgoing.max_seconds, 12);
+      assert.equal(outgoing.performance_source, expectedPerformance);
+    }
+  }
+  assert.deepEqual(errors, []);
+  console.log("PASS Refine performance and Finish sound submit captured or explicit score IDs with separate notation, including empty scores; legacy notation and mode/duration are preserved");
 } finally {
+  await page?.unrouteAll({ behavior: "wait" });
   await browser?.close();
   const exited = once(server, "exit"); server.kill("SIGTERM"); await exited;
 }
