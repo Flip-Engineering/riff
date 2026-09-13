@@ -23,6 +23,9 @@ jobs:
       - run: python3 -B -m unittest discover -s tests -p 'test_score_integration.py' -v
         env:
           RIFF_REQUIRE_SCORE_INTEGRATION: '1'
+      - run: python3 -B -m unittest discover -s tests -p 'test_acoustic_integration.py' -v
+        env:
+          RIFF_REQUIRE_SCORE_INTEGRATION: '1'
       - run: elixir runtime/test/admission_test.exs
       - run: elixir runtime/test/resources_test.exs
       - run: elixir desktop/test/build_test.exs

@@ -15,11 +15,11 @@ sys.path.insert(0, str(ROOT))
 from install import version_tuple
 
 ROOT_FILES = '''.gitattributes .gitignore VERSION LICENSE NOTICE.md README.md DESIGN.md CONTRIBUTING.md
-Riff.command build.sh capabilities.py fetch-models.py inspiration.py install.py keychain.py launcher.py
+Riff.command acoustic_artifacts.py build.sh capabilities.py fetch-models.py inspiration.py install.py keychain.py launcher.py
 maintenance.py model_admission.py model_options.py network_access.py paths.py platform_support.py review_client.py review_recipe.py reviews.py
 run.py score_artifacts.py setup_engine.py setup-writer.sh sources.json studio.py studio_core.py symbolic.py video.py
 writer.py lyrics.txt requirements-writer.lock package.json package-lock.json design-seed.txt'''.split()
-PUBLIC_DOCS = '''adapters.md adapter-research.json install.md capabilities.md branding.md validation.md architecture-direction.md yue2-capability-audit.md
+PUBLIC_DOCS = '''adapters.md adapter-research.json install.md capabilities.md branding.md validation.md architecture-direction.md yue2-capability-audit.md acoustic-recovery.md native/acoustic-checkpoint-format.md
 studio.png composition.png studio-mobile.png'''.split()
 
 

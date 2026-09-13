@@ -101,12 +101,18 @@ class ModelAdmission:
                                         stderr=self.log, bufsize=0, env={**os.environ, "RELEASE_DISTRIBUTION": "none"})
         self.buffer = b""
 
-    def supports_artifacts(self):
+    def supports_artifacts(self, kind="score"):
         """Read-only availability check; source-only installs can retain legacy scores."""
         try:
             self._command()
         except SchedulerNotInstalled:
             return False
+        if kind != "score":
+            try:
+                response = self._exchange({"op": "capabilities"})
+                return response.get("artifacts", {}).get(kind) == "riff.yue2.acoustic.v1"
+            except (ValueError, SchedulerUnavailable):
+                return False
         return True
 
     def _exchange(self, payload):
@@ -303,6 +309,15 @@ class ModelAdmission:
 def resource_inputs(recipe, kind, observer, writer_settings=None):
     """Collect installed facts; estimation and admission live in Elixir."""
     configured = platform_support.settings()
+    if kind == "acoustic_decode":
+        model_root = Path(configured["model_root"])
+        observation = observer.snapshot()
+        return {"kind": kind, "acoustic": recipe["acoustic"],
+                "vae_config": json.loads((model_root / "sidecars/yue2-vae-config.json").read_text()),
+                "vae_bytes": (model_root / configured["vae_file"]).stat().st_size,
+                "decoder": recipe.get("decoder", {}), "backend": configured["backend"],
+                "device": observation.get("device_identity") or f"cuda:{configured['device']}",
+                "margin": float(os.environ.get("RIFF_MODEL_MEMORY_MARGIN", "0.2"))}
     writer = kind == "writer"
     model_root = platform_support.writer_settings()["model"] if writer else Path(configured["model_root"])
     config_path = model_root / "config.json" if writer else model_root / "sidecars/yue2-model-config.json"

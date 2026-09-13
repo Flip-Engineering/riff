@@ -44,7 +44,8 @@ def sysctl_int(name):
 
 def build_command(*, lyrics, style, max_seconds, steps, cot, seed, threads, output,
                   backend=None, abc="", mode="lyrics", cfg_scale=1., temperature=1., refinement=None, render_mode="music",
-                  performance_file=None, semantic_only=False, solver="midpoint", score_file=None):
+                  performance_file=None, semantic_only=False, solver="midpoint", score_file=None,
+                  acoustic_out=None, acoustic_only=False):
     """Shared native invocation for the command line and Riff studio."""
     if solver not in ("midpoint", "ab2"):
         raise ValueError("Choose midpoint or ab2 for acoustic synthesis.")
@@ -89,6 +90,14 @@ def build_command(*, lyrics, style, max_seconds, steps, cot, seed, threads, outp
         command += ["--request-option", "score_tokens_file=" + str(score_file)]
     if semantic_only:
         command += ["--request-option", "semantic_only=true"]
+    if acoustic_out:
+        if not engine_capabilities(settings).get("acoustic_checkpoint"):
+            raise ValueError("Update the selected engine to save sound synthesis.")
+        command += ["--request-option", "acoustic_latents_out=" + str(acoustic_out)]
+    if acoustic_only:
+        if not acoustic_out:
+            raise ValueError("Saving sound synthesis needs an output location.")
+        command += ["--request-option", "acoustic_only=true"]
     from model_options import validate
     for key, value in validate(refinement or {}, max_seconds).items():
         command += ["--request-option", f"{key}={value}"]
@@ -133,7 +142,10 @@ def _engine_capabilities(binary, model_root, identity):
     exact = (metadata.get("feature.yue2.score_tokens") == "1" and
              metadata.get("format.yue2.score_tokens") == "riff.yue2.score-tokens.v1" and
              metadata.get("format.yue2.prefix") == "riff.yue2.prefix.v1")
-    return {"exact_score_replay": exact, "score_format": metadata.get("format.yue2.score_tokens"),
+    acoustic = (metadata.get("feature.yue2.acoustic_checkpoint") == "1" and
+                metadata.get("feature.yue2.acoustic_decode") == "1" and
+                metadata.get("format.yue2.acoustic") == "riff.yue2.acoustic.v1")
+    return {"exact_score_replay": exact, "acoustic_checkpoint": acoustic, "score_format": metadata.get("format.yue2.score_tokens"),
             "prefix_contract": metadata.get("format.yue2.prefix")}
 
 
@@ -154,6 +166,62 @@ def score_contract(settings=None):
     vocabulary = Path(settings["model_root"]) / "sidecars/yue2-qwen.tiktoken"
     return {"format": capability["score_format"], "prefix_contract": capability["prefix_contract"],
             "tokenizer_sha256": file_digest(vocabulary)}
+
+
+def decoder_contract(settings=None):
+    settings = settings or platform_runtime.settings()
+    if not engine_capabilities(settings).get("acoustic_checkpoint"):
+        raise ValueError("Update the selected engine to finish saved sound synthesis.")
+    model = Path(settings["model_root"])
+    config = json.loads((model / "sidecars/yue2-vae-config.json").read_text())
+    # Match the pinned native VAE defaults. Main-model files are not consulted.
+    values = {"sample_rate": config.get("sample_rate", 48000),
+              "channels": config.get("audio_channels", 2), "latent_dim": config.get("latent_dim", 64),
+              "encoder_latent_dim": 128,
+              "downsampling_ratio": config.get("downsampling_ratio", 1920)}
+    if any(type(value) is not int or not 0 < value <= 2**63-1 for value in values.values()):
+        raise ValueError("The selected audio decoder has invalid dimensions.")
+    if any(values[key] > 2**31-1 for key in ("sample_rate", "channels")):
+        raise ValueError("The selected audio decoder has invalid dimensions.")
+    return {"sha256": file_digest(model / settings["vae_file"]), **values}
+
+
+def decoder_schema():
+    return {"type": "object", "additionalProperties": False, "properties": {
+        "core_frames": {"type": "integer", "minimum": 1, "maximum": 2**63-1,
+                        "description": "Audio frames per decoder tile. Omit to retain the captured value."},
+        "halo_frames": {"type": "integer", "minimum": 0, "maximum": 2**63-1,
+                        "description": "Neighboring frames around each tile. Omit to retain the captured value."},
+        "storage": {"type": "integer", "enum": list(range(7)),
+                    "description": "Weight storage: 0 native, 1 F32, 2 F16, 3 BF16, 4 Q8_0, 5 Q4_0, 6 Q4_K. Omit to retain captured storage; small kernels can remain F32."}}}
+
+
+def decoder_options(value):
+    if not isinstance(value, dict) or not set(value) <= {"core_frames", "halo_frames", "storage"}:
+        raise ValueError("Choose supported audio decoder controls.")
+    for key, item in value.items():
+        lower, upper = (0, 6) if key == "storage" else (1 if key == "core_frames" else 0, 2**63-1)
+        if type(item) is not int or not lower <= item <= upper:
+            raise ValueError("Decoder controls must be whole numbers within the supported range.")
+    return dict(value)
+
+
+def build_decode_command(acoustic_file, output, decoder=None):
+    settings = platform_runtime.settings()
+    decoder_contract(settings)
+    values = decoder_options({} if decoder is None else decoder)
+    command = [settings["binary"], "--task", "gen", "--family", "yue2", "--model", settings["model_root"],
+               "--backend", settings["backend"], "--device", str(settings["device"]),
+               "--threads", str(settings["threads"]), "--session-option", "yue2.vae_gguf=" + settings["vae_file"],
+               "--request-option", "acoustic_latents_file=" + str(acoustic_file),
+               "--out", str(output), "--log", "--metrics"]
+    for key in ("core_frames", "halo_frames"):
+        if key in values:
+            command += ["--request-option", f"acoustic_decode_{key}={values[key]}"]
+    if "storage" in values:
+        storage = ("native", "f32", "f16", "bf16", "q8_0", "q4_0", "q4_k")[values["storage"]]
+        command += ["--session-option", "yue2.vae_weight_type=" + storage]
+    return command
 
 
 def require_solver(solver, binary):

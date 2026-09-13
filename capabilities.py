@@ -12,6 +12,9 @@ def describe():
     recipe["properties"]["score_source"] = {
         "type": "string", "pattern": "^(?:riff-score-v1:[a-f0-9]{64})?$",
         "description": "Empty for revised ABC or new composition, or an owned exact native score ID offered by the studio. Keep abc empty and cot melody or full when retaining a saved score. The score's tokens are reused; the audio performance may be newly generated."}
+    recipe["properties"]["acoustic_source"] = {
+        "type": "string", "pattern": "^(?:riff-acoustic-v1:[a-f0-9]{64})?$",
+        "description": "Owned saved sound. POST this reference plus optional decoder controls and title to finish audio; omitted musical inputs are restored from its recorded generation. Supplied musical inputs must match that sound."}
     for name in ("parent_track_id", "review_id"):
         recipe["properties"][name] = {"type": "string", "pattern": "^(?:[a-f0-9]{32})?$",
                                       "description": "Optional source reference to retain the iteration's ancestry."}
@@ -26,6 +29,9 @@ def describe():
             "recording": {"method": "GET", "path": "/api/tracks/{track_id}"},
             "score": {"method": "GET", "path": "/api/scores/{score_source}",
                       "description": "Inspect an owned riff-score-v1 reference: id, artifact_id, title, source_job_id, sha256, bytes, token_count, truncated, abc, cot, provenance and compatible; display_error may explain unavailable readable notation. Historical scores remain inspectable when compatible=false, but exact reuse requires compatibility with the selected engine."},
+            "acoustic": {"method": "GET", "path": "/api/acoustics/{acoustic_source}",
+                         "description": "Inspect saved sound metadata, recorded musical inputs, captured decoder settings and compatibility. No latent bytes or internal file paths are returned."},
+            "finish_audio": {"method": "POST", "path": "/api/generations", "body": "acoustic_source; optional decoder, title, review_id. Creates a new queued child preserving the saved original and source seed."},
             "generate": {"method": "POST", "path": "/api/generations", "body": "recipe_schema"},
             "compose": {"method": "POST", "path": "/api/plans", "body": "recipe_schema; cot=melody or full"},
             "revise_score": {"method": "POST", "path": "/api/composition/revise", "body": "abc, cot, brief and current recipe inputs"},
@@ -52,5 +58,9 @@ def describe():
         "score": {
             "inputs": ["score_source", "abc", "cot"],
             "behavior": "Retain an offered exact native score with score_source and empty abc; revise notation with abc and empty score_source; leave both empty for a new composition. Saved and edited scores require melody or full planning. Arrangements retain their individual source score references.",
+        },
+        "acoustic": {
+            "inputs": ["acoustic_source", "decoder"],
+            "behavior": "Decodes completed sound with the compatible VAE, skipping AR/NAR and main-model loading. Omitted decoder controls restore capture defaults. Core/halo/storage overrides can change the audio; title may change, musical inputs remain provenance. render_mode=sound captures synthesis without decoding.",
         },
     }

@@ -136,6 +136,7 @@ class Reviews:
         self.store.audio_path(track_id)
         source = dict(track["recipe"])
         source["available_scores"] = self.store.available_scores(source)
+        source["available_acoustics"] = self.store.available_acoustics(source)
         if source.get("performance"):
             self.store.performance_path(track_id)
             source["performance_track_id"] = track_id
@@ -185,6 +186,7 @@ class Reviews:
             track = self.store.track(review["track_id"])
             source = dict(review["source_recipe"])
             source["available_scores"] = self.store.available_scores(source, cancelled=self.stop)
+            source["available_acoustics"] = self.store.available_acoustics(source, cancelled=self.stop)
             settings = {"model": review["model"], "focus": review["focus"], "keep_lyrics": review["keep_lyrics"],
                         "recipe": source, "audio": str(self.store.audio_path(review["track_id"])),
                         "duration": track["audio"]["duration"],

@@ -25,6 +25,8 @@ API to Riff and records remaining stage-reuse and composition workflows.
 | Semantic guidance | Guidance |
 | Acoustic rendering | Solver steps and synthesis method: Midpoint or Multistep (AB2) |
 | Retain phrasing during acoustic refinement | Refine this performance; saved native codes, original score, revised sound, seed and solver steps |
+| Finish saved sound without repeating synthesis | Finish audio; owned completed acoustic tensor and captured decoder settings |
+| Refine decoding of the same sound | Saved synthesis: tile size, overlap and weight storage, with the compatible VAE |
 | Understand a written composition | Voice maps, individual tone-preview voices, written duration and duration matching |
 | Agent operation | Discover `/api/capabilities`; use the same library, composition, review and generation queue |
 | Decoder or quantization | Custom GGUF paths in Studio settings |
@@ -37,6 +39,13 @@ sample-accurate audio inpainting, editable stems, voice-reference encoding or a
 compatible YuE2 LoRA loader. The studio does not label unrelated adapters or
 quantizations as those features. Cover-style work accepts a supplied score and
 lyrics; there is no transcription pipeline.
+
+[Saved sound synthesis](acoustic-recovery.md) retains a completed acoustic stage
+before audio decoding. `acoustic_source` creates a new queued take from those
+exact latents; omitted decoder controls retain their captured settings. The
+producer receives the original musical inputs and can choose this operation
+when decoder refinement is appropriate. `render_mode=sound` saves synthesis
+without decoding audio.
 
 The composition workspace captures the actual ABC planning tokens from audio.cpp.
 **Use this score** retains those tokens for subsequent generations, including

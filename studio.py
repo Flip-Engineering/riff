@@ -168,6 +168,10 @@ class Handler(BaseHTTPRequestHandler):
                 if not self.server.store.artifacts:
                     raise KeyError("Score not found.")
                 self.json_response(200, self.server.store.artifacts.describe(reference))
+            elif path.startswith("/api/acoustics/"):
+                if not self.server.store.acoustics:
+                    raise KeyError("Saved sound not found.")
+                self.json_response(200, self.server.store.acoustics.describe(path[len("/api/acoustics/"):]))
             elif path == "/api/health":
                 self.json_response(200, {"app": "Riff", "status": "ready"})
             elif path == "/api/capabilities":
@@ -332,7 +336,7 @@ class Handler(BaseHTTPRequestHandler):
                 with self.server.maintenance.lock if self.server.maintenance else nullcontext():
                     if self.server.restart_requested:
                         raise ValueError("Riff is restarting. Your draft is saved.")
-                    if not platform_support.readiness()["ready"]:
+                    if not payload.get("acoustic_source") and not platform_support.readiness()["ready"]:
                         raise ValueError("Open Studio settings to finish setting up the music engine.")
                     if self.server.maintenance and self.server.maintenance.task["status"] == "running" and self.server.maintenance.task.get("action") != "check":
                         raise ValueError("Setup is still running. Your draft is saved.")
