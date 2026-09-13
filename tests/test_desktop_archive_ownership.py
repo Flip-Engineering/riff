@@ -19,7 +19,7 @@ from test_desktop_updates import Download, payload_fixture
 class DesktopArchiveOwnershipTests(unittest.TestCase):
     def setUp(self):
         keeper = os.environ.get("RIFF_ARCHIVE_TEST_FIXTURES")
-        self.root = Path(tempfile.mkdtemp(prefix="archive-ownership-", dir=keeper))
+        self.root = Path(tempfile.mkdtemp(prefix="archive-ownership-", dir=keeper)).resolve()
         if not keeper:
             self.addCleanup(install.shutil.rmtree, self.root)
         self.payload, self.archive, self.release = payload_fixture(self.root)
