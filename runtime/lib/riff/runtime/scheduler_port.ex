@@ -8,7 +8,7 @@ defmodule Riff.Runtime.SchedulerPort do
   and EOF release this port's workers and results without touching model work.
   """
 
-  alias Riff.Runtime.{Admission, ScoreArtifact}
+  alias Riff.Runtime.{AcousticArtifact, AcousticCheckpoint, Admission, ScoreArtifact}
 
   def main(options \\ []) do
     io = Keyword.get(options, :io, :standard_io)
@@ -72,7 +72,7 @@ defmodule Riff.Runtime.SchedulerPort do
         response = %{
           "state" => "failed",
           "error" =>
-            "The saved score operation ended before completing. Its files have been kept."
+            "The saved stage operation ended before completing. Its files have been kept."
         }
 
         loop(complete(state, ref, response), reader, io)
@@ -81,6 +81,16 @@ defmodule Riff.Runtime.SchedulerPort do
 
   defp dispatch(state, line) do
     case Jason.decode(line) do
+      {:ok, %{"op" => "capabilities"}} ->
+        {state,
+         %{
+           "state" => "capabilities",
+           "artifacts" => %{
+             "score" => "riff.yue2.score-tokens.v1",
+             "acoustic" => "riff.yue2.acoustic.v1"
+           }
+         }}
+
       {:ok, %{"op" => "estimate", "inputs" => inputs}} when is_map(inputs) ->
         {state,
          %{"state" => "estimated", "requirement" => Riff.Runtime.Resources.estimate(inputs)}}
@@ -110,10 +120,10 @@ defmodule Riff.Runtime.SchedulerPort do
 
     cond do
       not valid_artifact_request?(request) ->
-        {state, %{"state" => "error", "error" => "Invalid saved score operation."}}
+        {state, %{"state" => "error", "error" => "Invalid saved stage operation."}}
 
       Map.has_key?(state.artifacts, id) ->
-        {state, %{"state" => "error", "error" => "This saved score operation already exists."}}
+        {state, %{"state" => "error", "error" => "This saved stage operation already exists."}}
 
       true ->
         runner = state.runner
@@ -136,14 +146,21 @@ defmodule Riff.Runtime.SchedulerPort do
   end
 
   defp valid_artifact_request?(request) do
+    kind = Map.get(request, "kind", "score")
+
     contract? =
-      is_map(request["contract"]) or
-        (request["action"] == "resolve" and Map.has_key?(request, "contract") and
-           is_nil(request["contract"]))
+      if kind == "acoustic" and request["action"] == "capture" do
+        # Its native container already carries the actual decoder identity.
+        is_nil(request["contract"])
+      else
+        is_map(request["contract"]) or
+          (request["action"] == "resolve" and Map.has_key?(request, "contract") and
+             is_nil(request["contract"]))
+      end
 
     base =
       is_binary(request["id"]) and request["id"] != "" and
-        is_binary(request["root"]) and contract?
+        is_binary(request["root"]) and kind in ["score", "acoustic"] and contract?
 
     base and
       case request["action"] do
@@ -165,15 +182,37 @@ defmodule Riff.Runtime.SchedulerPort do
   defp run_artifact(runner, request) do
     %{"state" => "complete", "result" => runner.(request)}
   rescue
-    error in ScoreArtifact.Error ->
+    error in [ScoreArtifact.Error, AcousticArtifact.Error, AcousticCheckpoint.Error] ->
       %{"state" => "failed", "error" => Exception.message(error)}
 
     _ ->
       %{
         "state" => "failed",
         "error" =>
-          "The saved score could not be read or saved. Its existing files have been kept."
+          "The saved stage could not be read or saved. Its existing files have been kept."
       }
+  end
+
+  defp artifact_operation!(%{"kind" => "acoustic", "action" => "capture"} = request) do
+    AcousticArtifact.capture_file!(
+      request["root"],
+      request["source_root"],
+      request["source_path"],
+      request["provenance"]
+    )
+  end
+
+  defp artifact_operation!(%{"kind" => "acoustic", "action" => "resolve"} = request) do
+    AcousticArtifact.resolve!(request["root"], request["artifact_id"], request["contract"])
+  end
+
+  defp artifact_operation!(%{"kind" => "acoustic", "action" => "prepare"} = request) do
+    AcousticArtifact.prepare!(
+      request["root"],
+      request["artifact_id"],
+      request["contract"],
+      request["input_directory"]
+    )
   end
 
   defp artifact_operation!(%{"action" => "capture"} = request) do

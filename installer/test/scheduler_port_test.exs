@@ -2,6 +2,7 @@ defmodule Riff.Runtime.SchedulerPortTest do
   use ExUnit.Case, async: true
   alias Riff.Installer.TestSchedulerIO, as: Device
   alias Riff.Runtime.SchedulerPort
+  alias Riff.Runtime.AcousticCheckpoint
 
   @contract %{
     "format" => "riff.yue2.score-tokens.v1",
@@ -47,6 +48,83 @@ defmodule Riff.Runtime.SchedulerPortTest do
       "artifact_id" => "fixture",
       "contract" => @contract
     }
+  end
+
+  test "acoustic discovery and real file stages share the responsive score channel" do
+    root = Path.expand("../_build/acoustic-port-#{System.unique_integer([:positive])}", __DIR__)
+    for child <- ~w(artifacts outputs inputs), do: File.mkdir_p!(Path.join(root, child))
+    on_exit(fn -> File.rm_rf!(root) end)
+    source = Path.join(root, "outputs/completed.yac")
+    File.cp!(Path.join(__DIR__, "fixtures/acoustic/checkpoint-v1.bin"), source)
+    port = start_port()
+    capabilities = call(port, %{"op" => "capabilities"})
+
+    assert capabilities["artifacts"] == %{
+             "score" => "riff.yue2.score-tokens.v1",
+             "acoustic" => "riff.yue2.acoustic.v1"
+           }
+
+    admit(port, "music")
+
+    base = %{
+      "op" => "artifact_start",
+      "kind" => "acoustic",
+      "root" => Path.join(root, "artifacts")
+    }
+
+    capture =
+      Map.merge(base, %{
+        "id" => "capture",
+        "action" => "capture",
+        "source_root" => root,
+        "source_path" => source,
+        "provenance" => %{"job_id" => "saved-take"}
+      })
+
+    assert call(port, capture)["state"] == "started"
+    saved = await_result(port, "capture")["result"]
+    metadata = AcousticCheckpoint.inspect!(root, source)
+    assert saved["descriptor"]["acoustic"] == metadata
+    refute Map.has_key?(saved, "latents")
+    assert saved["descriptor"]["acoustic"]["seed"] == "9223372036854775807"
+
+    decoder =
+      metadata
+      |> Map.take(~w(sample_rate channels latent_dim encoder_latent_dim downsampling_ratio))
+      |> Map.put("sha256", metadata["hashes"]["decoder"])
+
+    prepare =
+      Map.merge(base, %{
+        "id" => "prepare",
+        "action" => "prepare",
+        "artifact_id" => saved["id"],
+        "input_directory" => Path.join(root, "inputs"),
+        "contract" => decoder
+      })
+
+    assert call(port, prepare)["state"] == "started"
+    prepared = await_result(port, "prepare")["result"]
+    assert File.read!(prepared["input_path"]) == File.read!(source)
+    assert call(port, %{"op" => "status"})["active"] == ["music"]
+    assert call(port, %{"op" => "release", "id" => "music"})["state"] == "released"
+
+    resolve =
+      Map.merge(base, %{
+        "id" => "history",
+        "action" => "resolve",
+        "artifact_id" => saved["id"],
+        "contract" => nil
+      })
+
+    assert call(port, resolve)["state"] == "started"
+    assert await_result(port, "history")["result"] == saved
+    assert call(port, %{"op" => "artifact_result", "id" => "history"})["state"] == "missing"
+    assert call(port, Map.put(prepare, "kind", "unknown"))["state"] == "error"
+    assert call(port, Map.put(prepare, "contract", nil))["state"] == "error"
+    incompatible = put_in(prepare, ["contract", "sha256"], String.duplicate("0", 64))
+    assert call(port, incompatible)["state"] == "started"
+    assert await_result(port, "prepare")["state"] == "failed"
+    assert File.read!(prepared["input_path"]) == File.read!(source)
   end
 
   defp blocking_runner do
