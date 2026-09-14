@@ -22,6 +22,7 @@ const initial = { title: "Exact composition", mode: "lyrics", lyrics: "[Verse]\n
   abc: "", abc_draft: score, seed: "74", idea_engine: "phrases" };
 const fields = recipe => ({ score_source: recipe.score_source, abc: recipe.abc, abc_draft: recipe.abc_draft, cot: recipe.cot });
 let available = true, proposalText = score, capturedPlan = null, heldPlan = null, holdPlan = false, notifyHeld;
+let capturedOnly = false;
 const submissions = [], compositions = [], edits = [];
 let performanceFixture = null;
 const performanceJobId = "7".repeat(32);
@@ -40,6 +41,7 @@ try {
     const response = await route.fetch(), next = await response.json();
     next.engine = { ...next.engine, capabilities: { ...next.engine?.capabilities, exact_score_replay: available } };
     next.tracks[0].recipe = { ...next.tracks[0].recipe, ...initial,
+      ...(capturedOnly ? { score_source: "" } : {}),
       symbolic_plan: { artifact_id: firstId, abc: score, token_count: 37, truncated: false }, ...performanceFixture };
     if (performanceFixture) next.jobs.push({ id: performanceJobId, title: "Captured performance", status: "performed",
       created: 1789300800, finished: 1789300801, performance_available: true, recipe: performanceFixture });
@@ -55,6 +57,7 @@ try {
     if (route.request().method() !== "GET") return route.continue();
     const response = await route.fetch(), track = await response.json();
     track.recipe = { ...track.recipe, ...initial,
+      ...(capturedOnly ? { score_source: "" } : {}),
       symbolic_plan: { artifact_id: firstId, abc: score, token_count: 37, truncated: false }, ...performanceFixture };
     await route.fulfill({ response, json: track });
   });
@@ -157,6 +160,16 @@ try {
   assert.equal(study.score_source, firstId); assert.equal(study.abc, "");
   assert.deepEqual(await current(), beforeStudy);
   console.log("PASS AI revision sends the attachment and readable draft separately; no-op proposals preserve it, and reload, generation, variation and study retain it");
+
+  // A real YuE2 generation stores its newly captured score in symbolic_plan
+  // while score_source is empty. The ordinary variation action must hydrate
+  // that captured artifact before the user queues the child take.
+  capturedOnly = true;
+  await page.reload(); await page.locator("#play:not([disabled])").waitFor();
+  await page.locator("#variation").click();
+  await assertAttached(firstId, score, "full");
+  capturedOnly = false;
+  console.log("PASS Ordinary variation hydrates a captured symbolic-plan artifact when score_source was empty");
 
   await open();
   await history("Captured melody");

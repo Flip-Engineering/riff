@@ -624,9 +624,15 @@ $("#player-favorite").addEventListener(
 );
 $("#variation").addEventListener("click", () => {
   if (!selected) return;
+  // A freshly generated track may expose its captured score only through
+  // symbolic_plan.artifact_id. Carry that opaque reference into an ordinary
+  // variation just as performance refinement and score history do; leaving
+  // it in the readable ABC alone would silently trigger a new planning pass.
+  const score = performanceScore(selected.recipe);
   fillRecipe(
     {
       ...selected.recipe,
+      ...score,
       title: selected.title,
       parent_track_id: selected.id,
       review_id: "",
