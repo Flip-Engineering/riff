@@ -66,12 +66,15 @@ rejected; rejected experiments remain documented in the private ledger.
 
 ## Model and product work queued after the active gates
 
-- [ ] **Y01 — Empirical YuE2 mode matrix.** Using the accepted Named Voice
-  Relay source only as a control, compare `cot=full`, `cot=melody`, `cot=off`,
-  supplied ABC and the Riff instrumental cue in bounded studies. Record what
-  changes in the actual audio and symbolic output; do not infer timbre from
-  ABC voice names. Keep the experiment within the current YuE2 request
-  contract.
+- [x] **Y01 — Empirical YuE2 mode matrix.** Using the accepted Named Voice
+  Relay source only as a control, compared exact saved-score `cot=full`, exact
+  saved-score `cot=melody`, direct `cot=off`, and the Riff instrumental cue at
+  the same seed and bounded duration. Gemini 3.8 Flash direct audio review
+  rejected all four: full became a mechanical stutter loop, melody a vocoded
+  techno loop, off a slow R&B/trap ballad, and instrumental panting over a
+  hip-hop snap. The matrix proves the modes alter failure shape but none
+  preserves the accepted foreground; it does not justify calling any mode a
+  vocal/timbre or stem control. Receipt: `data/research-20260919-luna-relay-v1/yue2-mode-matrix-receipt.json`.
 - [ ] **U08 — Melody freedom and comparison.** Let users release chord
   annotations while retaining valid melody voices; show note, duration, voice,
   harmony and form differences; share the same transformations with writers,
