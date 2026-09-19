@@ -38,7 +38,10 @@ rejected; rejected experiments remain documented in the private ledger.
   Permit concurrent writer, planning and generation jobs only when host RAM
   and device memory leave headroom; queue otherwise; cancel one job without
   corrupting another; and measure overlap, latency, memory and total render
-  time. Keep the policy compatible with the eventual Elixir/Rust runtime.
+  time. Keep the policy compatible with the eventual Elixir/Rust runtime. A
+  live 16 GB probe correctly queued before launching either model because host
+  availability was 3.44 GB with warning pressure while the native estimate was
+  3.60 GB; this is safe admission evidence, not a concurrency result.
 - [ ] **V05/V07 — Finish the living sound form.** Reconcile the latest visual
   feedback: the form is currently better overall but may be too subtle, while
   earlier revisions became busy and fast. Preserve the unified shapeform,
