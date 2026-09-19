@@ -6,6 +6,19 @@ and initially Riff v0.5.3 (`5919837`); Riff coverage updated September 13 for ex
 score replay. Riff uses the current YuE2 native implementation and the patches
 pinned in [sources.json](../sources.json), not the Python backend.
 
+The native contract was cross-checked again on September 19 against the pinned
+audio.cpp runtime `fbe3eedbf6c504e45189e2cdcf1b257740a28863`, its checked-in
+`audio.cpp/model_specs/yue2.json`, and the model revision recorded in
+`sources.json`. The spec confirms the three symbolic routes, inline/file ABC,
+all score and semantic sampling fields, component/weight selection, graph-arena
+budgets, semantic-code and NAR-noise teacher-forcing files, and the separate VAE
+component. Riff exposes the artist-facing controls and safe saved-score/sound
+replay; raw teacher-forcing files remain validation-only, and the UI keeps score
+text owned and checked rather than accepting arbitrary filesystem paths. The
+native spec contains no reference-audio, stem, per-instrument, voice-cloning or
+adapter request. Those remain explicit gaps rather than controls hidden behind
+the mode names.
+
 The ordinary musical inputs are exposed. The remaining gaps concern exact stage
 reuse, complete generation artifacts, and composition workflows. A source audit
 establishes available operations, not musical equivalence between runtimes.

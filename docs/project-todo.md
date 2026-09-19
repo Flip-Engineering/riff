@@ -30,7 +30,9 @@ rejected; rejected experiments remain documented in the private ledger.
   conditioning modes empirically, and turn credible acceleration methods into
   bounded experiments. Keep unsupported controls visibly unsupported rather
   than inventing stem routing, reference-audio conditioning or per-instrument
-  guarantees.
+  guarantees. The September 19 cross-check now binds the audit to the pinned
+  audio.cpp spec and separates artist controls from teacher-forcing/debug files;
+  acceleration, alternate backends and remaining provenance gates stay open.
 - [ ] **E06 — Add acoustic checkpoints and decode-only recovery.** Persist
   validated acoustic latents with shape, type, hashes and model provenance;
   expose Finish audio to the UI and agent queue; preserve interrupted sources;
