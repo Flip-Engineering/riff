@@ -239,7 +239,16 @@ defmodule RiffInstaller.MacPackage do
                "The release copied a different OTP crypto NIF than the verified build input."
              )
 
-    for {name, source} <- crypto.nifs, do: File.cp!(source, Path.join(directory, name))
+    for {name, source} <- crypto.nifs do
+      target = Path.join(directory, name)
+      # Release archives preserve OTP's read-only mode bits. The pinned NIF is
+      # intentionally replaced with the verified build, so remove that copied
+      # file before installing the replacement instead of relying on an
+      # in-place overwrite of a mode-0444 path.
+      File.rm(target)
+      File.cp!(source, target)
+    end
+
     beam = Path.join(runtime, "erts-#{crypto.host.pin["erts_version"]}/bin/beam.smp")
     Riff.Installer.CryptoComponent.verify_nif!(original, crypto.library, beam)
   end
