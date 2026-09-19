@@ -4,6 +4,9 @@ A generative music studio by **Flip Engineering**, powered by YuE2 and audio.cpp
 Start with a feeling, a lyric sheet, a score, or an empty page. Make short studies,
 shape the composition, and collect the takes you want to keep.
 
+Current implementation, research and creative work is tracked in the
+[Riff project todo](docs/project-todo.md).
+
 ![Riff writing and listening studio](docs/studio.png)
 
 ## Install

@@ -1,0 +1,174 @@
+# Riff project todo
+
+Updated: 2026-09-19 19:05 UTC
+
+This is the canonical current-work list. The much larger private ledger in
+`data/TASKS.md` remains useful for receipts and historical evidence, but its
+old release sections are not a second live backlog. A task is removed from
+this list only when it is completed, deliberately closed, or explicitly
+rejected; rejected experiments remain documented in the private ledger.
+
+## Active now
+
+- [ ] **E03 — Make YuE2 inference faster as well as smaller.** Measure
+  conditioning, semantic generation, acoustic attention/projections, solver
+  network evaluations and VAE decode separately. Continue the evidence-based
+  AR-to-NAR cache, projection packing/fusion and attention work; verify natural
+  EOS, long-context behavior, cancellation and numerical/audio quality before
+  selecting a default. Report wall time, compute, peak memory and PCM/code
+  parity together. Do not call an operator microbenchmark an end-to-end win.
+- [ ] **E04 — Complete the current YuE2 capability and acceleration audit.**
+  Keep the audit grounded in the current YuE2 repository, protocol and native
+  runtime. Map every supported input and output to Riff, test the three
+  conditioning modes empirically, and turn credible acceleration methods into
+  bounded experiments. Keep unsupported controls visibly unsupported rather
+  than inventing stem routing, reference-audio conditioning or per-instrument
+  guarantees.
+- [ ] **E06 — Add acoustic checkpoints and decode-only recovery.** Persist
+  validated acoustic latents with shape, type, hashes and model provenance;
+  expose Finish audio to the UI and agent queue; preserve interrupted sources;
+  and prove identical PCM when the same latents are decoded with the same
+  decoder.
+- [ ] **E09/C01 — Share a warm model safely across queued work.** Replace the
+  unconditional writer/generation exclusion with measured resource admission.
+  Permit concurrent writer, planning and generation jobs only when host RAM
+  and device memory leave headroom; queue otherwise; cancel one job without
+  corrupting another; and measure overlap, latency, memory and total render
+  time. Keep the policy compatible with the eventual Elixir/Rust runtime.
+- [ ] **V05/V07 — Finish the living sound form.** Reconcile the latest visual
+  feedback: the form is currently better overall but may be too subtle, while
+  earlier revisions became busy and fast. Preserve the unified shapeform,
+  phrase-scale motion, quiet opening, waveform expressed through the contour,
+  mineral-hue variation, restrained internal texture, no gold treatment and
+  only the corner `riff` textmark. Compare actual playback and exported frames
+  at equal seed/audio/time; do not approve a still image in place of motion
+  review.
+- [ ] **V09 — Make export progress independent of cursor activity.** Reproduce
+  the cursor-dependent progress behavior without pointer input, separate frame
+  production from browser polling/display, and repair scheduling while keeping
+  live/export geometry, requested resolution/framerate, complete audio and
+  bounded memory.
+- [ ] **D07/D08 — Finish the human-first installer and updater.** Keep the
+  clickable web download flow, model-inclusive setup and app-managed updates.
+  Complete external-host first launch, model reuse/download accounting,
+  post-activation cleanup and storage reporting; keep previous runnable state
+  and the library recoverable. Web delivery is the target; App Store
+  distribution and Developer ID/notarization are not prerequisites.
+- [ ] **Q01 — Run the promised independent review passes.** Review model/API
+  contracts and failure/recovery/concurrency first, then review UI/UX and live
+  artwork against the actual artist feedback, then verify installation,
+  updates, private access, key/library preservation and cross-feature
+  regressions. Apply findings and rerun only affected checks.
+- [ ] **OPS — Revalidate the current local deployment.** Keep `main`, the
+  running Riff service, the web download path and both private Tailscale HTTPS
+  routes aligned after each completed delivery. Verify the CLI-only Codex
+  remote-control pairing separately. Never put provider keys in the repo.
+
+## Model and product work queued after the active gates
+
+- [ ] **Y01 — Empirical YuE2 mode matrix.** Using the accepted Named Voice
+  Relay source only as a control, compare `cot=full`, `cot=melody`, `cot=off`,
+  supplied ABC and the Riff instrumental cue in bounded studies. Record what
+  changes in the actual audio and symbolic output; do not infer timbre from
+  ABC voice names. Keep the experiment within the current YuE2 request
+  contract.
+- [ ] **U08 — Melody freedom and comparison.** Let users release chord
+  annotations while retaining valid melody voices; show note, duration, voice,
+  harmony and form differences; share the same transformations with writers,
+  producer reviews and agents without silently discarding useful ABC.
+- [ ] **U09/#10 — Study board and take families.** Present card-simple
+  candidates as a branchable take graph: generate bounded studies, compare
+  them, retain seed/score/recipe lineage and promote one to a longer take.
+  Candidate count remains a user choice.
+- [ ] **#11 — Agent orchestration surface.** Give agents the same queue,
+  study, replay, review and receipt operations as the studio without DOM
+  scripting. Make cancellation, resumability and ownership visible.
+- [ ] **#13 — Symbolic-plan drift comparison.** Show when a variation changes
+  the score, seed, lyric cells, stage settings or acoustic treatment, and make
+  those changes executable and reversible.
+- [ ] **#14 — Continuous material workflow.** Connect Sketch, Compose,
+  Perform and Finish into one understandable flow while retaining advanced
+  controls and plain-language explanations of their effects.
+- [ ] **#15 — Resource-aware study workers.** Add sketch/detail/master quality
+  tiers, warm reuse and bounded parallel candidates without turning a fixed
+  best-of-N policy into a model restriction.
+- [ ] **E07 — Per-take provenance and decoder compatibility.** Bind effective
+  defaults, runtime, tokenizer, generator/decoder and stage artifacts to each
+  take, with compatibility-aware replay and export bundles.
+- [ ] **E08 — Native noise and companion-encoder research.** Evaluate raw
+  acoustic-noise reuse/interpolation and the companion VAE encoder only with
+  valid dimensions, lineage and direct audio comparisons. This does not imply
+  inversion, covers or voice cloning.
+- [ ] **L01/#7 — Semantic tokenizer, fine-tuning and LoRA research.** Reverse
+  engineer the missing audio-to-discrete-semantic path, distinguish it from
+  the text/ABC and VAE paths, validate representation compatibility, and only
+  then expose compatible adapter CRUD and loading. Keep this a major side
+  task; no speculative adapter loader is shipped.
+- [ ] **P01 — Elixir/Rust migration.** Move application orchestration and
+  distribution toward Elixir, using Rust where native integration needs it.
+  Preserve the tested Python boundary during each migration step and retain
+  library, queue, Keychain, Tailscale, writer/producer and renderer contracts.
+- [ ] **D06 — Reduce repeat release-build time.** Investigate exact-input
+  compiler/native caches keyed by sources, patches, toolchain and backend;
+  preserve reproducibility and update deprecated workflow actions only with
+  verified replacements.
+- [ ] **NVIDIA — Verify the second backend.** Complete actual CUDA generation,
+  memory accounting, cancellation and installer acceptance. Compilation alone
+  is not runtime proof; do not change the working Metal path while this is
+  unverified.
+
+## Music exploration still open
+
+- [ ] **M-RELAY — Restart bounded studies from the only accepted control.** The
+  sole accepted example is `Named Voice Relay — instrument map test`
+  (`86f84307b7374308bc7b8071c828ffc0`). Its foreground is a near-monotone,
+  changing, fast rhythmic minimal vocal with sparse text; later relays,
+  chapters and assemblies are permanently rejected evidence of the wrong
+  direction. Run many varied short studies before any full song, and judge
+  direct audio with `google/gemini-3.8-flash`; never use Whisper, ASR or
+  transcription.
+- [ ] **A01 — Artist-selected full-song acceptance.** A reviewed candidate is
+  not artist acceptance. Promote a full render only after its bounded studies
+  establish identity, euphony, form and a credible ending.
+- [ ] **M01 — DECLARE IT replacement.** Continue only if a new Arabic/Korean
+  fusion study earns its way through the small-study gate; preserve the
+  forceful caller/chant brief without forcing a grand or theatrical treatment.
+- [ ] **R01 — ACP/Infrared branch.** Keep the researched historical-materialist
+  references and finished candidates available, but explore contrasting
+  euphonic forms and form/content relationships rather than repeating the
+  rejected weather-heavy or liberal/new-left framing.
+- [ ] **M02 — Foldroom.** Revisit the tactile plucked/dub pocket only as a new
+  bounded instrumental study; do not inherit the unwanted late vocal or old
+  prohibitions that contradicted the actual sound.
+- [ ] **M03 — New broadly appealing concept.** Use a fresh programmatic random
+  string as a nonliteral attractor, compare several genuinely different
+  euphonious directions, and move from studies to a complete song only after a
+  chosen direction survives review. Popularity is a goal, not a promise.
+
+## Completed or deliberately closed
+
+- [x] Core Riff studio, free/wordless generation, library and saved-sound CRUD,
+  secure OpenRouter key storage, structured Gemini producer/review, seed
+  retention in variations, score capture/replay, direct-generation/study
+  repair, sound-compass interaction, waveform/shape synthesis and high-quality
+  MP4 export are shipped in the current release line.
+- [x] The current provider is `google/gemini-3.8-flash`; direct audio review
+  does not use Whisper, ASR or any transcription model.
+- [x] The public contributor rewrite and local `wahargis` → `flip-engineer`
+  repository alignment were applied. Historical hosted activity cannot be
+  erased by local configuration.
+- [x] Issue #9 (captured score attachment across variations) is complete.
+- [x] Issue #12 (associative design provenance as a product feature) is closed
+  as not planned; random attractors remain a private creative practice.
+- [x] Approved nondisruptive storage cleanup is complete; active work and
+  uncommitted development were preserved.
+
+## Explicitly out of the current implementation path
+
+- No Whisper, ASR or transcription pipeline.
+- No promise that ABC labels are discrete stems, timbres or lead-instrument
+  routing.
+- No rigid external arranger, DAW or sampler pipeline in the current pass;
+  that boundary is recorded in issue #17.
+- No Engram-style architecture or custom SSD weight streamer without evidence
+  that the existing mmap/runtime path is insufficient.
