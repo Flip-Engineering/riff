@@ -4,8 +4,9 @@ Checked September 10, 2026 against the public model registry, upstream project,
 and Riff's pinned audio.cpp implementation; limited registry follow-up September 12.
 
 **No compatible published YuE2 LoRA collection was found.** This is a search result,
-not proof that no private, untagged, or future adapter exists. The raw query results
-are preserved in `adapter-research.json`.
+not proof that no private, untagged, or future adapter exists. The current findings
+below are intentionally limited to YuE2 checkpoints, quantizations and adapter
+formats relevant to Riff.
 
 The September 12 [base-model tree](https://huggingface.co/m-a-p/YuE2-3B)
 also listed `WaveCut/YuE2-3B-OrbitQuant-W4A4` under finetunes. Its model card and

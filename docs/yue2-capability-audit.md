@@ -25,7 +25,7 @@ establishes available operations, not musical equivalence between runtimes.
 | Saved acoustic latents and separate `decode()` | Saved synthesis, Finish audio, `acoustic_source`, `render_mode=sound` | Native completed tensors are retained before decoding and indexed as owned Elixir artifacts. Recovery creates a new queued take, retains the source seed and musical inputs, and skips main-model, AR and NAR loading. Original and explicitly refined decoder replay match full-render PCM on real 8-second and 45-second Metal checks. |
 | Complete artifact bundle, effective settings and model identities | WAV, ABC/MIDI, recipe, code hashes, generation logs and stage status | **Partial.** No single verified bundle binds every stage, effective defaults, tokenizer, model, decoder and runtime to each recording. |
 | Standard/legacy VAE selection; full or tiled decoding | Custom model/VAE GGUF paths; saved-sound core/halo/storage controls | Tiled standard decoding and explicit compatible refinements are verified on saved latents. Named alternate decoders and standard/legacy interchange remain open; a different VAE digest is not assumed compatible. |
-| Melody-preserving covers from supplied notation | ABC import, melody mode, style/lyrics revision | Exposed manually. **Missing convenience:** release chord annotations while preserving both vocal and instrumental melody voices. |
+| Supplied notation with preserved melody voices | ABC import, melody mode, style/lyrics revision | Exposed manually. **Missing convenience:** release chord annotations while preserving both vocal and instrumental melody voices. |
 | Agent score edits with checks on what changed | Note editing, transposition, tempo/meter/key, visual proposal, Undo and audio A/B | **Partial.** No structured comparison of notes, durations, harmony, voices and form against requested invariants. |
 | Multiple candidates and resumable batches | Individual queued takes, ancestry, studies, comparisons and producer proposals | Exposed individually. **Missing workflow:** a named family of variants with shared inputs, differences and group comparison. |
 | VAE audio encoding | No studio operation | Companion-model capability, separate from the generator's public request. An encoder round trip needs native implementation and validation; it does not by itself implement musical inversion/editing. |
@@ -56,9 +56,8 @@ have not found a typed YuE2 lead-instrument selector or a hard guarantee that
 the cue suppresses every voice-like event. Naming a lead instrument in `style`
 can guide the open generation, but it remains a soft semantic cue.
 Riff also has no native YuE2 `reference_audio`, stem, vocal-isolation or
-waveform-inpainting request. SheetSage2's cover workflow is a separate
-transcription step and should not be represented as a YuE2 per-instrument
-control.
+waveform-inpainting request, and has no transcription path. These are not
+hidden controls that can be enabled by UI work alone.
 
 ### Mode matrix and partial control
 
@@ -94,7 +93,7 @@ positive reference.
 
 Primary contracts: [request and sampling types][protocol], [stage API and
 artifact storage][pipeline], [generation guide][generation], [editing guide][editing],
-[cover guide][covers], [batch implementation][cli] and [VAE implementation][vae].
+[batch implementation][cli] and [VAE implementation][vae].
 Riff's implementation is in [run.py](../run.py), [model_options.py](../model_options.py),
 [studio_core.py](../studio_core.py), [symbolic.py](../symbolic.py),
 [score.js](../web/score.js) and [capabilities.py](../capabilities.py).
@@ -152,24 +151,21 @@ The same applies to warm session reuse between queued jobs. Riff's current engin
 work targets repeated conditioning, acoustic network evaluations, attention and
 projection cost; memory and complete-render time need separate measurements.
 
-The linked cover workflow obtains notation using SheetSage2/MERT2 before calling
-YuE2. Riff accepts supplied notation and does not run transcription. The examined
+Riff accepts supplied notation and does not run transcription. The examined
 generator API has no reference-audio argument, stem output, waveform inpainting,
 voice-cloning input or LoRA loader. Those are not hidden controls that can be
 enabled by UI work alone.
 
 Fine-tuning needs a separate audit of training representations. The public VAE
 encoder is not the semantic audio tokenizer; its source identifies that tokenizer
-as unreleased. The published MERT2 encoders return continuous features, while
-YuE2 expects discrete semantic codes. [Issue #7][adaptation] tracks reconstructing
-the missing path where needed, testing useful adaptation targets independently,
-and implementing actual adapter training and native loading.
+as unreleased. YuE2 expects discrete semantic codes. [Issue #7][adaptation]
+tracks reconstructing the missing path where needed, testing useful adaptation
+targets independently, and implementing actual adapter training and native loading.
 
 [protocol]: https://github.com/multimodal-art-projection/YuE/blob/88da114a67df892af0329472073b96a5ef700b93/src/yue2/protocol.py
 [pipeline]: https://github.com/multimodal-art-projection/YuE/blob/88da114a67df892af0329472073b96a5ef700b93/src/yue2/pipeline.py
 [generation]: https://github.com/multimodal-art-projection/YuE/blob/88da114a67df892af0329472073b96a5ef700b93/docs/generation.md
 [editing]: https://github.com/multimodal-art-projection/YuE/blob/88da114a67df892af0329472073b96a5ef700b93/docs/editing.md
-[covers]: https://github.com/multimodal-art-projection/YuE/blob/88da114a67df892af0329472073b96a5ef700b93/docs/covers.md
 [cli]: https://github.com/multimodal-art-projection/YuE/blob/88da114a67df892af0329472073b96a5ef700b93/src/yue2/cli.py
 [vae]: https://github.com/multimodal-art-projection/YuE/blob/88da114a67df892af0329472073b96a5ef700b93/src/yue2/modeling_vae.py
 [adaptation]: https://github.com/Flip-Engineering/riff/issues/7

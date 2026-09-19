@@ -37,8 +37,8 @@ The score is conditioning for a new performance, not an audio editor. Changing
 ABC, harmony or lyrics renders another take. The native runtime does not expose
 sample-accurate audio inpainting, editable stems, voice-reference encoding or a
 compatible YuE2 LoRA loader. The studio does not label unrelated adapters or
-quantizations as those features. Cover-style work accepts a supplied score and
-lyrics; there is no transcription pipeline.
+quantizations as those features. Existing-score work accepts supplied notation
+and lyrics; there is no transcription pipeline.
 
 [Saved sound synthesis](acoustic-recovery.md) retains a completed acoustic stage
 before audio decoding. `acoustic_source` creates a new queued take from those
