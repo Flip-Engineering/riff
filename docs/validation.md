@@ -257,6 +257,18 @@ storage failure, credential exclusion and desktop/mobile refresh-button access.
   checksum failure, and preservation of tracked edits, untracked files and the
   real index. The complete source check resolves a false rejection by the older
   updater when a later patch changed an earlier patch’s context.
+- The v0.6.7 pinned Metal payload passed bundled native generation, TLS, MP3
+  preparation and a 60-frame H.264/AAC export. The graphical setup app passed
+  deep ad-hoc signature verification, activated through the real updater while
+  retaining the existing model files and library, and restarted the managed
+  service at version 0.6.7 with a ready arm64 Metal engine. Loopback and both
+  private Tailscale HTTPS routes returned 200 after activation. The web package
+  is intentionally ad-hoc and not notarized.
+- A real long export completed independently of cursor input at 2160×2160 and
+  60 fps for 180 seconds: 10,800 frames, H.264 video, 48 kHz AAC audio and a
+  260 MiB MP4. This records the current delivery profile, which is why
+  quality-preserving compression and end-to-end throughput remain open in
+  issues #19 and #20 rather than being presented as solved.
 - The v0.4.2 candidate passed 85 Python tests and the complete browser workflow
   suite. Its waveform renderer also completed a headed 240-frame measurement
   during local music inference: 5.22 ms mean and 6.30 ms p95 at 1280×990. This
