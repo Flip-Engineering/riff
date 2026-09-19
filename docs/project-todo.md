@@ -51,7 +51,9 @@ rejected; rejected experiments remain documented in the private ledger.
   the cursor-dependent progress behavior without pointer input, separate frame
   production from browser polling/display, and repair scheduling while keeping
   live/export geometry, requested resolution/framerate, complete audio and
-  bounded memory.
+  bounded memory. The export loop now yields an explicit browser task after
+  each acknowledged frame so progress and cancellation do not rely on pointer
+  events; the full browser acceptance still needs a browser-enabled pass.
 - [ ] **D07/D08 — Finish the human-first installer and updater.** Keep the
   clickable web download flow, model-inclusive setup and app-managed updates.
   Complete external-host first launch, model reuse/download accounting,

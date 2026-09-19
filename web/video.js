@@ -4,6 +4,21 @@ let videoExport = null;
 let videoPreviewRevision = 0;
 const videoPresets = { "4k": [3840, 2160, 60], studio: [2560, 1980, 60], portrait: [2160, 3840, 60], square: [2160, 2160, 60] };
 
+// A frame upload resolves through a microtask. Yield one ordinary browser task
+// after each acknowledged frame so progress and cancellation can paint without
+// depending on pointer events. This is deliberately independent of audio time,
+// requestAnimationFrame and idle scheduling.
+function yieldVideoProgress() {
+  if (typeof MessageChannel === "function") {
+    return new Promise(resolve => {
+      const channel = new MessageChannel();
+      channel.port1.onmessage = () => { channel.port1.close(); channel.port2.close(); resolve(); };
+      channel.port2.postMessage(0);
+    });
+  }
+  return new Promise(resolve => setTimeout(resolve, 0));
+}
+
 async function createVideoFrameEncoder(canvas, signal) {
   let worker = null, pending = null, stopped = null, failure = null, sequence = 0;
   const cancelled = () => new DOMException("Export cancelled.", "AbortError");
@@ -255,6 +270,7 @@ async function createVideo(event) {
       const progress = (index + 1) / job.frames;
       $("#video-progress").value = progress;
       $("#video-status").textContent = `Drawing your video · ${Math.round(progress * 100)}% · Keep this window open`;
+      await yieldVideoProgress();
     }
     if (operation.cancelled) return;
     $("#video-status").textContent = "Finishing your MP4…";
