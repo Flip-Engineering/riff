@@ -48,6 +48,21 @@ varied with device conditions and do not establish an overall speedup; the memor
 result is separate from throughput. The 3.39 GB peak describes saved-code
 re-rendering, not fresh semantic generation or whole-system memory.
 
+The private AR-to-NAR cache-handoff prototype was then exercised with the real
+24,576-token context on the same M4, an eight-second guided recipe, seed and
+two-step AB2 solver. Dense and reuse runs emitted identical semantic codes and
+the same 7.9987-second stereo shape. Reuse copied a 71.8 MiB snapshot, completed
+the two missing tail tokens, and removed the 626-token acoustic conditioning
+prefill (894.8 ms in the dense run versus 45.8 ms of tail/copy work). Its PCM
+relative RMSE was 0.00584 with cosine similarity 0.999983, so this is numerical
+diagnostic evidence rather than byte parity or an aesthetic equivalence claim.
+The complete process was 20.31 seconds dense versus 22.95 seconds reuse, with
+sampled peaks of 2.83 GiB and 2.90 GiB; startup weight-upload variance more than
+absorbed the saved conditioning work. The prototype remains opt-in and private:
+it has not earned a default speed or memory claim, and long-context, natural-EOS,
+multi-chunk and broader listening gates remain open. The full receipt is kept in
+`data/research-20260912/cache-handoff-native/normal-context-cfg10-owned-20260919-`.
+
 Operator profiling identified attention and quantized projections as the largest
 acoustic costs. A specialized Metal F16 attention kernel reuses K/V loads across
 16 queries. The existing path remains for masked attention, other head dimensions

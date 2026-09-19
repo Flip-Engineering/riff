@@ -17,6 +17,10 @@ rejected; rejected experiments remain documented in the private ledger.
   EOS, long-context behavior, cancellation and numerical/audio quality before
   selecting a default. Report wall time, compute, peak memory and PCM/code
   parity together. Do not call an operator microbenchmark an end-to-end win.
+  The private cache prototype now has a real-context pair: semantic codes
+  match, conditioning is removed, but the short reuse run is slower and has a
+  slightly higher sampled peak, so it remains opt-in evidence rather than a
+  selected optimization.
 - [ ] **E04 — Complete the current YuE2 capability and acceleration audit.**
   Keep the audit grounded in the current YuE2 repository, protocol and native
   runtime. Map every supported input and output to Riff, test the three
