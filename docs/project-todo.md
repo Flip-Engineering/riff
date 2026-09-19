@@ -1,6 +1,6 @@
 # Riff project todo
 
-Updated: 2026-09-19 19:05 UTC
+Updated: 2026-09-19 20:00 UTC
 
 This is the canonical current-work list. The much larger private ledger in
 `data/TASKS.md` remains useful for receipts and historical evidence, but its
