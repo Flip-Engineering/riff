@@ -3,9 +3,8 @@
 Audited September 12, 2026 against upstream
 [88da114a](https://github.com/multimodal-art-projection/YuE/tree/88da114a67df892af0329472073b96a5ef700b93)
 and initially Riff v0.5.3 (`5919837`); Riff coverage updated September 13 for exact
-score replay. Upstream `main` at that audit contains YuE2; the original
-YuE is on its separate `YuE-v1` branch. Riff uses the native implementation and
-patches pinned in [sources.json](../sources.json), not the Python backend.
+score replay. Riff uses the current YuE2 native implementation and the patches
+pinned in [sources.json](../sources.json), not the Python backend.
 
 The ordinary musical inputs are exposed. The remaining gaps concern exact stage
 reuse, complete generation artifacts, and composition workflows. A source audit
@@ -30,6 +29,68 @@ establishes available operations, not musical equivalence between runtimes.
 | Agent score edits with checks on what changed | Note editing, transposition, tempo/meter/key, visual proposal, Undo and audio A/B | **Partial.** No structured comparison of notes, durations, harmony, voices and form against requested invariants. |
 | Multiple candidates and resumable batches | Individual queued takes, ancestry, studies, comparisons and producer proposals | Exposed individually. **Missing workflow:** a named family of variants with shared inputs, differences and group comparison. |
 | VAE audio encoding | No studio operation | Companion-model capability, separate from the generator's public request. An encoder round trip needs native implementation and validation; it does not by itself implement musical inversion/editing. |
+
+### Instrument-control boundary
+
+The public YuE2 request does not contain a per-instrument routing contract. Its
+musical fields are `style`, `lyrics`, `cot`, `seed`, optional `abc` and
+guidance. `style` is an open semantic description that may name instruments
+and vocal character; it is conditioning text, not a stem mixer. `lyrics` and
+section labels condition the vocal material. `full` asks YuE2 to plan a
+chord-annotated ABC score, `melody` asks for a melody-only score, and `off`
+skips symbolic planning. Supplying ABC uses that composition directly and
+bypasses a second symbolic planner.
+
+The supported native ABC representation exposes musical context (a `Vocal`
+melody, an `Ins` melody and chord symbols where applicable). A voice label or
+an arbitrary name such as `Bass`, `Gtr` or `Arp` is not a promise that YuE2
+will render a discrete instrument, preserve that part in the foreground, or
+produce an independently controllable stem. The audio realization remains a
+single generated performance guided by the combined text, lyrics and score.
+ABC checks therefore establish symbolic input invariants only; they cannot
+prove instrument identity, instrument removal or exact audible balance.
+
+Riff's `mode=instrumental` maps an empty lyric request to an instrumental cue;
+that cue can change the distribution of vocal and instrumental outcomes. We
+have not found a typed YuE2 lead-instrument selector or a hard guarantee that
+the cue suppresses every voice-like event. Naming a lead instrument in `style`
+can guide the open generation, but it remains a soft semantic cue.
+Riff also has no native YuE2 `reference_audio`, stem, vocal-isolation or
+waveform-inpainting request. SheetSage2's cover workflow is a separate
+transcription step and should not be represented as a YuE2 per-instrument
+control.
+
+### Mode matrix and partial control
+
+The apparent multiplicity of controls is real, but the controls belong to
+different stages rather than one unified multitrack pass:
+
+| Surface | What changes | What it does not provide |
+| --- | --- | --- |
+| `cot=full` | YuE2 first samples a chord-annotated ABC plan, then uses it for semantic music generation | It does not bind ABC voices to named audio instruments or guarantee that every note is audible |
+| `cot=melody` | YuE2 plans a melody-only ABC path and then generates accompaniment around it | It does not mean vocal-only, and it does not strip chord symbols from an externally supplied ABC automatically |
+| `cot=off` | YuE2 skips symbolic planning and goes directly from text conditions to music tokens | There is no editable ABC to refine or replay |
+| external `abc` | The supplied composition is inserted into the symbolic prefix, bypassing a new planner | It is still a condition for a new performance, not a stem or audio editor |
+| Riff `mode=instrumental` | Riff sends an `[Instrumental]` cue when lyrics are empty; this can shift the vocal/instrumental balance | It is not a typed YuE2 lead-instrument or per-stem control, and suppression is not guaranteed |
+| `render_mode=plan/performance/music/sound` | Selects a planning, semantic-performance, full-music, or acoustic-checkpoint stage | These are pipeline stages, not alternate instrument arrangements |
+| Midpoint / AB2 | Selects the acoustic flow-matching integrator | It changes synthesis numerics, not composition or instrumentation |
+
+The first two CoT modes can therefore expose useful, partly independent
+handles: melody-only planning can hold a vocal or instrumental contour while
+the style supplies the general accompaniment, and full planning can edit chord
+context. Those handles are still interpreted by one semantic generator and
+VAE rather than rendered as independently addressable tracks. A study must
+label which stage changed and judge the resulting audio; it must not infer a
+per-instrument edit from a changed ABC voice or from a mode name.
+
+For the Named Voice Relay work, the exact ABC is consequently a timing,
+melody, harmony and entry scaffold. The accepted recording's audible
+foreground is the near-monotone, fast, rhythmically varying minimal vocal
+identified in direct listening; supporting sound must be evaluated in the
+rendered audio rather than inferred from ABC voice names. Future studies must
+hold the score constant while changing only the vocal/style brief or the
+general supporting density, and must retain the original recording as the
+positive reference.
 
 Primary contracts: [request and sampling types][protocol], [stage API and
 artifact storage][pipeline], [generation guide][generation], [editing guide][editing],
