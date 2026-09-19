@@ -56,7 +56,9 @@ rejected; rejected experiments remain documented in the private ledger.
   live/export geometry, requested resolution/framerate, complete audio and
   bounded memory. The export loop now yields an explicit browser task after
   each acknowledged frame so progress and cancellation do not rely on pointer
-  events; the full browser acceptance still needs a browser-enabled pass.
+  events. Source `video-encoder` and `video` browser suites pass without
+  pointer input; high-resolution production timing and a live cursor-independent
+  progress receipt remain open.
 - [ ] **D07/D08 — Finish the human-first installer and updater.** Keep the
   clickable web download flow, model-inclusive setup and app-managed updates.
   Complete external-host first launch, model reuse/download accounting,
