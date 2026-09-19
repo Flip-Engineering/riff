@@ -92,6 +92,14 @@ rejected; rejected experiments remain documented in the private ledger.
 - [ ] **#15 — Resource-aware study workers.** Add sketch/detail/master quality
   tiers, warm reuse and bounded parallel candidates without turning a fixed
   best-of-N policy into a model restriction.
+- [ ] **C02 — Gemini cover-analysis import (deferred).** Add an optional audio
+  attachment that asks `google/gemini-3.8-flash` for an editable style,
+  duration, tempo/key, section map, lyric text and ABC melody/harmony scaffold.
+  Expose a faithfulness value as explicit score/section/word constraints with
+  field-level confidence, validation and an edit-before-render step. Keep the
+  audio opaque and provenance-bound; do not send it directly to YuE2. This is
+  the Riff interpretation of the linked cover workflows, without ComfyUI or a
+  second transcription model, and remains deferred behind issue #16.
 - [ ] **E07 — Per-take provenance and decoder compatibility.** Bind effective
   defaults, runtime, tokenizer, generator/decoder and stage artifacts to each
   take, with compatibility-aware replay and export bundles.
@@ -152,8 +160,9 @@ rejected; rejected experiments remain documented in the private ledger.
   retention in variations, score capture/replay, direct-generation/study
   repair, sound-compass interaction, waveform/shape synthesis and high-quality
   MP4 export are shipped in the current release line.
-- [x] The current provider is `google/gemini-3.8-flash`; direct audio review
-  does not use Whisper, ASR or any transcription model.
+- [x] The current provider is `google/gemini-3.8-flash`; ordinary direct audio
+  review does not use Whisper, ASR or any transcription model. The optional
+  Gemini cover-analysis exception is planned separately under C02.
 - [x] The public contributor rewrite and local `wahargis` → `flip-engineer`
   repository alignment were applied. Historical hosted activity cannot be
   erased by local configuration.
@@ -165,7 +174,9 @@ rejected; rejected experiments remain documented in the private ledger.
 
 ## Explicitly out of the current implementation path
 
-- No Whisper, ASR or transcription pipeline.
+- No Whisper, ASR or hidden secondary transcription model. The only planned
+  audio-to-notation exception is an explicit Gemini cover-analysis action,
+  deferred under C02.
 - No promise that ABC labels are discrete stems, timbres or lead-instrument
   routing.
 - No rigid external arranger, DAW or sampler pipeline in the current pass;

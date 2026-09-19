@@ -31,6 +31,7 @@ API to Riff and records remaining stage-reuse and composition workflows.
 | Agent operation | Discover `/api/capabilities`; use the same library, composition, review and generation queue |
 | Decoder or quantization | Custom GGUF paths in Studio settings |
 | Compare revisions | A/B takes at the same listening position, passage loops, input differences, short studies, parent links, and runnable producer recommendations |
+| Analyze a reference for a cover | Planned C02: optional Gemini direct-audio analysis into editable style, lyrics, duration and ABC; not currently exposed |
 | Share a recording or passage | Animated seeded-artwork MP4 with optional in/out points and listening-loop shortcut; WAV, PNG artwork, and generation recipe |
 
 The score is conditioning for a new performance, not an audio editor. Changing
