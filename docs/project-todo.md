@@ -116,6 +116,14 @@ rejected; rejected experiments remain documented in the private ledger.
   distribution toward Elixir, using Rust where native integration needs it.
   Preserve the tested Python boundary during each migration step and retain
   library, queue, Keychain, Tailscale, writer/producer and renderer contracts.
+- [ ] **P02 — Bend2 rewrite branch (deferred research track; [issue #18](https://github.com/Flip-Engineering/riff/issues/18)).** Build a separate
+  rewrite branch slowly toward feature parity with `main`, without displacing
+  the Elixir/Rust mainline or destabilizing the current application. Start with
+  a contract map and one reversible study worker, then add library, queue,
+  cancellation, model-session, renderer, provider-key, installer and update
+  surfaces behind explicit parity gates. Compare correctness, artifact
+  preservation, memory, elapsed time, GPU/CPU support and ergonomics at every
+  promotion point; merge nothing until it is feature-equivalent for its slice.
 - [ ] **D06 — Reduce repeat release-build time.** Investigate exact-input
   compiler/native caches keyed by sources, patches, toolchain and backend;
   preserve reproducibility and update deprecated workflow actions only with
