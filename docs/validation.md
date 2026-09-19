@@ -63,6 +63,23 @@ it has not earned a default speed or memory claim, and long-context, natural-EOS
 multi-chunk and broader listening gates remain open. The full receipt is kept in
 `data/research-20260912/cache-handoff-native/normal-context-cfg10-owned-20260919-`.
 
+A separate eight-second, two-step AB2 sweep held the recipe, seed, 24,576-token
+context and Metal binary constant while changing only the host thread setting:
+
+| Threads | Wall | Semantic | NAR | VAE | Sampled peak |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 63.81 s | 20.93 s | 31.58 s | 6.17 s | 2.83 GiB |
+| 2 | 60.18 s | 24.84 s | 26.15 s | 5.05 s | 2.83 GiB |
+| 4 | 54.92 s | 22.40 s | 21.85 s | 6.14 s | 2.83 GiB |
+| 8 | 59.89 s | 21.53 s | 26.27 s | 6.16 s | 2.83 GiB |
+
+All four runs produced the same semantic-code and PCM hashes. The apparent
+four-thread lead is one cold-start sample, while model-weight uploads varied by
+several seconds and dominated the run; it is not evidence that increasing the
+default is a general throughput win. The current four-thread default remains
+unchanged. The complete receipt, logs and per-stage metrics are retained in the
+ignored `data/research-20260919-thread-sweep/` directory for repeated runs.
+
 Operator profiling identified attention and quantized projections as the largest
 acoustic costs. A specialized Metal F16 attention kernel reuses K/V loads across
 16 queries. The existing path remains for masked attention, other head dimensions

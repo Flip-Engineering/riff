@@ -20,7 +20,10 @@ rejected; rejected experiments remain documented in the private ledger.
   The private cache prototype now has a real-context pair: semantic codes
   match, conditioning is removed, but the short reuse run is slower and has a
   slightly higher sampled peak, so it remains opt-in evidence rather than a
-  selected optimization.
+  selected optimization. A controlled 1/2/4/8-thread Metal sweep produced
+  identical semantic and PCM hashes; four threads was fastest in one cold run,
+  but upload variance dominates and no default change is justified. Receipt:
+  `data/research-20260919-thread-sweep/results.json`.
 - [ ] **E04 — Complete the current YuE2 capability and acceleration audit.**
   Keep the audit grounded in the current YuE2 repository, protocol and native
   runtime. Map every supported input and output to Riff, test the three
