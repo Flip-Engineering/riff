@@ -1,6 +1,6 @@
 # Riff project todo
 
-Updated: 2026-09-19 20:00 UTC
+Updated: 2026-09-19 20:31 UTC
 
 This is the canonical current-work list. The much larger private ledger in
 `data/TASKS.md` remains useful for receipts and historical evidence, but its
@@ -63,7 +63,22 @@ rejected; rejected experiments remain documented in the private ledger.
   each acknowledged frame so progress and cancellation do not rely on pointer
   events. Source `video-encoder` and `video` browser suites pass without
   pointer input; high-resolution production timing and a live cursor-independent
-  progress receipt remain open.
+  progress receipt remain open. Delivery compression is tracked separately in
+  [issue #19](https://github.com/Flip-Engineering/riff/issues/19), and pipeline
+  throughput in [issue #20](https://github.com/Flip-Engineering/riff/issues/20).
+- [ ] **V10 — Ship practical compressed video profiles with preserved audio.**
+  Add explicit share and master profiles, measure codec/quality/size tradeoffs,
+  and keep audio bit-exact whenever the container permits it. Where a compact
+  share container cannot carry lossless audio, preserve the original lossless
+  asset beside it and state that fallback clearly; never label a lossy codec
+  lossless. Validate decoded frame quality, audio hashes, playback and bounded
+  temporary storage. See [issue #19](https://github.com/Flip-Engineering/riff/issues/19).
+- [ ] **V11 — Accelerate high-resolution export end to end.** Profile canvas or
+  WebGL rendering, pixel readback, frame encoding, transport, FFmpeg and final
+  assembly separately. Evaluate raw or lightweight lossless frame transport,
+  bounded worker backpressure, direct or hardware encoding and resumable
+  checkpoints while preserving deterministic geometry, audio sync,
+  cursor-independent progress and cancellation. See [issue #20](https://github.com/Flip-Engineering/riff/issues/20).
 - [ ] **D07/D08 — Finish the human-first installer and updater.** Keep the
   clickable web download flow, model-inclusive setup and app-managed updates.
   Complete external-host first launch, model reuse/download accounting,
