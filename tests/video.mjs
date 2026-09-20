@@ -151,9 +151,28 @@ try {
   await page.locator("#video-fps").fill("12");
   await page.emulateMedia({ reducedMotion: "reduce" });
   const recovered = new Set();
+  await page.evaluate(() => {
+    const original = createVideoFrameEncoder;
+    window.pipelineFrames = [];
+    createVideoFrameEncoder = async (...args) => {
+      const encoder = await original(...args), encode = encoder.encode.bind(encoder);
+      encoder.encode = async index => {
+        const bytes = await encode(index);
+        pipelineFrames.push(index);
+        return bytes;
+      };
+      return encoder;
+    };
+  });
   const frameRoute = /\/api\/video-exports\/[a-f0-9]+\/frames$/;
   await page.route(frameRoute, async route => {
     const index = Number(route.request().headers()["x-riff-frame"]);
+    if (index === 0) {
+      // Hold the upload: exactly one next frame can finish, without a growing
+      // render queue or waiting for the network before starting that encode.
+      await page.waitForFunction(() => pipelineFrames.includes(1));
+      assert.deepEqual(await page.evaluate(() => pipelineFrames), [0, 1]);
+    }
     if ([3, 5, 7].includes(index) && !recovered.has(index)) {
       recovered.add(index);
       if (index === 5) assert((await route.fetch()).ok(), "Deliver the frame before losing its response");
@@ -184,6 +203,7 @@ try {
   assert(completed.receipt.client_reported.before_finish_seconds >= completed.receipt.client_reported.upload_seconds);
   await page.unroute(frameRoute);
   console.log("PASS Interrupted frame uploads, lost acknowledgements and temporary server errors recover without duplicate frames");
+  console.log("PASS Encoding overlaps upload with one next frame and ordered delivery");
   const probe = JSON.parse(execFileSync("ffprobe", ["-v", "error", "-show_streams", "-of", "json", "test-results/seed-visualization.mp4"]));
   const video = probe.streams.find(stream => stream.codec_type === "video");
   const sound = probe.streams.find(stream => stream.codec_type === "audio");

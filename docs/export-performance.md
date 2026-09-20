@@ -49,6 +49,12 @@ embedded by the browser encoder. FFmpeg's input `-r` replaces that timing;
 its demuxer `-framerate` alone does not. See the
 [FFmpeg video options](https://ffmpeg.org/ffmpeg.html#Video-Options).
 
+Frame production overlaps the previous frame's upload. There is at most one
+upload and one next frame, not an unbounded render queue; the last upload is
+acknowledged before final assembly. Cancellation aborts the upload and releases
+the encoder before the export is cleared. Encoding and upload durations therefore
+overlap and must not be added to estimate wall time.
+
 The browser submits `client_reported` durations in seconds:
 
 | Field | Measurement |

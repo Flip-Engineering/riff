@@ -293,7 +293,7 @@ async function createVideo(event) {
   $("#video-progress").hidden = false;
   $("#video-progress").value = 0;
   $("#video-status").textContent = "Preparing the artwork…";
-  let complete = false, encoder = null;
+  let complete = false, encoder = null, uploading = null;
   const started = performance.now();
   const timings = { prepare_seconds: 0, draw_seconds: 0, snapshot_seconds: 0, encode_seconds: 0,
     upload_seconds: 0, preview_seconds: 0, yield_seconds: 0, before_finish_seconds: 0 };
@@ -342,9 +342,18 @@ async function createVideo(event) {
       drawSeedArtwork(context, job.width, job.height, track.recipe.seed, seconds, motionAt(motion, seconds), appearance);
       timings.draw_seconds += (performance.now() - stageStarted) / 1000;
       const frame = await encoder.encode(index);
-      stageStarted = performance.now();
-      await sendVideoFrame(operation, job, index, frame);
-      timings.upload_seconds += (performance.now() - stageStarted) / 1000;
+      // Produce the next frame while the previous frame travels to FFmpeg.
+      // One upload and one next frame bound storage; uploads stay ordered,
+      // including their existing lost-acknowledgement recovery.
+      await uploading;
+      if (operation.cancelled) return;
+      const uploadStarted = performance.now();
+      uploading = sendVideoFrame(operation, job, index, frame).then(() => {
+        timings.upload_seconds += (performance.now() - uploadStarted) / 1000;
+      });
+      // Observe rejection immediately while the next encode is pending. The
+      // next await (or final drain) still propagates the original upload error.
+      uploading.catch(() => {});
       stageStarted = performance.now();
       // Reuse the completed frame for the progress preview; no parallel audio playback.
       previewContext.setTransform(1, 0, 0, 1, 0, 0);
@@ -357,6 +366,7 @@ async function createVideo(event) {
       await yieldVideoProgress();
       timings.yield_seconds += (performance.now() - stageStarted) / 1000;
     }
+    await uploading;
     if (operation.cancelled) return;
     $("#video-status").textContent = "Finishing your MP4…";
     Object.assign(timings, encoder.timings);
@@ -382,7 +392,9 @@ async function createVideo(event) {
       $("#video-status").textContent = "Export stopped.";
     }
   } finally {
+    operation.controller.abort();
     encoder?.close();
+    await uploading?.catch(() => {});
     if (!complete && operation.id) {
       try {
         operation.stopping ||= api(`/api/video-exports/${operation.id}/cancel`, "POST", {});
