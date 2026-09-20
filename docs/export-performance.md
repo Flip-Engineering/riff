@@ -5,6 +5,39 @@ Completed exports expose a versioned `receipt` from
 after the app restarts. Historical, unfinished and cancelled exports have no
 receipt; missing measurements are not reported as zero.
 
+## Delivery profiles
+
+`profile` is `master` (the default, including migrated jobs) or `share`.
+Neither changes the requested dimensions, frame rate or passage. Both deliver
+H.264 video in fast-start MP4 with lossy AAC audio. Master means higher-quality
+delivery, not a lossless video archive. Completed results expose `original_audio`
+with a download of the untouched full-recording WAV, even for passage exports.
+The dialog labels the AAC fallback and provides the WAV beside the MP4.
+
+| Setting | Master | Share |
+| --- | --- | --- |
+| PNG/libx264 fallback | veryfast, CRF 16 | veryfast, CRF 23 |
+| Browser H.264 target | 0.055 bits/pixel/frame, 8–32 Mbps | 0.035 bits/pixel/frame, 2–12 Mbps |
+| MP4 audio | AAC 320 kbps | AAC 192 kbps |
+
+The browser uses variable bitrate, quality latency mode, and a requested keyframe
+every two seconds. Draining each one-frame batch preserves bounded storage without
+waiting for codec lookahead. Realtime mode is inappropriate here because it may
+drop frames to meet a bitrate, which stalled a low-bitrate trial after its first
+frame. Quality mode must not drop frames for that reason
+([WebCodecs latency modes](https://www.w3.org/TR/webcodecs/#latency-mode)). A stalled
+worker request is also bounded to 60 seconds and remains cancellable.
+Browser encoders choose their own internal preset and frame structure; we do not
+claim a particular B-frame count or hardware implementation. PNG uses yuv420p;
+H.264 output still passes the existing dimension/count/timing validation.
+
+Receipts record the profile, codec, lossy status, requested audio bitrate, and
+either the fallback CRF or browser target bitrate. A requested bitrate is not a
+measurement or a server-enforced limit on agent-uploaded H.264. Capabilities
+advertise the same profile targets to browser and agent clients. No new temporary
+audio copy or raw-frame directory is created; the existing single-frame
+backpressure and failed/cancelled-part cleanup remain in force.
+
 The server records accepted frame bytes, final MP4 bytes, frame count, transport,
 elapsed time from job creation, time writing to FFmpeg's stdin, and time finishing
 and validating the output. `stdin_seconds` includes encoder backpressure. It is
@@ -69,3 +102,45 @@ GPU utilization and peak temporary-disk use require separate profiling and are
 not inferred from these numbers. SSIM compares against the existing lossy
 PNG/libx264 output, not a lossless master. These limitations and host load belong
 with any reported results; one run does not establish a universal speedup.
+
+For profile comparison, run the same source/durations twice with
+`RIFF_BENCH_PROFILE=master` and `RIFF_BENCH_PROFILE=share`, using separate fresh
+directories, then run:
+
+```sh
+node scripts/compare_video_profiles.mjs /absolute/master-results /absolute/share-results
+```
+
+Each run hashes the source and every original-WAV download, in addition to decoded
+video frame hashes. The comparator reports Share/Master bytes and wall times,
+and uses a declared relative SSIM floor of 0.99. This compares against lossy
+Master, not a lossless renderer reference, and is not a substitute for motion
+review or independent desktop/mobile-player acceptance. Retain the MP4s, frame
+hashes and machine/load metadata with the results.
+
+### September 19 profile trial
+
+Two-second passages from a real 45-second recording on the M4, using bundled
+FFmpeg and Chromium 145/Metal. Sizes are decimal MB. The Master run overlapped
+another native generation and severe memory pressure; wall times are reported
+as observed, not a controlled speed comparison. Source WAV SHA-256:
+`2ae45d1bc937052731772770a39eafa28f39a424da806032d1cb77a58cc8fa37`.
+Every original-WAV download matched it; all decoded frame counts and stream
+durations passed. Frame hashes and MP4s are retained in the private acceptance
+artifacts, not committed recordings.
+
+| Picture / transport | Master MB / seconds | Share MB / seconds | Relative SSIM |
+| --- | --- | --- | --- |
+| 1920×1080/30 PNG | 0.995 / 3.546 | 0.404 / 2.456 | 0.995863 |
+| 1920×1080/30 H.264 | 0.853 / 8.297 | 0.603 / 1.489 | 0.996707 |
+| 2160×2160/30 PNG | 1.803 / 24.478 | 0.765 / 5.942 | 0.996661 |
+| 2160×2160/30 H.264 | 1.219 / 9.332 | 1.174 / 1.697 | 0.997627 |
+| 2160×2160/60 PNG | 2.058 / 17.260 | 0.790 / 9.537 | 0.995613 |
+| 2160×2160/60 H.264 | 2.139 / 3.819 | 1.916 / 3.077 | 0.997917 |
+
+Share was smaller in these cases, but the reduction depends on content and
+encoder: the 2160/30 browser case shrank only 3.7%. These short opening passages
+do not establish quality across complete pieces. The earlier realtime Share
+trial stalled after one frame; it is retained as failed evidence and excluded
+from the table. Quality-mode draining completed every case. Independent mobile
+players, longer passages and controlled throughput/resource trials remain open.

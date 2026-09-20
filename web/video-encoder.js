@@ -5,7 +5,7 @@
  * One transferred bitmap in, one encoded frame out; no frame queue.
  */
 let canvas = null, context = null, encoding = false;
-let videoEncoder = null, encodedFrameId = null, transport = "png";
+let videoEncoder = null, encodedFrame = null, encoderFailure = null, transport = "png";
 
 async function configureH264(data) {
   if (typeof VideoEncoder !== "function" || typeof VideoFrame !== "function") return false;
@@ -14,25 +14,19 @@ async function configureH264(data) {
     try {
       const support = await VideoEncoder.isConfigSupported({
         codec, width: data.width, height: data.height, framerate: data.fps,
-        bitrate: data.bitrate, bitrateMode: "variable", latencyMode: "realtime",
+        bitrate: data.bitrate, bitrateMode: "variable", latencyMode: "quality",
         hardwareAcceleration: "no-preference", avc: { format: "annexb" },
       });
       if (!support.supported) continue;
       videoEncoder = new VideoEncoder({
         output(chunk) {
-          if (encodedFrameId === null) return;
+          if (encodedFrame) { encoderFailure = new Error("Unexpected extra encoded frame."); return; }
           const frame = new ArrayBuffer(chunk.byteLength);
           chunk.copyTo(frame);
-          const id = encodedFrameId;
-          encodedFrameId = null;
-          encoding = false;
-          self.postMessage({ id, frame, transport: "h264" }, [frame]);
+          encodedFrame = frame;
         },
         error() {
-          const id = encodedFrameId;
-          encodedFrameId = null;
-          encoding = false;
-          if (id !== null) self.postMessage({ id, error: true });
+          encoderFailure = new Error("Video encoding failed.");
         },
       });
       videoEncoder.configure(support.config);
@@ -68,11 +62,17 @@ self.onmessage = async ({ data }) => {
     }
     encoding = true;
     if (transport === "h264") {
-      encodedFrameId = data.id;
+      encodedFrame = null;
       const frame = new VideoFrame(bitmap, { timestamp: data.timestamp, duration: data.duration });
       bitmap.close();
       videoEncoder.encode(frame, { keyFrame: Boolean(data.keyFrame) });
       frame.close();
+      // Quality mode cannot drop frames to meet a bitrate. Drain this one-frame
+      // batch so codec lookahead cannot deadlock our bounded upload pipeline.
+      await videoEncoder.flush();
+      if (encoderFailure || !encodedFrame) throw encoderFailure || new Error("Missing encoded frame.");
+      const bytes = encodedFrame; encodedFrame = null;
+      self.postMessage({ id: data.id, frame: bytes, transport: "h264" }, [bytes]);
       return;
     }
     context.drawImage(bitmap, 0, 0);
@@ -84,6 +84,6 @@ self.onmessage = async ({ data }) => {
   } catch { self.postMessage({ id: data.id, error: true }); }
   finally {
     bitmap?.close();
-    if (transport !== "h264") encoding = false;
+    encoding = false;
   }
 };

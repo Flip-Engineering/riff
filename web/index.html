@@ -926,6 +926,8 @@
       <h3 id="video-title"></h3>
       <form id="video-form">
         <div class="video-selection"><label for="video-selection">Export</label><select id="video-selection"><option value="whole">Full recording</option><option value="passage">A passage</option></select></div>
+        <div class="video-selection"><label for="video-profile">Delivery</label><select id="video-profile" aria-describedby="video-audio-note"><option value="master">Master · high quality</option><option value="share">Share · smaller file</option></select></div>
+        <p id="video-audio-note" class="control-hint">MP4 uses lossy AAC audio. Download the original WAV alongside it to keep the complete recording unchanged.</p>
         <div id="video-passage" hidden>
           <div class="video-times"><label for="video-start">From<input id="video-start" type="text" inputmode="decimal" value="0:00" aria-describedby="video-time-hint" /></label><label for="video-end">To<input id="video-end" type="text" inputmode="decimal" value="0:00" aria-describedby="video-time-hint" /></label></div>
           <div class="video-passage-hint"><span id="video-time-hint" class="control-hint">Minutes:seconds, or seconds.</span><button type="button" id="video-use-passage" class="text-button">Use marked passage</button></div>
@@ -935,7 +937,7 @@
         <progress id="video-progress" max="1" value="0" aria-label="Video export progress" hidden></progress>
         <p id="video-status" class="control-hint" role="status">MP4 · animated artwork and audio</p>
         <p id="video-error" class="form-error" role="alert" hidden></p>
-        <div class="dialog-actions"><button type="submit" id="render-video" class="secondary-button solid">Create MP4</button><button type="button" id="cancel-video" class="text-button" hidden>Cancel export</button><a id="save-video" class="secondary-button" hidden>Download MP4</a></div>
+        <div class="dialog-actions"><button type="submit" id="render-video" class="secondary-button solid">Create MP4</button><button type="button" id="cancel-video" class="text-button" hidden>Cancel export</button><a id="save-video" class="secondary-button" hidden>Download MP4</a><a id="save-video-audio" class="text-button" hidden>Download original WAV</a></div>
       </form>
     </dialog>
 

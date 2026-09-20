@@ -99,6 +99,25 @@ try {
     assert(encoded.annexB && encoded.bytes > 32, JSON.stringify(encoded));
     assert(await page.evaluate(() => encoderWorkers.every(worker => worker.stopped)));
     console.log("PASS Worker WebCodecs H.264 path emits Annex-B frames for the accelerated export transport");
+    const lowBitrate = await page.evaluate(async () => {
+      const canvas = document.createElement("canvas"); canvas.width = 1920; canvas.height = 1080;
+      const context = canvas.getContext("2d");
+      const encoder = await createVideoFrameEncoder(canvas, new AbortController().signal,
+        {transport: "h264", fps: 30, bitrate: 2_177_280});
+      let timer;
+      try {
+        return await Promise.race([(async () => {
+          const sizes = [];
+          for (let i = 0; i < 6; i++) {
+            drawSeedArtwork(context, 1920, 1080, "15961", i / 30, [.7, .6, .5, .4, .3, .2, .1, 0]);
+            sizes.push((await encoder.encode(i)).byteLength);
+          }
+          return sizes;
+        })(), new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("Low-bitrate export stalled")), 15000); })]);
+      } finally { clearTimeout(timer); encoder.close(); }
+    });
+    assert.equal(lowBitrate.length, 6); assert(lowBitrate.every(size => size > 0));
+    console.log("PASS Low-bitrate quality encoding emits every frame without a realtime frame-drop stall");
   } else {
     console.log(`SKIP WebCodecs H.264 path: ${encoded.error || "browser support unavailable"}`);
   }
@@ -193,6 +212,28 @@ try {
     await page.unroute(workerRoute);
   }
   console.log("PASS Cancel during worker initialization or an outstanding encode releases the worker and pending result");
+
+  for (const phase of ["init", "frame"]) {
+    await fresh();
+    await page.route(workerRoute, route => route.fulfill({ contentType: "text/javascript", body: phase === "init"
+      ? "self.onmessage=()=>{};"
+      : "self.onmessage=({data})=>{if(data.type==='init')self.postMessage({id:data.id,ready:true});};" }));
+    const timeout = await page.evaluate(async phase => {
+      const original = window.setTimeout;
+      window.setTimeout = (callback, delay, ...args) => original(callback, delay === 60000 ? 250 : delay, ...args);
+      let encoder;
+      try {
+        encoder = await createVideoFrameEncoder(encoderCanvas(), new AbortController().signal);
+        if (phase === "frame") await encoder.encode();
+        return "accepted";
+      } catch (error) { return error.message; }
+      finally { window.setTimeout = original; encoder?.close(); }
+    }, phase);
+    assert.match(timeout, /stopped responding/);
+    assert(await page.evaluate(() => encoderWorkers.every(worker => worker.stopped)));
+    await page.unroute(workerRoute);
+  }
+  console.log("PASS Stalled initialization and frame encoding fail within a bounded wait and release their worker");
 
   for (const failure of ["message", "crash", "between-frames"]) {
     await fresh();

@@ -9,6 +9,23 @@ const base = process.env.RIFF_URL;
 const errors = [];
 page.on("pageerror", error => errors.push(error.message));
 mkdirSync("test-results", { recursive: true });
+async function verifyMP4Playback(url) {
+  const playback = await page.evaluate(async url => {
+    const player = document.createElement("video");
+    player.muted = true; player.src = url;
+    let timer;
+    try {
+      await Promise.race([new Promise((resolve, reject) => {
+        player.onloadeddata = resolve;
+        player.onerror = () => reject(new Error(player.error?.message || "MP4 decode failed"));
+      }), new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("MP4 decode timed out")), 15000); })]);
+      await player.play();
+      await new Promise(resolve => setTimeout(resolve, 250));
+      return {time: player.currentTime, width: player.videoWidth, height: player.videoHeight};
+    } finally { clearTimeout(timer); player.pause(); player.removeAttribute("src"); player.load(); }
+  }, url);
+  assert(playback.time > 0 && playback.width > 0 && playback.height > 0, "Exported MP4 plays in the browser");
+}
 try {
   await page.goto(`${base}/?recording=${process.env.RIFF_TEST_TRACK}#studio`);
   await page.locator("#download-video").waitFor({ state: "visible" });
@@ -187,6 +204,7 @@ try {
   assert.equal(a.length, b.length);
   const mae = a.reduce((total, value, i) => total + Math.abs(value - b[i]), 0) / a.length;
   assert(mae < 4, `MP4 differs from Live sound renderer: pixel MAE ${mae}`);
+  await verifyMP4Playback(await page.locator("#save-video").getAttribute("href"));
   console.log("PASS Real H.264/AAC MP4 contains complete recording; exported frame matches Live sound; reduced-motion preference does not disable requested video");
 
   // Exercise the actual 4K/60 production preset. The smaller 320×248 values
@@ -207,7 +225,8 @@ try {
     assert(await page.locator("#video-error").isHidden(), await page.locator("#video-error").textContent());
     const highId = await page.evaluate(() => videoExport.id);
     const highJob = await (await page.request.get(`${base}/api/video-exports/${highId}`)).json();
-    assert.equal(highJob.transport, "h264");
+  assert.equal(highJob.transport, "h264");
+    assert.equal(highJob.profile, "master");
     await page.waitForFunction(() => videoExport === null, null, { timeout: 90000 });
     assert(await page.locator("#video-error").isHidden(), await page.locator("#video-error").textContent());
     const highDownload = await highReady; await highDownload.saveAs("test-results/high-transport.mp4");
@@ -248,6 +267,7 @@ try {
   await page.locator("#compare-end").fill("2.75");
   const draft = await page.evaluate(() => formRecipe());
   await page.locator("#download-video").click();
+  await page.locator("#video-profile").selectOption("share");
   assert.equal(await page.locator("#video-selection").inputValue(), "whole");
   await page.locator("#video-selection").selectOption("passage");
   await page.locator("#video-use-passage").click();
@@ -269,6 +289,13 @@ try {
   await page.waitForFunction(() => videoExport === null);
   const excerpt = await (await page.request.get(`${base}/api/video-exports/${excerptId}`)).json();
   assert.equal(excerpt.source_start, 1.25); assert.equal(excerpt.source_end, 2.75); assert.equal(excerpt.duration, 1.5);
+  assert.equal(excerpt.profile, "share");
+  await verifyMP4Playback(excerpt.download_url);
+  const originalAudioLink = page.locator("#save-video-audio");
+  assert(await originalAudioLink.isVisible());
+  const originalAudio = await page.request.get(new URL(await originalAudioLink.getAttribute("href"), base).href);
+  const sourceAudio = await page.request.get(`${base}/api/tracks/${process.env.RIFF_TEST_TRACK}/audio`);
+  assert.deepEqual(await originalAudio.body(), await sourceAudio.body(), "Original WAV remains byte-exact for passage exports");
   const excerptProbe = JSON.parse(execFileSync("ffprobe", ["-v", "error", "-show_streams", "-of", "json", "test-results/passage-visualization.mp4"]));
   assert(Math.abs(Number(excerptProbe.streams.find(stream => stream.codec_type === "audio").duration) - 1.5) < .04);
   const passageImage = await page.evaluate(async () => {

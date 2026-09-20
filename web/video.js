@@ -19,11 +19,11 @@ function yieldVideoProgress() {
   return new Promise(resolve => setTimeout(resolve, 0));
 }
 
-function videoBitrate(width, height, fps) {
-  return Math.round(Math.min(32_000_000, Math.max(8_000_000, width * height * fps * .055)));
+function videoBitrate(width, height, fps, quality = { max_bitrate: 32_000_000, min_bitrate: 8_000_000, bits_per_pixel: .055 }) {
+  return Math.round(Math.min(quality.max_bitrate, Math.max(quality.min_bitrate, width * height * fps * quality.bits_per_pixel)));
 }
 
-async function preferredVideoTransport(width, height, fps) {
+async function preferredVideoTransport(width, height, fps, bitrate = videoBitrate(width, height, fps)) {
   // Small exports keep the exact PNG path used for previews and compatibility
   // checks. The browser codec path is reserved for the expensive high-resolution
   // case where PNG encoding and FFmpeg video encoding dominate wall time.
@@ -31,8 +31,8 @@ async function preferredVideoTransport(width, height, fps) {
   for (const codec of ["avc1.640034", "avc1.640033", "avc1.64002A"]) {
     try {
       const support = await VideoEncoder.isConfigSupported({
-        codec, width, height, framerate: fps, bitrate: videoBitrate(width, height, fps),
-        bitrateMode: "variable", latencyMode: "realtime", hardwareAcceleration: "no-preference",
+        codec, width, height, framerate: fps, bitrate,
+        bitrateMode: "variable", latencyMode: "quality", hardwareAcceleration: "no-preference",
         avc: { format: "annexb" },
       });
       if (support.supported) return "h264";
@@ -51,6 +51,7 @@ async function createVideoFrameEncoder(canvas, signal, options = {}) {
   const settle = (id, value, error) => {
     if (pending?.id !== id) return;
     const current = pending; pending = null;
+    clearTimeout(current.timer);
     if (error) current.reject(error); else current.resolve(value);
   };
   const wait = start => {
@@ -58,7 +59,11 @@ async function createVideoFrameEncoder(canvas, signal, options = {}) {
     if (pending) return Promise.reject(new Error("A video frame is still being drawn."));
     return new Promise((resolve, reject) => {
       const id = ++sequence;
-      pending = { id, resolve, reject };
+      const timer = setTimeout(() => {
+        stopped = new Error("The browser video encoder stopped responding. Try exporting again.");
+        close();
+      }, 60000);
+      pending = { id, resolve, reject, timer };
       try { start(id); } catch (error) { settle(id, null, error); }
     });
   };
@@ -209,6 +214,7 @@ async function openVideoExport() {
   $("#video-progress").hidden = true;
   $("#video-error").hidden = true;
   $("#save-video").hidden = true;
+  $("#save-video-audio").hidden = true;
   $("#video-status").textContent = "MP4 · animated artwork and audio";
   $("#video-selection").value = "whole";
   $("#video-start").value = videoTime(0);
@@ -283,6 +289,7 @@ async function createVideo(event) {
   videoBusy(true);
   $("#video-error").hidden = true;
   $("#save-video").hidden = true;
+  $("#save-video-audio").hidden = true;
   $("#video-progress").hidden = false;
   $("#video-progress").value = 0;
   $("#video-status").textContent = "Preparing the artwork…";
@@ -300,14 +307,19 @@ async function createVideo(event) {
     if (operation.cancelled) return;
     const width = Number($("#video-width").value), height = Number($("#video-height").value),
       fps = Number($("#video-fps").value);
-    let transport = await preferredVideoTransport(width, height, fps);
+    const profile = $("#video-profile").value;
+    const capabilities = await api("/api/capabilities");
+    const quality = capabilities.video_profiles?.[profile];
+    if (!quality) throw new Error("This delivery profile is unavailable. Reload Riff and try again.");
+    const bitrate = videoBitrate(width, height, fps, quality);
+    let transport = await preferredVideoTransport(width, height, fps, bitrate);
     const canvas = document.createElement("canvas");
     canvas.width = width;
     canvas.height = height;
     const context = canvas.getContext("2d", { alpha: false });
     if (!context) throw new Error("The browser could not open a drawing canvas.");
     try {
-      encoder = await createVideoFrameEncoder(canvas, operation.controller.signal, { transport, fps });
+      encoder = await createVideoFrameEncoder(canvas, operation.controller.signal, { transport, fps, bitrate });
     } catch (error) {
       // A codec can be advertised on the window but unavailable in a worker.
       // Fall back before starting the server job so its pipe format stays exact.
@@ -316,7 +328,7 @@ async function createVideo(event) {
       encoder = await createVideoFrameEncoder(canvas, operation.controller.signal, { transport, fps });
     }
     const job = await api(`/api/tracks/${track.id}/video-exports`, "POST", {
-        width, height, fps, transport,
+        width, height, fps, transport, profile,
         ...range,
     });
     operation.id = job.id;
@@ -358,7 +370,11 @@ async function createVideo(event) {
     const passage = job.source_start > 0 || job.source_end < track.audio.duration;
     download.download = `${track.title}${passage ? " — passage" : ""}.mp4`;
     download.hidden = false;
-    $("#video-status").textContent = "Your video is ready.";
+    const originalAudio = $("#save-video-audio");
+    originalAudio.href = result.original_audio.download_url;
+    originalAudio.download = `${track.title}.wav`;
+    originalAudio.hidden = false;
+    $("#video-status").textContent = `Your ${profile === "share" ? "share" : "master"} video is ready. The original WAV is the full recording.`;
     download.click();
   } catch (error) {
     if (!operation.cancelled) {

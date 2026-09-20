@@ -1,12 +1,29 @@
 # Riff project todo
 
-Updated: 2026-09-20 02:43 UTC
+Updated: 2026-09-20 04:40 UTC
 
 This is the canonical current-work list. The much larger private ledger in
 `data/TASKS.md` remains useful for receipts and historical evidence, but its
 old release sections are not a second live backlog. A task is removed from
 this list only when it is completed, deliberately closed, or explicitly
 rejected; rejected experiments remain documented in the private ledger.
+
+## Open-issue execution pass
+
+The September 19 request covers all 11 open issues. Work proceeds through export
+delivery/throughput (#19/#20), score comparison (#13), shared agent operations and
+study families (#11/#10), continuous material workflow (#14), bounded warm workers
+(#15), and optional review references (#16). Research tracks #7/#17/#18 keep their
+stated boundaries: no unverified adapter loader, fixed external arranger, or
+production rewrite. Each issue needs its own acceptance evidence; shipping a
+dependency does not close its consumers. Keep commit, CI, publication, installed
+update and live verification distinct.
+
+The all-track path audit covered 289 tracks, including nine archived tracks. One
+additional ad hoc import (Counterweight hardbass) omitted `riff/`; its single
+database path was corrected with the original row preserved and WAV hash
+unchanged. The repeat audit found all 289 files present and all audio endpoints
+returning 200 with matching lengths. No normal-generation path change was needed.
 
 ## Active now
 
@@ -62,6 +79,12 @@ rejected; rejected experiments remain documented in the private ledger.
   asset beside it and state that fallback clearly; never label a lossy codec
   lossless. Validate decoded frame quality, audio hashes, playback and bounded
   temporary storage. See [issue #19](https://github.com/Flip-Engineering/riff/issues/19).
+  Share/Master implementation now includes explicit AAC labeling, the untouched
+  full original WAV beside each MP4, shared capability targets and persisted
+  profile receipts. Matched two-second 1080p/2160p cases pass a relative SSIM
+  floor of 0.99 and exact original-audio hashes. Browser tests cover actual MP4
+  playback and narrow layouts. Long-run and independent desktop/mobile-player
+  acceptance remain open; see [export performance](export-performance.md).
 - [ ] **V11 — Accelerate high-resolution export end to end.** Profile canvas or
   WebGL rendering, pixel readback, frame encoding, transport, FFmpeg and final
   assembly separately. Evaluate raw or lightweight lossless frame transport,

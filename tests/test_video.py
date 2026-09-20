@@ -230,6 +230,34 @@ class VideoTests(StudioFixture):
         finally:
             reopened.close()
 
+    def test_delivery_profiles_keep_dimensions_and_link_bit_exact_original_audio(self):
+        import hashlib
+        original = hashlib.sha256(self.audio.read_bytes()).hexdigest()
+        for profile, crf, bitrate in (("share", "23", "192k"), ("master", "16", "320k")):
+            with self.subTest(profile=profile):
+                status, job = self.request("POST", f"/api/tracks/{self.track}/video-exports",
+                    {"width": 32, "height": 24, "fps": 24, "end_seconds": .05, "profile": profile})
+                self.assertEqual(status, 201, job)
+                self.assertEqual(job["profile"], profile)
+                command = self.server.video_exports.active[job["id"]]["process"].args
+                self.assertEqual(command[command.index("-crf") + 1], crf)
+                self.assertEqual(command[command.index("-b:a") + 1], bitrate)
+                for index in range(job["frames"]):
+                    self.server.video_exports.frame(job["id"], index, png(32, 24, (index * 80, 40, 90)))
+                completed = self.server.video_exports.finish(job["id"])
+                self.assertEqual(completed["receipt"]["profile"], profile)
+                self.assertFalse(completed["receipt"]["audio"]["lossless"])
+                self.assertFalse(completed["receipt"]["video"]["lossless"])
+                self.assertEqual(completed["original_audio"]["scope"], "full_recording")
+                status, data = self.request("GET", completed["original_audio"]["download_url"])
+                self.assertEqual(status, 200)
+                self.assertEqual(hashlib.sha256(data).hexdigest(), original)
+                self.assertEqual((completed["width"], completed["height"], completed["fps"]), (32, 24, 24))
+        for invalid in ("small", None, True, {}, []):
+            status, _ = self.request("POST", f"/api/tracks/{self.track}/video-exports", {"profile": invalid})
+            self.assertEqual(status, 400)
+        self.assertFalse(self.server.video_exports.busy())
+
     def test_h264_mismatched_dimensions_or_frame_count_cannot_finish(self):
         for width, copies in ((16, 1), (32, 2)):
             with self.subTest(width=width, copies=copies):

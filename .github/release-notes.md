@@ -1,4 +1,10 @@
-Riff 0.6.10 removes the misleading “Press play again” message. Playback failures now retain the actual error, and Play reaches the media player directly without an empty asynchronous preparation step. A browser regression covers first-click playback and failure reporting.
+Riff 0.6.11 adds explicit Share and Master video delivery profiles without changing your chosen picture size, frame rate or passage.
+
+- Share targets smaller downloads; Master retains higher-quality settings. Both MP4s use lossy AAC audio, clearly labeled in the dialog. Download the untouched full original WAV beside either video, including when the video covers only a passage.
+- Browser encoding uses a non-dropping quality mode with bounded frame draining. This fixes a low-bitrate stall exposed by the Share benchmark; stalled workers also fail with a useful error and remain cancellable.
+- Export receipts and agent capabilities describe the same profile settings. Matched short benchmarks preserve original-WAV hashes and pass the declared relative video-quality floor. Broader long-run and independent mobile-player acceptance remain separate; this release does not claim lossless MP4 or a universal speedup.
+
+It retains the 0.6.10 playback correction: failures retain the actual error, and Play reaches the media player directly without an empty asynchronous preparation step.
 
 It includes the accelerated export timing fix and persistent performance receipts from 0.6.9:
 
@@ -11,7 +17,7 @@ It retains the browser H.264 encoding added in 0.6.8 for supported high-resoluti
 - Worker startup failures safely select the compatible export path before encoding starts.
 - Completed H.264 exports are checked for dimensions, frame count and timing before download.
 - Bundled media tools support the new H.264 transport. MP4 audio remains AAC; original WAV recordings are preserved.
-- Real 4K/60 browser checks cover frame count, audio/video timing and first-frame artwork similarity. Broader performance benchmarks and share/master profiles remain in progress.
+- Real 4K/60 browser checks cover frame count, audio/video timing and first-frame artwork similarity. Broader performance acceptance remains in progress.
 
 This release also includes the saved-synthesis recovery work since 0.6.5:
 
