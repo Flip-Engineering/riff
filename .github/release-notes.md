@@ -1,4 +1,11 @@
-Riff 0.6.6 saves the completed sound synthesis, so you can finish its audio without repeating composition, performance generation or synthesis.
+Riff 0.6.8 adds browser H.264 encoding for supported high-resolution exports, avoiding the PNG transfer and second video encode. PNG remains available when the browser cannot use the accelerated path.
+
+- Worker startup failures safely select the compatible export path before encoding starts.
+- Completed H.264 exports are checked for dimensions, frame count and timing before download.
+- Bundled media tools support the new H.264 transport. MP4 audio remains AAC; original WAV recordings are preserved.
+- Real 4K/60 browser checks cover frame count, audio/video timing and first-frame artwork similarity. Broader performance benchmarks and share/master profiles remain in progress.
+
+This release also includes the saved-synthesis recovery work since 0.6.5:
 
 - **Finish audio** appears in history when a saved synthesis is ready, including after an interrupted decode. The original take, seed, score and performance are retained.
 - A recording’s **Audio refinement** controls let you adjust decoder sections, overlap and precision. Empty fields restore the captured settings.

@@ -170,6 +170,19 @@ unless visual["codec_name"] == "h264" and visual["nb_frames"] == "60" and
          visual["r_frame_rate"] == "60/1" and sound["codec_name"] == "aac",
        do: raise("Bundled MP4 encoder did not preserve the requested streams/frames")
 
+encoded = Path.join(output, "frames.h264")
+accelerated = Path.join(output, "accelerated.mp4")
+B.run!(entry.("ffmpeg"), ["-v", "error", "-f", "image2pipe", "-framerate", "60",
+  "-i", frames, "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p",
+  "-f", "h264", encoded], env: environment)
+B.run!(entry.("ffmpeg"), ["-v", "error", "-f", "h264", "-framerate", "60",
+  "-i", encoded, "-t", "1", "-i", wave, "-map", "0:v:0", "-map", "1:a:0",
+  "-c:v", "copy", "-c:a", "aac", "-movflags", "+faststart", accelerated], env: environment)
+accelerated_result = probe.(accelerated)
+[accelerated_visual] = Enum.filter(accelerated_result["streams"], &(&1["codec_type"] == "video"))
+unless accelerated_visual["codec_name"] == "h264" and accelerated_visual["nb_frames"] == "60",
+  do: raise("Bundled media tools did not preserve the H.264 transport frames")
+
 result = %{
   runtime: runtime,
   version: manifest["version"],
@@ -177,6 +190,7 @@ result = %{
   native: audio_result,
   review_audio: review_result,
   video: video_result,
+  accelerated_video: accelerated_result,
   files: B.records(output)
 }
 
