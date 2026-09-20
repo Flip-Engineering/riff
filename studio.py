@@ -29,7 +29,7 @@ from network_access import read_access, request_origin
 import platform_support
 
 WEB = ROOT / "web"
-TRACK_ROUTE = re.compile(r"/api/tracks/([a-f0-9]{32})(?:/(audio|recipe|visualization|video-exports))?")
+TRACK_ROUTE = re.compile(r"/api/tracks/([a-f0-9]{32})(?:/(audio|recipe|visualization|video-exports|lineage))?")
 VIDEO_ROUTE = re.compile(r"/api/video-exports/([a-f0-9]{32})(?:/(frames|finish|cancel|download))?")
 JOB_ROUTE = re.compile(r"/api/jobs/([a-f0-9]{32})(?:/(cancel|retry|move))?")
 PRESET_ROUTE = re.compile(r"/api/presets/([a-z0-9-]+)")
@@ -203,7 +203,9 @@ class Handler(BaseHTTPRequestHandler):
             elif (match := TRACK_ROUTE.fullmatch(path)):
                 track_id, action = match.groups()
                 track = self.server.store.track(track_id)
-                if action == "audio":
+                if action == "lineage":
+                    self.json_response(200, self.server.store.lineage(track_id))
+                elif action == "audio":
                     self.send_file(self.server.store.audio_path(track_id), "audio/wav",
                                    track["title"] + ".wav" if "download" in parsed.query else None, ranged=True)
                 elif action == "visualization":
@@ -227,7 +229,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.json_response(200, self.server.store.job(match[1]))
             else:
                 files = {"/": "index.html", "/app.js": "app.js", "/explore.js": "explore.js", "/review.js": "review.js",
-                         "/artwork.js": "artwork.js", "/visualizer.js": "visualizer.js", "/video.js": "video.js", "/video-encoder.js": "video-encoder.js", "/style.css": "style.css",
+                         "/artwork.js": "artwork.js", "/visualizer.js": "visualizer.js", "/video.js": "video.js", "/video-encoder.js": "video-encoder.js", "/lineage.js": "lineage.js", "/style.css": "style.css",
                          "/theme.js": "theme.js", "/suite.css": "suite.css", "/controls.js": "controls.js", "/updates.js": "updates.js", "/acoustics.js": "acoustics.js",
                          "/flip-face.svg": "flip-face.svg", "/score.js": "score.js", "/compare.js": "compare.js",
                          "/vendor/abcjs-basic-min.js": "vendor/abcjs-basic-min.js",

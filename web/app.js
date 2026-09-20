@@ -766,6 +766,7 @@ async function openDetails(id) {
     $("#export-recipe").href = `/api/tracks/${id}/recipe`;
     errorMessage("#detail-error");
     window.RiffAcoustics?.details(detailTrack);
+    window.RiffLineage?.details(detailTrack);
     $("#track-dialog").showModal();
   } catch (error) {
     notify(error.message);

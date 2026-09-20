@@ -153,3 +153,18 @@ configured token budget is retained and identified in the score workspace.
 Memory mapping already supplies demand paging for weights. Riff does not implement
 an Engram memory layer or a second SSD weight-streaming scheme. Such architectural
 experiments would need separate model and quality validation.
+
+## Recorded variation lineage
+
+`GET /api/tracks/{track_id}/lineage` returns a version-1 connected graph of saved
+recordings. `nodes` retain title, archive status and identity; missing sources
+are explicit placeholders. `edges` identify recorded variation and performance
+relationships, with input changes containing `before`, `after` and separate
+recorded-presence flags. Missing settings are not assumed to equal defaults.
+`roots` and `has_cycle` describe the graph without rewriting historical data.
+
+This read-only operation uses stored references, not seed/title similarity or
+notation analysis. The Studio's Origin & variations view consumes the same
+response. Links open related takes in new tabs so current drafts and unsaved
+notes survive. No model, provider request or generation is started. Named study
+families and queued operation identities remain separate follow-up work.

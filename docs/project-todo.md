@@ -10,14 +10,24 @@ rejected; rejected experiments remain documented in the private ledger.
 
 ## Open-issue execution pass
 
-The September 19 request covers all 11 open issues. Work proceeds through export
-delivery/throughput (#19/#20), score comparison (#13), shared agent operations and
-study families (#11/#10), continuous material workflow (#14), bounded warm workers
+The September 19 request covers the remaining open issues. Work proceeds through
+export delivery/throughput (#19/#20), variation lineage, shared agent operations
+and study families (#11/#10), continuous material workflow (#14), bounded warm workers
 (#15), and optional review references (#16). Research tracks #7/#17/#18 keep their
 stated boundaries: no unverified adapter loader, fixed external arranger, or
 production rewrite. Each issue needs its own acceptance evidence; shipping a
 dependency does not close its consumers. Keep commit, CI, publication, installed
 update and live verification distinct.
+
+Score-plan analysis (#13) was rejected and its issue deleted at the user's
+request. Its isolated, uncommitted prototype is not part of main or any release.
+The intended feature is traceable variation ancestry and changed creative inputs,
+not notation conformance, automatic regeneration or a score-analysis dashboard.
+The first lineage increment exposes recorded parent/performance edges as a
+versioned read-only graph and an Origin & variations disclosure in recording
+details. Archived takes remain connected; missing sources stay explicit; cycles
+are reported without repairing or discarding original recipes. This is not yet
+named families, promotion, pending-job lineage or idempotent agent operations.
 
 The all-track path audit covered 289 tracks, including nine archived tracks. One
 additional ad hoc import (Counterweight hardbass) omitted `riff/`; its single

@@ -55,6 +55,14 @@ with tempfile.TemporaryDirectory(prefix="riff-review-browser-") as folder:
         saved["performance"] = {"frames": 300, "sha256": hashlib.sha256(codes.read_bytes()).hexdigest(), "truncated": False}
         with store.db() as db:
             db.execute("UPDATE tracks SET recipe=? WHERE id=?", (json.dumps(saved), track_id))
+    if os.environ.get("RIFF_LINEAGE_FIXTURE"):
+        for name, seed, duration in (("Long development", "15961", 240), ("Alternate study", "15962", 20)):
+            target = store.outputs / (seed + ".wav")
+            shutil.copyfile(audio, target)
+            source = store.track(track_id)["recipe"]
+            child = store.add_track(target, {**source, "title": name, "seed": seed,
+                                            "max_seconds": duration, "parent_track_id": track_id}, {})
+            if name == "Alternate study": store.update_track(child, {"archived": True})
     score = "X:1\nT:A small motif\nM:4/4\nL:1/8\nQ:1/4=108\nK:Dm\nD2 F2 A2 G2|F2 E2 D4|\n"
     vocabulary = MODELS / "sidecars/yue2-qwen.tiktoken"
     vocabulary.parent.mkdir(parents=True)

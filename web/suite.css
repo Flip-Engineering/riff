@@ -191,6 +191,15 @@ button:focus-visible, a:focus-visible, summary:focus-visible { outline: 2px soli
 .comparison-marks .quiet-text { margin-left: auto; }
 .comparison-changes { margin-top: 13px; font-size: 10px; }
 .comparison-changes summary { color: var(--quiet); cursor: pointer; }
+.lineage-takes { list-style: none; padding: 0; text-align: left; }
+.lineage-takes > li { border-left: 1px solid var(--quiet); padding-left: 12px; margin-block: 18px; overflow-wrap: anywhere; }
+.lineage-takes > li[aria-current] { border-left: 3px solid var(--blue); }
+.lineage-origin { margin-block: 10px; }
+.lineage-origin dl { margin-block: 12px; }
+.lineage-origin dt { font-weight: 600; }
+.lineage-origin dd { margin: 4px 0 14px; }
+.lineage-origin dd span { color: var(--quiet); }
+.lineage-origin pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; margin-block: 4px 8px; }
 #compare-changes dl { margin-bottom: 0; }
 #compare-changes dl > div { display: flex; justify-content: space-between; gap: 12px; padding: 5px 0; }
 #compare-changes dt { color: var(--quiet); }

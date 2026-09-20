@@ -266,6 +266,61 @@ class Store:
             raise KeyError("The audio file is missing from the library folder.")
         return path
 
+    def lineage(self, track_id):
+        """Read recorded relationships, never infer ancestry from similar music."""
+        with self.db() as db:
+            rows = db.execute("SELECT id,title,created,archived,recipe FROM tracks ORDER BY created,id").fetchall()
+        tracks = {row["id"]: {**dict(row), "recipe": json.loads(row["recipe"])} for row in rows}
+        if track_id not in tracks:
+            raise KeyError("Recording not found.")
+        edges, neighbors = [], {identity: set() for identity in tracks}
+        for child, track in tracks.items():
+            for field, kind in (("parent_track_id", "variation"), ("performance_source", "performance")):
+                parent = track["recipe"].get(field)
+                if not isinstance(parent, str) or not re.fullmatch(r"[a-f0-9]{32}", parent):
+                    continue
+                edges.append({"parent": parent, "child": child, "kind": kind})
+                neighbors.setdefault(parent, set()).add(child)
+                neighbors[child].add(parent)
+        component, pending = set(), [track_id]
+        while pending:
+            identity = pending.pop()
+            if identity in component:
+                continue
+            component.add(identity)
+            pending.extend(neighbors[identity] - component)
+        fields = (("seed", "Seed"), ("lyrics", "Words"), ("style", "Direction"), ("mode", "Creation mode"),
+                  ("cot", "Planning"), ("max_seconds", "Length"), ("steps", "Detail"), ("solver", "Synthesis method"),
+                  ("cfg_scale", "Guidance"), ("temperature", "Variation"), ("abc", "Written input"),
+                  ("score_source", "Saved score"), ("performance_source", "Saved performance"),
+                  ("acoustic_source", "Saved synthesis"), ("decoder", "Audio refinement"),
+                  ("refinement", "Sampling controls"), ("brief", "Brief"), ("energy", "Energy"), ("texture", "Texture"))
+        relevant = [edge for edge in edges if edge["child"] in component]
+        indegree, children = {identity: 0 for identity in component}, {identity: [] for identity in component}
+        for edge in relevant:
+            parent = tracks.get(edge["parent"])
+            child = tracks[edge["child"]]
+            edge["changes"] = None if parent is None else [
+                {"field": field, "label": label, "before": parent["recipe"].get(field), "after": child["recipe"].get(field),
+                 "before_recorded": field in parent["recipe"], "after_recorded": field in child["recipe"]}
+                for field, label in fields if (field in parent["recipe"], parent["recipe"].get(field)) !=
+                                            (field in child["recipe"], child["recipe"].get(field))]
+            indegree[edge["child"]] += 1
+            children[edge["parent"]].append(edge["child"])
+        roots = sorted(identity for identity, count in indegree.items() if count == 0)
+        pending, visited = list(roots), 0
+        while pending:
+            identity = pending.pop(); visited += 1
+            for child in children[identity]:
+                indegree[child] -= 1
+                if indegree[child] == 0: pending.append(child)
+        nodes = [{"id": row["id"], "title": row["title"], "created": row["created"],
+                  "archived": bool(row["archived"]), "missing": False} for row in tracks.values() if row["id"] in component]
+        nodes += [{"id": identity, "title": "Source recording unavailable", "created": None, "archived": False, "missing": True}
+                  for identity in sorted(component - tracks.keys())]
+        return {"version": 1, "selected": track_id, "nodes": nodes, "edges": relevant, "roots": roots,
+                "has_cycle": visited != len(component), "basis": "recorded_parent_and_performance_references"}
+
     def job(self, job_id):
         with self.db() as db:
             row = db.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()

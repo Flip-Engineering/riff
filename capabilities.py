@@ -28,6 +28,8 @@ def describe():
         "request_header": {"X-Riff-Request": "1"},
         "operations": {
             "library": {"method": "GET", "path": "/api/state"},
+            "lineage": {"method": "GET", "path": "/api/tracks/{track_id}/lineage",
+                        "version": 1, "body": "Read-only connected graph of recorded parent/performance references, including archived takes and unavailable source placeholders. Edges expose recorded-input differences and distinguish missing values from explicit values. No ancestry is inferred from seed, title or musical similarity; cycles are reported without rewriting recipes."},
             "recording": {"method": "GET", "path": "/api/tracks/{track_id}"},
             "score": {"method": "GET", "path": "/api/scores/{score_source}",
                       "description": "Inspect an owned riff-score-v1 reference: id, artifact_id, title, source_job_id, sha256, bytes, token_count, truncated, abc, cot, provenance and compatible; display_error may explain unavailable readable notation. Historical scores remain inspectable when compatible=false, but exact reuse requires compatibility with the selected engine."},
