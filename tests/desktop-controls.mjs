@@ -4,7 +4,7 @@ import { chromium } from "playwright";
 const browser = await chromium.launch({ executablePath: process.env.RIFF_BROWSER_EXECUTABLE });
 const page = await browser.newPage({ viewport: { width: 1280, height: 1000 } });
 const errors = []; page.on("pageerror", error => errors.push(error.message));
-let stopped = false, cancellation, needsRepair = false, retried = false;
+let stopped = false, cancellation, preferencesRequest, needsRepair = false, retried = false;
 let taskOverride = null, sourceMode = false, rejectSettings = true;
 function desktop(system) {
   return { ...system, desktop: !sourceMode, managed: !sourceMode, prerequisites: [],
@@ -31,6 +31,7 @@ try {
       json: rejectSettings ? { error: "Choose another music engine" } : { saved: true } });
   });
   await page.route("**/api/system/preferences", async route => {
+    preferencesRequest = route.request().postDataJSON();
     await route.fulfill({ status: 400, json: { error: "Update preferences could not be saved" } });
   });
   await page.goto(process.env.RIFF_URL);
@@ -80,8 +81,11 @@ try {
   assert(await page.locator("#system-error").isHidden(), "A retry clears its prior request error");
   const checkedBefore = await page.locator("#automatic-checks").isChecked();
   const downloadsBefore = await page.locator("#automatic-downloads").isChecked();
-  await page.locator("#automatic-checks").setChecked(!checkedBefore);
+  // A rejected save can roll back before Playwright's setChecked postcondition.
+  // Check the submitted intent and the eventual rollback, not a transient state.
+  await page.locator("#automatic-checks").click();
   await page.waitForFunction(() => document.querySelector("#system-error").textContent === "Update preferences could not be saved");
+  assert.deepEqual(preferencesRequest, { automatic_checks: !checkedBefore, automatic_downloads: downloadsBefore });
   assert(await page.locator("#system-error").isVisible());
   assert.equal(await page.locator("#automatic-checks").isChecked(), checkedBefore);
   assert.equal(await page.locator("#automatic-downloads").isChecked(), downloadsBefore);
