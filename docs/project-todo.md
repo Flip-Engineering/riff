@@ -10,6 +10,11 @@ rejected; rejected experiments remain documented in the private ledger.
 
 ## Open-issue execution pass
 
+- Library deletion (0.6.13): Delete song in recording options, confirmation,
+  independent performance copies for children, broken parent links, safe player
+  clearing, and retained video downloads. Local checks and release acceptance
+  are recorded separately; no real user songs are deleted during validation.
+
 The September 19 request covers the remaining open issues. Work proceeds through
 export delivery/throughput (#19/#20), variation lineage, shared agent operations
 and study families (#11/#10), continuous material workflow (#14), bounded warm workers

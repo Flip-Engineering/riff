@@ -1,4 +1,8 @@
-Riff 0.6.12 adds Origin & variations to recording details. Follow recorded parent and performance links, see branches including archived takes, and inspect which creative inputs changed. Related recordings open separately so your current draft and unsaved notes stay intact.
+Riff 0.6.13 adds Delete song to the library's three-dot recording menu. Confirm to remove the song and its WAV permanently. Other takes stay usable: needed performance data is copied to them, and the parent link is broken. Saved videos and shared synthesis assets are kept. Archive remains available for reversible removal.
+
+Deleting the playing song stops playback and clears its selection without changing your creative draft. Cancelled or failed deletions leave the song in place. This release also fixes a timing-dependent preference-save browser test.
+
+It retains Origin & variations from 0.6.12. Follow recorded parent and performance links, see branches including archived takes, and inspect which creative inputs changed. Related recordings open separately so your current draft and unsaved notes stay intact.
 
 - The Studio and agents share a versioned, read-only lineage graph. Missing sources remain explicit and cyclic historical links cannot trap traversal. No ancestry is inferred from similar titles, seeds or music.
 - Original recipes and recordings are not rewritten. This is the ancestry foundation; named study families and development operations remain in progress.

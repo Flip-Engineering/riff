@@ -168,3 +168,16 @@ notation analysis. The Studio's Origin & variations view consumes the same
 response. Links open related takes in new tabs so current drafts and unsaved
 notes survive. No model, provider request or generation is started. Named study
 families and queued operation identities remain separate follow-up work.
+
+## Delete a song
+
+`DELETE /api/tracks/{track_id}` with `{}` permanently removes the library entry
+and its WAV. The library's three-dot recording menu offers the same operation,
+after confirmation. Archive remains a separate, reversible action.
+
+Children and queued takes keep their full recipes and receive independent copies
+of any performance codes they borrowed from the deleted song. Their parent link
+is cleared; no child is deleted or regenerated. Saved videos and shared score or
+synthesis artifacts are retained. An active video export must finish or be
+cancelled first. A WAV shared by another recording is not removed. Deletion uses
+the normal same-origin mutation protection and clears stale player selection.

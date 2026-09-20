@@ -356,7 +356,10 @@ class VideoExports:
     def download(self, export_id):
         job = self.get(export_id)
         if job["status"] != "done": raise ValueError("The video is not ready to download.")
-        track = self.store.track(job["track_id"])
+        try:
+            track = self.store.track(job["track_id"])
+        except KeyError:
+            return self.output / (export_id + ".mp4"), "Riff video.mp4"
         passage = job["source_start"] > 0 or job["source_end"] < track["audio"]["duration"]
         suffix = " — passage.mp4" if passage else ".mp4"
         return self.output / (export_id + ".mp4"), track["title"] + suffix

@@ -230,6 +230,12 @@ class VideoTests(StudioFixture):
         finally:
             reopened.close()
 
+        before = path.read_bytes()
+        self.store.delete_track(self.track)
+        kept, filename = self.server.video_exports.download(job["id"])
+        self.assertEqual(kept.read_bytes(), before)
+        self.assertEqual(filename, "Riff video.mp4")
+
     def test_delivery_profiles_keep_dimensions_and_link_bit_exact_original_audio(self):
         import hashlib
         original = hashlib.sha256(self.audio.read_bytes()).hexdigest()

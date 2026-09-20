@@ -43,6 +43,8 @@ def describe():
             "review": {"method": "POST", "path": "/api/tracks/{track_id}/reviews", "body": "focus (text), keep_lyrics (boolean)"},
             "review_result": {"method": "GET", "path": "/api/reviews/{review_id}"},
             "job": {"method": "GET", "path": "/api/jobs/{job_id}"},
+            "delete_track": {"method": "DELETE", "path": "/api/tracks/{track_id}",
+                             "body": "Empty object. Permanently removes the recording and its WAV. Surviving takes receive independent copies of referenced performance data and their parent link is cleared. Saved videos and shared score/synthesis artifacts are retained."},
             "cancel": {"method": "POST", "path": "/api/jobs/{job_id}/cancel"},
             "move": {"method": "POST", "path": "/api/jobs/{job_id}/move", "body": "direction: up, down or first"},
             "visualization": {"method": "GET", "path": "/api/tracks/{track_id}/visualization"},

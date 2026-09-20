@@ -828,6 +828,21 @@ $("#archive-track").addEventListener("click", async () => {
     errorMessage("#detail-error", error.message);
   }
 });
+$("#delete-track").addEventListener("click", async () => {
+  if (!detailTrack) return;
+  const track = detailTrack, button = $("#delete-track");
+  if (!confirm(`Delete “${track.title}” and its WAV permanently?\n\nOther takes stay usable. Saved videos are kept. This cannot be undone.`)) return;
+  button.disabled = true;
+  try {
+    const result = await api(`/api/tracks/${track.id}`, "DELETE", {});
+    $("#track-dialog").close();
+    detailTrack = null;
+    await refresh();
+    notify(result.warning || "Song deleted.");
+  } catch (error) {
+    errorMessage("#detail-error", error.message);
+  } finally { button.disabled = false; }
+});
 $("#export-art").addEventListener("click", async () => {
   if (!detailTrack) return;
   const track = detailTrack, canvas = document.createElement("canvas");
@@ -1049,6 +1064,15 @@ async function refresh() {
   const added = next.tracks.filter((track) => !latestTrackIds.has(track.id));
   const oldJobs = new Map(state.jobs.map((job) => [job.id, job.status]));
   state = next;
+  if (selected && !next.tracks.some(track => track.id === selected.id)) {
+    ++selectionRequest;
+    audio.pause(); audio.removeAttribute("src"); audio.load();
+    selected = null;
+    try { localStorage.removeItem("riff.selected"); } catch {}
+    const address = new URL(location.href); address.searchParams.delete("recording");
+    history.replaceState(null, "", address.href);
+    renderPlayerInfo(); renderWaveform();
+  }
   window.RiffUpdate?.render(next);
   renderWriting();
   window.RiffControls?.render(next);

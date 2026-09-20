@@ -464,6 +464,16 @@ marker.unlink()
 
 
 class HttpTests(StudioFixture):
+    def test_delete_requires_safe_request_and_removes_audio(self):
+        path = f"/api/tracks/{self.track_id}"
+        self.assertEqual(self.request("DELETE", path, "{}")[0], 403)
+        status, _, body = self.request("DELETE", path, "{}", {"Content-Type": "application/json", "X-Riff-Request": "1"})
+        self.assertEqual(status, 200, body)
+        self.assertEqual(json.loads(body)["deleted"], self.track_id)
+        self.assertEqual(self.request("GET", path)[0], 404)
+        self.assertEqual(self.request("GET", path + "/audio")[0], 404)
+        self.assertFalse(self.audio.exists())
+
     def setUp(self):
         super().setUp()
         self.track_id = self.store.add_track(self.audio, recipe(), {})

@@ -400,7 +400,7 @@ class Handler(BaseHTTPRequestHandler):
                     review = self.server.reviews.submit(match[1], payload)
                 self.json_response(201, review)
             elif (match := TRACK_ROUTE.fullmatch(path)) and match[2] == "video-exports" and method == "POST":
-                with self.server.maintenance.lock if self.server.maintenance else nullcontext():
+                with (self.server.maintenance.lock if self.server.maintenance else nullcontext()), self.server.video_exports.lock:
                     if self.server.restart_requested:
                         raise ValueError("Riff is restarting. Export again when the studio opens.")
                     self.json_response(201, self.server.video_exports.start(match[1], payload))
@@ -426,6 +426,15 @@ class Handler(BaseHTTPRequestHandler):
                     raise KeyError("Action not found.")
             elif (match := TRACK_ROUTE.fullmatch(path)) and not match[2] and method == "PATCH":
                 self.json_response(200, self.server.store.update_track(match[1], payload))
+            elif (match := TRACK_ROUTE.fullmatch(path)) and not match[2] and method == "DELETE":
+                with (self.server.maintenance.lock if self.server.maintenance else nullcontext()), self.server.generator.lock, self.server.video_exports.lock:
+                    if self.server.restart_requested:
+                        raise ValueError("Riff is restarting. Delete this song when the studio opens.")
+                    with self.server.store.db() as db:
+                        exporting = db.execute("SELECT 1 FROM video_exports WHERE track_id=? AND status IN ('rendering','encoding')", (match[1],)).fetchone()
+                    if exporting:
+                        raise ValueError("Finish or cancel this song's video export before deleting it.")
+                    self.json_response(200, self.server.store.delete_track(match[1]))
             else:
                 raise KeyError("Action not found.")
         except sqlite3.OperationalError:
