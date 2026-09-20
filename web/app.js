@@ -91,6 +91,7 @@ let selected = null,
   connected = false,
   firstLoad = true;
 let latestTrackIds = new Set();
+let refreshRequest = 0, appliedRefreshRequest = 0;
 let draftOrigin = {};
 
 function renderReviews() {
@@ -1060,7 +1061,12 @@ $("#generation-form").addEventListener("submit", async (event) => {
 });
 
 async function refresh() {
+  const request = ++refreshRequest;
   const next = await api("/api/state");
+  // A poll started before a mutation can finish after its explicit refresh.
+  // Never replace that newer state with the delayed pre-mutation snapshot.
+  if (request < appliedRefreshRequest) return;
+  appliedRefreshRequest = request;
   connected = true;
   const signature = JSON.stringify([next.tracks, next.presets, next.jobs]);
   const added = next.tracks.filter((track) => !latestTrackIds.has(track.id));

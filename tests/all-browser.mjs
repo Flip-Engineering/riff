@@ -12,7 +12,7 @@ const fixture = await new Promise((resolve, reject) => {
 });
 try {
   const selected = process.argv.slice(2);
-  if (!selected.length) selected.push("browser", "playback", "exploration", "writer", "compass", "reviews", "suite", "studio-flow", "comparison-acoustics", "lineage", "performance", "score-replay", "acoustics", "generation-paths", "desktop-controls", "studio-update", "site-downloads", "video-encoder", "video", "artwork-webgl", "delete-track");
+  if (!selected.length) selected.push("browser", "state-refresh", "playback", "exploration", "writer", "compass", "reviews", "suite", "studio-flow", "comparison-acoustics", "lineage", "performance", "score-replay", "acoustics", "generation-paths", "desktop-controls", "studio-update", "site-downloads", "video-encoder", "video", "artwork-webgl", "delete-track");
   for (const file of selected) {
     const child = spawn(process.execPath, [`tests/${file}.mjs`], { stdio: "inherit",
       env: { ...process.env, RIFF_URL: fixture.url, RIFF_TEST_TRACK: fixture.track_id } });

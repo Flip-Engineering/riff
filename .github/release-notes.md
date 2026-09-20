@@ -1,4 +1,6 @@
-Riff 0.6.16 fixes desktop update discovery when GitHub's anonymous API is rate-limited or unavailable. The updater automatically uses the public stable release and its published payload receipt, without a GitHub login or command-line tools. Version, platform, filename, size, checksum and package validation remain required. An incomplete desktop publication leaves the current app unchanged.
+Riff 0.6.17 fixes a refresh race that could make a newly saved sound disappear from the interface. An older background response can no longer overwrite a newer completed refresh. Saving, library changes and creative drafts keep their existing behavior.
+
+It retains the desktop update recovery from 0.6.16: when GitHub's anonymous API is rate-limited or unavailable, the updater automatically uses the public stable release and its published payload receipt, without a GitHub login or command-line tools. Version, platform, filename, size, checksum and package validation remain required. An incomplete desktop publication leaves the current app unchanged.
 
 It retains the removal of the rejected Share/Master export profiles from 0.6.15. There is one export configuration, retaining the previous high-quality settings. There is no quality downgrade or delivery selector. The original WAV, saved exports and historical receipts are preserved. Export optimization remains separate work, measured at equal quality.
 

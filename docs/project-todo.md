@@ -10,6 +10,20 @@ rejected; rejected experiments remain documented in the private ledger.
 
 ## Open-issue execution pass
 
+- #22: reproduced a delayed pre-save poll replacing the post-save state and
+  removing the newly saved sound from the UI. Refresh application is now
+  monotonic by request order; a deterministic regression holds and releases the
+  older response. Version 0.6.17 release acceptance is tracked separately.
+- #20: encode/upload overlap is an isolated, unshipped experiment. Matched
+  measurements were stopped under severe disk pressure and high host load;
+  no throughput claim or long-PNG reliability fix is accepted from that run.
+  Receipts: `data/export-fixed-baseline-20260920` and
+  `data/export-fixed-overlap-20260920`. The lower-quality profiles remain removed.
+- Updater recovery shipped in 0.6.16: normal update checks succeed while the
+  anonymous GitHub API returns 403, using public version-bound payload receipts.
+  Standard Riff Setup installed it; all 300 tracks and 2344 protected files
+  were unchanged. This does not close external-host and storage-reporting work.
+
 - Library deletion (0.6.14): Delete song in recording options, confirmation,
   independent performance copies for children, broken parent links, safe player
   clearing, and retained video downloads. Local checks and release acceptance
