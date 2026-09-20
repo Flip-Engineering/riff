@@ -3,10 +3,22 @@ import json
 import shutil
 from unittest.mock import patch
 
-from test_studio import StudioFixture, recipe, Store
+from test_studio import StudioFixture, recipe, Store, Generator
 
 
 class DeleteTrackTests(StudioFixture):
+    def test_writer_can_still_start_from_a_score_only_job(self):
+        identity = "b" * 32
+        with self.store.db() as db:
+            db.execute("INSERT INTO jobs(id,title,created,status,recipe) VALUES(?,?,?,?,?)",
+                       (identity, "Score", 0, "planned", json.dumps(recipe(render_mode="plan"))))
+        generator = Generator(self.store, lambda recipe, output: ["/usr/bin/false"])
+        try:
+            settings = generator.writing_settings(recipe(parent_track_id=identity))
+            self.assertEqual(settings["reference"]["id"], identity)
+        finally:
+            generator.close()
+
     def test_restart_restores_wav_when_deletion_did_not_commit(self):
         track = self.store.add_track(self.audio, recipe(), {})
         staged = self.audio.with_name("." + track + ".deleting")

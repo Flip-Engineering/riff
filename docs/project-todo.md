@@ -10,7 +10,7 @@ rejected; rejected experiments remain documented in the private ledger.
 
 ## Open-issue execution pass
 
-- Library deletion (0.6.13): Delete song in recording options, confirmation,
+- Library deletion (0.6.14): Delete song in recording options, confirmation,
   independent performance copies for children, broken parent links, safe player
   clearing, and retained video downloads. Local checks and release acceptance
   are recorded separately; no real user songs are deleted during validation.

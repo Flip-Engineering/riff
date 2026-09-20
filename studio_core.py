@@ -586,6 +586,8 @@ class Store:
                 if row is None:
                     raise KeyError("Recording not found.")
                 original = self.library_path(self.outputs / row["file"])
+                if original.exists() and not original.is_file():
+                    raise ValueError("The recording path is not an audio file.")
                 # Imported aliases must not cause another song's audio to disappear.
                 shared = any(self.library_path(self.outputs / other[0]) == original for other in
                              db.execute("SELECT file FROM tracks WHERE id<>?", (track_id,)))
@@ -853,7 +855,10 @@ class Generator:
             try:
                 reference = self.store.track(reference_id)
             except KeyError:
-                reference = self.store.performance_record(reference_id)[0]
+                try:
+                    reference = self.store.job(reference_id)
+                except KeyError:
+                    reference = self.store.performance_record(reference_id)[0]
             source = reference["recipe"]
             settings["reference"] = {"id": reference_id, "inputs": generation_context(source),
                                      "symbolic": symbolic_context(source), "notes": reference.get("notes", "")}

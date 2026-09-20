@@ -1,4 +1,4 @@
-Riff 0.6.13 adds Delete song to the library's three-dot recording menu. Confirm to remove the song and its WAV permanently. Other takes stay usable: needed performance data is copied to them, and the parent link is broken. Saved videos and shared synthesis assets are kept. Archive remains available for reversible removal.
+Riff 0.6.14 adds Delete song to the library's three-dot recording menu. Confirm to remove the song and its WAV permanently. Other takes stay usable: needed performance data is copied to them, and the parent link is broken. Saved videos and shared synthesis assets are kept. Archive remains available for reversible removal.
 
 Deleting the playing song stops playback and clears its selection without changing your creative draft. Cancelled or failed deletions leave the song in place. This release also fixes a timing-dependent preference-save browser test.
 

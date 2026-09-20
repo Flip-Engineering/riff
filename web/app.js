@@ -835,12 +835,14 @@ $("#delete-track").addEventListener("click", async () => {
   button.disabled = true;
   try {
     const result = await api(`/api/tracks/${track.id}`, "DELETE", {});
+    ++selectionRequest;
     $("#track-dialog").close();
     detailTrack = null;
     await refresh();
     notify(result.warning || "Song deleted.");
   } catch (error) {
-    errorMessage("#detail-error", error.message);
+    if ($("#track-dialog").open) errorMessage("#detail-error", error.message);
+    else notify(error.message);
   } finally { button.disabled = false; }
 });
 $("#export-art").addEventListener("click", async () => {
