@@ -239,7 +239,6 @@
         await refresh();
       }
       if (cue) {
-        await preparePlayback();
         audio.currentTime = Number(cue.dataset.reviewTime);
         await audio.play();
       }

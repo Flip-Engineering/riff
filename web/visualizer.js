@@ -16,8 +16,6 @@ try {
 } catch {}
 function artworkAppearance() { return { ...soundAppearance }; }
 
-async function preparePlayback() {}
-
 function visualizationFor(trackId) {
   if (!motionCache.has(trackId)) {
     if (motionCache.size >= 4) motionCache.delete(motionCache.keys().next().value);

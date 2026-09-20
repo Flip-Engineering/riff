@@ -1,4 +1,6 @@
-Riff 0.6.9 fixes accelerated export timing and adds persistent performance receipts.
+Riff 0.6.10 removes the misleading “Press play again” message. Playback failures now retain the actual error, and Play reaches the media player directly without an empty asynchronous preparation step. A browser regression covers first-click playback and failure reporting.
+
+It includes the accelerated export timing fix and persistent performance receipts from 0.6.9:
 
 - Accelerated video follows the requested frame clock even when the browser encoder embeds different timestamps. Output validation still checks dimensions, frame count and timing before download.
 - Completed exports retain browser stage timings, server write/finalization timings and byte counts through app restarts. Existing export clients remain compatible.

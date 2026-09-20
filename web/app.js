@@ -524,7 +524,6 @@ async function selectTrack(id, autoplay = false) {
       history.replaceState(null, "", address.href);
     }
     if (autoplay) {
-      await preparePlayback();
       await audio.play();
     }
   } catch (error) {
@@ -570,11 +569,10 @@ async function togglePlay() {
   if (!selected) return;
   try {
     if (audio.paused) {
-      await preparePlayback();
       await audio.play();
     } else audio.pause();
-  } catch {
-    notify("Press play again to begin listening.");
+  } catch (error) {
+    notify(error.message || "The recording could not be played.");
   }
 }
 $("#play").addEventListener("click", togglePlay);

@@ -1,6 +1,6 @@
 {
   "name": "riff-music-studio",
-  "version": "0.6.9",
+  "version": "0.6.10",
   "private": true,
   "description": "Riff generative music studio",
   "scripts": {
