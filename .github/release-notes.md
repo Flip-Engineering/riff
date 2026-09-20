@@ -1,4 +1,10 @@
-Riff 0.6.8 adds browser H.264 encoding for supported high-resolution exports, avoiding the PNG transfer and second video encode. PNG remains available when the browser cannot use the accelerated path.
+Riff 0.6.9 fixes accelerated export timing and adds persistent performance receipts.
+
+- Accelerated video follows the requested frame clock even when the browser encoder embeds different timestamps. Output validation still checks dimensions, frame count and timing before download.
+- Completed exports retain browser stage timings, server write/finalization timings and byte counts through app restarts. Existing export clients remain compatible.
+- A reproducible developer benchmark compares PNG and H.264 paths with short/long passages, decoded-frame hashes, audio/video timing and resource measurements. Its limits are documented; this release does not claim a universal speedup.
+
+It retains the browser H.264 encoding added in 0.6.8 for supported high-resolution exports, avoiding the PNG transfer and second video encode. PNG remains available when the browser cannot use the accelerated path.
 
 - Worker startup failures safely select the compatible export path before encoding starts.
 - Completed H.264 exports are checked for dimensions, frame count and timing before download.

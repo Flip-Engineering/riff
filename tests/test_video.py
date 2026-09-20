@@ -183,6 +183,9 @@ class VideoTests(StudioFixture):
                                    {"width": 32, "height": 24, "fps": 24, "transport": "h264"})
         self.assertEqual(status, 201, job)
         self.assertEqual(job["transport"], "h264")
+        command = self.server.video_exports.active[job["id"]]["process"].args
+        self.assertEqual(command[command.index("-r") + 1], "24")
+        self.assertLess(command.index("-r"), command.index("-i"))
         base = f"/api/video-exports/{job['id']}"
         for index, color in enumerate(((180, 40, 80), (40, 180, 80), (40, 80, 180))):
             status, result = self.request("POST", base + "/frames", h264_frame(32, 24, color), {
@@ -197,6 +200,35 @@ class VideoTests(StudioFixture):
         self.assertEqual(streams["video"]["codec_name"], "h264")
         self.assertEqual(int(streams["video"]["nb_frames"]), job["frames"])
         self.assertEqual(streams["audio"]["codec_name"], "aac")
+
+    def test_export_receipt_survives_reopening_and_rejects_invalid_client_timings(self):
+        job = self.start()
+        base = f"/api/video-exports/{job['id']}"
+        timings = dict.fromkeys(("prepare_seconds", "draw_seconds", "snapshot_seconds", "encode_seconds",
+                                "upload_seconds", "preview_seconds", "yield_seconds", "before_finish_seconds"), .1)
+        for invalid in ([], {}, {**timings, "draw_seconds": True}, {**timings, "draw_seconds": -1},
+                        {**timings, "draw_seconds": float("inf")}, {**timings, "draw_seconds": float("nan")},
+                        {**timings, "extra": 1}):
+            with self.subTest(invalid=invalid):
+                self.assertEqual(self.request("POST", base + "/finish", {"timings": invalid})[0], 400)
+                self.assertEqual(self.server.video_exports.get(job["id"])["status"], "rendering")
+        frames = [png(32, 24, (index * 80, 40, 90)) for index in range(job["frames"])]
+        for index, frame in enumerate(frames):
+            self.server.video_exports.frame(job["id"], index, frame)
+        status, result = self.request("POST", base + "/finish", {"timings": timings})
+        self.assertEqual(status, 200)
+        receipt = result["receipt"]
+        self.assertEqual(receipt["received_bytes"], sum(map(len, frames)))
+        path, _ = self.server.video_exports.download(job["id"])
+        self.assertEqual(receipt["output_bytes"], path.stat().st_size)
+        self.assertEqual(receipt["client_reported"], timings)
+        self.assertGreater(receipt["server"]["wall_seconds"], 0)
+        self.assertLessEqual(receipt["server"]["finalize_seconds"], receipt["server"]["wall_seconds"])
+        reopened = VideoExports(self.store)
+        try:
+            self.assertEqual(reopened.get(job["id"])["receipt"], receipt)
+        finally:
+            reopened.close()
 
     def test_h264_mismatched_dimensions_or_frame_count_cannot_finish(self):
         for width, copies in ((16, 1), (32, 2)):

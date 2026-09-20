@@ -175,7 +175,7 @@ accelerated = Path.join(output, "accelerated.mp4")
 B.run!(entry.("ffmpeg"), ["-v", "error", "-f", "image2pipe", "-framerate", "60",
   "-i", frames, "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p",
   "-f", "h264", encoded], env: environment)
-B.run!(entry.("ffmpeg"), ["-v", "error", "-f", "h264", "-framerate", "60",
+B.run!(entry.("ffmpeg"), ["-v", "error", "-f", "h264", "-r", "60",
   "-i", encoded, "-t", "1", "-i", wave, "-map", "0:v:0", "-map", "1:a:0",
   "-c:v", "copy", "-c:a", "aac", "-movflags", "+faststart", accelerated], env: environment)
 accelerated_result = probe.(accelerated)

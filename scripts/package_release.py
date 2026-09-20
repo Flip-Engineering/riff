@@ -20,7 +20,7 @@ maintenance.py model_admission.py model_options.py network_access.py paths.py pl
 run.py score_artifacts.py setup_engine.py setup-writer.sh sources.json studio.py studio_core.py symbolic.py video.py
 writer.py lyrics.txt requirements-writer.lock package.json package-lock.json design-seed.txt'''.split()
 PUBLIC_DOCS = '''adapters.md install.md capabilities.md branding.md validation.md project-todo.md architecture-direction.md yue2-capability-audit.md acoustic-recovery.md native/acoustic-checkpoint-format.md
-studio.png composition.png studio-mobile.png'''.split()
+studio.png composition.png studio-mobile.png export-performance.md'''.split()
 
 
 def public_files():

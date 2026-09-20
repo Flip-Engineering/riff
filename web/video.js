@@ -45,6 +45,7 @@ async function createVideoFrameEncoder(canvas, signal, options = {}) {
   const requestedTransport = options.transport || "png";
   const fps = Number(options.fps) || 30;
   const bitrate = Number(options.bitrate) || videoBitrate(canvas.width, canvas.height, fps);
+  const timings = { snapshot_seconds: 0, encode_seconds: 0 };
   let worker = null, pending = null, stopped = null, failure = null, sequence = 0;
   const cancelled = () => new DOMException("Export cancelled.", "AbortError");
   const settle = (id, value, error) => {
@@ -107,10 +108,12 @@ async function createVideoFrameEncoder(canvas, signal, options = {}) {
     throw new Error("The browser could not open its accelerated video encoder.");
   }
   return {
+    timings,
     async encode(index = 0) {
       if (stopped) throw stopped;
       if (!worker) {
-        return wait(id => canvas.toBlob(async image => {
+        const started = performance.now();
+        const bytes = await wait(id => canvas.toBlob(async image => {
           if (pending?.id !== id) return;
           try {
             if (!image) throw new Error("The browser could not draw this video frame.");
@@ -118,14 +121,19 @@ async function createVideoFrameEncoder(canvas, signal, options = {}) {
             settle(id, await image.arrayBuffer());
           } catch (error) { settle(id, null, error); }
         }, "image/png"));
+        timings.encode_seconds += (performance.now() - started) / 1000;
+        return bytes;
       }
       if (failure) throw failure;
+      const snapshotStarted = performance.now();
       const bitmap = await wait(id => createImageBitmap(canvas).then(value => {
         if (pending?.id !== id) { value.close(); return; }
         settle(id, value);
       }, error => settle(id, null, error)));
+      timings.snapshot_seconds += (performance.now() - snapshotStarted) / 1000;
       if (stopped) { bitmap.close(); throw stopped; }
       try {
+        const encodingStarted = performance.now();
         const result = await wait(id => worker.postMessage({
           type: "frame", id, bitmap,
           timestamp: Math.round(index * 1_000_000 / fps),
@@ -133,6 +141,7 @@ async function createVideoFrameEncoder(canvas, signal, options = {}) {
           keyFrame: index === 0 || (requestedTransport === "h264" && index % Math.max(1, Math.round(fps * 2)) === 0),
         }, [bitmap]));
         if (!(result.frame instanceof ArrayBuffer)) throw new Error("The browser could not encode this video frame.");
+        timings.encode_seconds += (performance.now() - encodingStarted) / 1000;
         return result.frame;
       } finally { bitmap.close(); }
     },
@@ -278,6 +287,9 @@ async function createVideo(event) {
   $("#video-progress").value = 0;
   $("#video-status").textContent = "Preparing the artwork…";
   let complete = false, encoder = null;
+  const started = performance.now();
+  const timings = { prepare_seconds: 0, draw_seconds: 0, snapshot_seconds: 0, encode_seconds: 0,
+    upload_seconds: 0, preview_seconds: 0, yield_seconds: 0, before_finish_seconds: 0 };
   try {
     const range = videoPassage();
     if (!Number.isFinite(range.start_seconds) || !Number.isFinite(range.end_seconds) ||
@@ -310,24 +322,35 @@ async function createVideo(event) {
     operation.id = job.id;
     if (operation.cancelled) return;
     if (job.transport !== transport) throw new Error("The studio selected a different video path. Export again.");
+    timings.prepare_seconds = (performance.now() - started) / 1000;
     const preview = $("#video-preview"), previewContext = preview.getContext("2d");
     for (let index = 0; index < job.frames; index++) {
       if (operation.cancelled) return;
       const seconds = job.source_start + index / job.fps;
+      let stageStarted = performance.now();
       drawSeedArtwork(context, job.width, job.height, track.recipe.seed, seconds, motionAt(motion, seconds), appearance);
+      timings.draw_seconds += (performance.now() - stageStarted) / 1000;
       const frame = await encoder.encode(index);
+      stageStarted = performance.now();
       await sendVideoFrame(operation, job, index, frame);
+      timings.upload_seconds += (performance.now() - stageStarted) / 1000;
+      stageStarted = performance.now();
       // Reuse the completed frame for the progress preview; no parallel audio playback.
       previewContext.setTransform(1, 0, 0, 1, 0, 0);
       previewContext.drawImage(canvas, 0, 0, preview.width, preview.height);
       const progress = (index + 1) / job.frames;
       $("#video-progress").value = progress;
       $("#video-status").textContent = `Drawing your video · ${Math.round(progress * 100)}% · Keep this window open`;
+      timings.preview_seconds += (performance.now() - stageStarted) / 1000;
+      stageStarted = performance.now();
       await yieldVideoProgress();
+      timings.yield_seconds += (performance.now() - stageStarted) / 1000;
     }
     if (operation.cancelled) return;
     $("#video-status").textContent = "Finishing your MP4…";
-    const result = await api(`/api/video-exports/${job.id}/finish`, "POST", {});
+    Object.assign(timings, encoder.timings);
+    timings.before_finish_seconds = (performance.now() - started) / 1000;
+    const result = await api(`/api/video-exports/${job.id}/finish`, "POST", { timings });
     if (operation.cancelled || result.status !== "done") return;
     complete = true;
     const download = $("#save-video");

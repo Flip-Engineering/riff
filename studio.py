@@ -403,7 +403,8 @@ class Handler(BaseHTTPRequestHandler):
                         raise ValueError("Riff is restarting. Export again when the studio opens.")
                     self.json_response(201, self.server.video_exports.start(match[1], payload))
             elif (match := VIDEO_ROUTE.fullmatch(path)) and method == "POST" and match[2] in ("finish", "cancel"):
-                result = getattr(self.server.video_exports, match[2])(match[1])
+                result = (self.server.video_exports.finish(match[1], payload.get("timings"))
+                          if match[2] == "finish" else self.server.video_exports.cancel(match[1]))
                 self.json_response(200, result)
             elif (match := REVIEW_ROUTE.fullmatch(path)) and match[2] == "cancel" and method == "POST" and self.server.reviews:
                 self.json_response(200, self.server.reviews.cancel(match[1]))

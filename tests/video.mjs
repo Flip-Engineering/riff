@@ -158,6 +158,13 @@ try {
   assert.equal(recovered.size, 3);
   const completed = await (await page.request.get(`${base}/api/video-exports/${completedId}`)).json();
   assert.equal(completed.status, "done"); assert.equal(completed.received, completed.frames);
+  assert.equal(completed.receipt.version, 1);
+  assert.equal(completed.receipt.transport, "png");
+  assert(completed.receipt.received_bytes > 0 && completed.receipt.output_bytes > 0);
+  assert(completed.receipt.server.wall_seconds > 0);
+  assert(completed.receipt.client_reported.upload_seconds > 0);
+  assert(completed.receipt.client_reported.encode_seconds > 0);
+  assert(completed.receipt.client_reported.before_finish_seconds >= completed.receipt.client_reported.upload_seconds);
   await page.unroute(frameRoute);
   console.log("PASS Interrupted frame uploads, lost acknowledgements and temporary server errors recover without duplicate frames");
   const probe = JSON.parse(execFileSync("ffprobe", ["-v", "error", "-show_streams", "-of", "json", "test-results/seed-visualization.mp4"]));
@@ -193,7 +200,7 @@ try {
     await page.locator("#video-options").evaluate(element => { element.open = true; });
     await page.locator("#video-width").fill(String(highWidth)); await page.locator("#video-height").fill(String(highHeight));
     await page.locator("#video-fps").fill(String(highFps)); await page.locator("#video-selection").selectOption("passage");
-    await page.locator("#video-end").fill("0:00.25");
+    await page.locator("#video-end").fill("0:02");
     const highReady = page.waitForEvent("download", { timeout: 90000 }); highReady.catch(() => {});
     await page.locator("#render-video").click();
     await page.waitForFunction(() => videoExport?.id || !document.querySelector("#video-error").hidden);

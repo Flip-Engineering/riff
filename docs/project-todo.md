@@ -1,6 +1,6 @@
 # Riff project todo
 
-Updated: 2026-09-20 01:29 UTC
+Updated: 2026-09-20 02:43 UTC
 
 This is the canonical current-work list. The much larger private ledger in
 `data/TASKS.md` remains useful for receipts and historical evidence, but its
@@ -73,16 +73,24 @@ rejected; rejected experiments remain documented in the private ledger.
   4K/60 output, worker fallback, cancellation and final stream validation.
   Representative short/long benchmarks, quality metrics and resource receipts
   remain open; the transport change alone is not a measured throughput win.
+  Completed exports now persist browser stage timings, server write/finalization
+  timings and byte counts. The matched benchmark and measurement limitations
+  are documented in [export performance](export-performance.md).
+  A longer browser run exposed embedded H.264 timing overriding the requested
+  frame clock. Input timestamp generation now pins the requested rate; the
+  production 4K/60 regression covers two seconds rather than a quarter-second.
 - [ ] **D07/D08 — Finish the human-first installer and updater.** Keep the
   clickable web download flow, model-inclusive setup and app-managed updates.
   Complete external-host first launch, model reuse/download accounting,
   post-activation cleanup and storage reporting; keep previous runnable state
   and the library recoverable. Web delivery is the target; App Store
   distribution and Developer ID/notarization are not prerequisites.
-  `docs/validation.md` records v0.6.7 local payload/update acceptance with
-  retained models/library and healthy private routes. GitHub's latest published
-  release was still v0.6.5 at this review; publication and external-host
-  acceptance must not be inferred from the local receipt.
+  The published v0.6.8 desktop update was installed through the ordinary updater.
+  Localhost and both private HTTPS routes reported 0.6.8 with a ready Metal
+  engine; a live 30-frame 4K/60 export passed. All 285 recordings and 2,326
+  protected files were preserved, as were review connection settings. Both
+  public download buttons selected the published installer. External-host
+  first-install acceptance remains separate.
 - [ ] **Q01 — Run the promised independent review passes.** Review model/API
   contracts and failure/recovery/concurrency first, then review UI/UX and live
   artwork against the actual artist feedback, then verify installation,

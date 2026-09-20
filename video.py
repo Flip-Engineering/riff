@@ -123,6 +123,8 @@ class VideoExports:
                 db.execute("ALTER TABLE video_exports ADD COLUMN source_end REAL")
             if "transport" not in columns:
                 db.execute("ALTER TABLE video_exports ADD COLUMN transport TEXT NOT NULL DEFAULT 'png'")
+            if "receipt" not in columns:
+                db.execute("ALTER TABLE video_exports ADD COLUMN receipt TEXT")
             db.execute("UPDATE video_exports SET source_end=source_start+duration WHERE source_end IS NULL")
             db.execute("UPDATE video_exports SET status='interrupted' WHERE status IN ('rendering','encoding')")
         self.stop = threading.Event()
@@ -149,6 +151,7 @@ class VideoExports:
             row = db.execute("SELECT * FROM video_exports WHERE id=?", (export_id,)).fetchone()
         if row is None: raise KeyError("Video export not found.")
         result = dict(row)
+        result["receipt"] = json.loads(result["receipt"]) if result["receipt"] else None
         if result["status"] == "done": result["download_url"] = f"/api/video-exports/{export_id}/download"
         return result
 
@@ -156,6 +159,7 @@ class VideoExports:
         with self.lock: return bool(self.active)
 
     def start(self, track_id, options):
+        started = time.monotonic()
         if not shutil.which("ffmpeg"):
             raise ValueError("MP4 export needs FFmpeg. Install FFmpeg, then export again.")
         width, height, fps = options.get("width", 3840), options.get("height", 2160), options.get("fps", 60)
@@ -182,7 +186,9 @@ class VideoExports:
         start, end, duration = first / rate, last / rate, (last - first) / rate
         export_id = uuid.uuid4().hex
         log = (self.cache / (export_id + ".log")).open("w+")
-        video_input = (["-f", "h264", "-framerate", str(fps), "-i", "pipe:0"]
+        # Raw H.264 may carry encoder-generated timing unrelated to our frame
+        # clock. Input -r replaces it; demuxer -framerate alone does not.
+        video_input = (["-f", "h264", "-r", str(fps), "-i", "pipe:0"]
                        if transport == "h264" else
                        ["-f", "image2pipe", "-framerate", str(fps), "-i", "pipe:0"])
         video_codec = ["-c:v", "copy"] if transport == "h264" else ["-c:v", "libx264", "-preset", "veryfast", "-threads", "2", "-crf", "16", "-pix_fmt", "yuv420p"]
@@ -199,7 +205,8 @@ class VideoExports:
             log.close()
             raise
         with self.lock, self.store.db() as db:
-            self.active[export_id] = {"process": process, "log": log, "updated": time.monotonic(), "lock": threading.Lock()}
+            self.active[export_id] = {"process": process, "log": log, "updated": time.monotonic(), "lock": threading.Lock(),
+                                      "started": started, "received_bytes": 0, "stdin_seconds": 0.0}
             db.execute("INSERT INTO video_exports(id,track_id,created,status,width,height,fps,duration,frames,source_start,source_end,transport) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
                        (export_id, track_id, time.time(), "rendering", width, height, fps, duration,
                         math.ceil(duration * fps), start, end, transport))
@@ -225,8 +232,11 @@ class VideoExports:
                 if index != current["received"] or index >= current["frames"]:
                     raise ValueError("The video frame sequence is incomplete or out of order.")
                 if current["status"] != "rendering": raise ValueError("This video export has stopped.")
+                sending = time.monotonic()
                 active["process"].stdin.write(data)
                 active["process"].stdin.flush()
+                active["stdin_seconds"] += time.monotonic() - sending
+                active["received_bytes"] += len(data)
                 active["updated"] = time.monotonic()
                 with self.store.db() as db:
                     db.execute("UPDATE video_exports SET received=received+1 WHERE id=?", (export_id,))
@@ -256,7 +266,14 @@ class VideoExports:
         except (OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError, ZeroDivisionError):
             return False
 
-    def finish(self, export_id):
+    def finish(self, export_id, client_timings=None):
+        allowed = {"prepare_seconds", "draw_seconds", "snapshot_seconds", "encode_seconds",
+                   "upload_seconds", "preview_seconds", "yield_seconds", "before_finish_seconds"}
+        if client_timings is not None and (not isinstance(client_timings, dict) or
+                set(client_timings) != allowed or any(type(value) not in (int, float) or
+                    not math.isfinite(value) or value < 0 for value in client_timings.values())):
+            raise ValueError("Send finite nonnegative export stage timings.")
+        finishing = time.monotonic()
         with self.lock: active = self.active.get(export_id)
         if not active: raise ValueError("This video export has stopped.")
         with active["lock"]:
@@ -277,10 +294,20 @@ class VideoExports:
                 error = "Video encoding did not preserve the requested dimensions and frame count or timing."
                 self.cancel(export_id, "failed", error)
                 raise ValueError(error)
-            (self.output / (export_id + ".part.mp4")).replace(self.output / (export_id + ".mp4"))
+            output = self.output / (export_id + ".mp4")
+            (self.output / (export_id + ".part.mp4")).replace(output)
+            receipt = {"version": 1, "transport": job.get("transport", "png"),
+                       "frames": job["frames"], "received_bytes": active["received_bytes"],
+                       "output_bytes": output.stat().st_size,
+                       "server": {"wall_seconds": time.monotonic() - active["started"],
+                                  "stdin_seconds": active["stdin_seconds"],
+                                  "finalize_seconds": time.monotonic() - finishing},
+                       "client_reported": client_timings}
             self.active.pop(export_id)
             active["log"].close()
-            with self.store.db() as db: db.execute("UPDATE video_exports SET status='done' WHERE id=?", (export_id,))
+            with self.store.db() as db:
+                db.execute("UPDATE video_exports SET status='done',receipt=? WHERE id=?",
+                           (json.dumps(receipt, allow_nan=False), export_id))
         return self.get(export_id)
 
     def cancel(self, export_id, status="cancelled", error=""):
