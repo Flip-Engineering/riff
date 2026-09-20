@@ -319,6 +319,23 @@ class ScoreIntegrationTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "saved-score runtime is not installed"):
                 generator.submit(self.recipe(score_source=reference))
 
+    def test_deleted_parent_leaves_child_replay_independent(self):
+        generator = self.start_generator()
+        parent = self.finish(generator.submit(self.recipe(render_mode="music")), "done")
+        child = self.finish(generator.submit(self.recipe(render_mode="music",
+            parent_track_id=parent["track_id"], performance_source=parent["track_id"])), "done")
+        original_codes = self.store.performance_path(parent["track_id"])
+        expected = original_codes.read_bytes()
+        child_audio = self.store.audio_path(child["track_id"]).read_bytes()
+        self.store.delete_track(parent["track_id"])
+        original_codes.unlink()
+        saved = self.store.track(child["track_id"])["recipe"]
+        self.assertEqual(saved["parent_track_id"], "")
+        self.assertEqual(self.store.audio_path(child["track_id"]).read_bytes(), child_audio)
+        replay = self.finish(generator.submit(saved), "done")
+        self.assertEqual(self.store.performance_path(replay["track_id"]).read_bytes(), expected)
+        with self.assertRaises(KeyError): self.store.track(parent["track_id"])
+
     def test_writer_and_producer_context_keep_input_and_output_score_choices_separate(self):
         import review_recipe
         import writer
