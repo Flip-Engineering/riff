@@ -1,4 +1,10 @@
-Riff 0.6.11 adds explicit Share and Master video delivery profiles without changing your chosen picture size, frame rate or passage.
+Riff 0.6.12 adds Origin & variations to recording details. Follow recorded parent and performance links, see branches including archived takes, and inspect which creative inputs changed. Related recordings open separately so your current draft and unsaved notes stay intact.
+
+- The Studio and agents share a versioned, read-only lineage graph. Missing sources remain explicit and cyclic historical links cannot trap traversal. No ancestry is inferred from similar titles, seeds or music.
+- Original recipes and recordings are not rewritten. This is the ancestry foundation; named study families and development operations remain in progress.
+- The rejected score-analysis proposal is not included. There is no notation-conformance check or automatic regeneration.
+
+It retains the Share and Master video delivery profiles from 0.6.11 without changing your chosen picture size, frame rate or passage.
 
 - Share targets smaller downloads; Master retains higher-quality settings. Both MP4s use lossy AAC audio, clearly labeled in the dialog. Download the untouched full original WAV beside either video, including when the video covers only a passage.
 - Browser encoding uses a non-dropping quality mode with bounded frame draining. This fixes a low-bitrate stall exposed by the Share benchmark; stalled workers also fail with a useful error and remain cancellable.

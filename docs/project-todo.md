@@ -1,6 +1,6 @@
 # Riff project todo
 
-Updated: 2026-09-20 04:40 UTC
+Updated: 2026-09-20 05:04 UTC
 
 This is the canonical current-work list. The much larger private ledger in
 `data/TASKS.md` remains useful for receipts and historical evidence, but its
@@ -28,6 +28,11 @@ versioned read-only graph and an Origin & variations disclosure in recording
 details. Archived takes remain connected; missing sources stay explicit; cycles
 are reported without repairing or discarding original recipes. This is not yet
 named families, promotion, pending-job lineage or idempotent agent operations.
+
+Export profile release 0.6.11 passed main/release CI and desktop publication and
+was installed through the normal updater. All 290 baseline tracks, 2,333 protected
+files and review settings were preserved. A live 120-frame 4K/60 Share export and
+byte-exact original-WAV download passed; both public installer links updated.
 
 The all-track path audit covered 289 tracks, including nine archived tracks. One
 additional ad hoc import (Counterweight hardbass) omitted `riff/`; its single
@@ -156,9 +161,6 @@ returning 200 with matching lengths. No normal-generation path change was needed
 - [ ] **#11 — Agent orchestration surface.** Give agents the same queue,
   study, replay, review and receipt operations as the studio without DOM
   scripting. Make cancellation, resumability and ownership visible.
-- [ ] **#13 — Symbolic-plan drift comparison.** Show when a variation changes
-  the score, seed, lyric cells, stage settings or acoustic treatment, and make
-  those changes executable and reversible.
 - [ ] **#14 — Continuous material workflow.** Connect Sketch, Compose,
   Perform and Finish into one understandable flow while retaining advanced
   controls and plain-language explanations of their effects.
