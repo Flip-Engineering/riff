@@ -1,4 +1,6 @@
-Riff 0.6.15 removes the rejected Share/Master export profiles. There is one export configuration, retaining the previous high-quality settings. There is no quality downgrade or delivery selector. The original WAV, saved exports and historical receipts are preserved. Export optimization remains separate work, measured at equal quality.
+Riff 0.6.16 fixes desktop update discovery when GitHub's anonymous API is rate-limited or unavailable. The updater automatically uses the public stable release and its published payload receipt, without a GitHub login or command-line tools. Version, platform, filename, size, checksum and package validation remain required. An incomplete desktop publication leaves the current app unchanged.
+
+It retains the removal of the rejected Share/Master export profiles from 0.6.15. There is one export configuration, retaining the previous high-quality settings. There is no quality downgrade or delivery selector. The original WAV, saved exports and historical receipts are preserved. Export optimization remains separate work, measured at equal quality.
 
 It retains Delete song from 0.6.14 in the library's three-dot recording menu. Confirm to remove the song and its WAV permanently. Other takes stay usable: needed performance data is copied to them, and the parent link is broken. Saved videos and shared synthesis assets are kept. Archive remains available for reversible removal.
 

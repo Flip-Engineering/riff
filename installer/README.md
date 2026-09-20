@@ -6,6 +6,14 @@ This directory contains the implementation and local acceptance fixtures. Web pr
 
 ## Runtime and data boundaries
 
+Desktop update checks normally use GitHub release metadata. If the anonymous API
+is rate-limited or unavailable, the updater follows the repository's public stable
+release redirect and reads that version's published payload receipt. It requires
+the matching version, platform and asset filename, a positive byte count and a
+SHA-256 digest; download and payload validation are unchanged. No GitHub login,
+developer token or external CLI is required. A missing desktop receipt means the
+release is still being published and leaves the installed version unchanged.
+
 The default root is `~/Library/Application Support/Riff`. The package stages application files in `releases/<version>` and immutable runtimes in `runtimes/<digest>`. Recordings, keys, settings and model files stay in `workspace`. Nothing from a developer's private workspace, library or credentials belongs in the public payload.
 
 The current desktop runtime includes a replaceable Python compatibility component for the existing studio. Setup, downloads, activation and the memory admission policy run in bundled Elixir/OTP; native entry points and the operating-system lock helper are Rust. End users do not install Python, Elixir, Homebrew, Git, a compiler or an engine build tool. The portable runtime, native audio.cpp engine and media tools come from the verified payload built by [desktop](../desktop/).

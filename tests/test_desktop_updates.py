@@ -157,6 +157,64 @@ class DesktopUpdateTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "version"):
                 install.get_release("macos-arm64", newer_than="0.5.3")
 
+    def public_lookup_responses(self, changes=None, page=None):
+        receipt = {"version": self.release["version"], "platform": "macos-arm64",
+                   "asset": self.release["name"], "sha256": self.release["sha256"],
+                   "bytes": self.release["bytes"]}
+        receipt.update(changes or {})
+        latest = BytesIO()
+        latest.geturl = lambda: page or self.release["url"].rsplit("/download/", 1)[0] + "/tag/v0.5.4"
+        metadata = BytesIO(json.dumps(receipt).encode())
+        metadata.geturl = lambda: "https://release-assets.githubusercontent.com/receipt.json"
+        return [latest, metadata]
+
+    def test_public_desktop_lookup_survives_api_rate_limits_and_outages(self):
+        errors = [urllib.error.HTTPError(install.API, code, "unavailable", {}, None)
+                  for code in (403, 429, 500, 503)]
+        errors += [urllib.error.URLError("offline API"), TimeoutError()]
+        for error in errors:
+            with self.subTest(error=error), patch("install.urllib.request.urlopen",
+                    side_effect=[error, *self.public_lookup_responses()]) as lookup:
+                selected = install.get_release("macos-arm64", newer_than="0.5.3")
+                for key in ("version", "name", "url", "sha256", "bytes", "kind", "platform"):
+                    self.assertEqual(selected[key], self.release[key])
+                self.assertEqual(lookup.call_args_list[1].args[0].method, "HEAD")
+                self.assertEqual(lookup.call_args_list[2].args[0].full_url, self.release["url"] + ".json")
+                install.verify(self.archive, selected["sha256"])
+                install.validate_desktop_payload(self.payload, selected)
+
+    def test_public_desktop_lookup_rejects_unbound_receipts_and_redirects(self):
+        for change in ({"version": "0.5.5"}, {"platform": "linux-x86_64"},
+                       {"asset": "other.tar.gz"}, {"sha256": "bad"},
+                       {"sha256": None}, {"bytes": 0}, {"bytes": True}):
+            with self.subTest(change=change), patch("install.urllib.request.urlopen",
+                    side_effect=self.public_lookup_responses(change)):
+                with self.assertRaisesRegex(ValueError, "receipt is invalid"):
+                    install.public_desktop_release("macos-arm64")
+        for page in ("https://other.invalid/tag/v0.5.4", "http://github.com/Flip-Engineering/riff/releases/tag/v0.5.4",
+                     "https://github.com/Flip-Engineering/riff/releases/tag/v0.5.4/extra"):
+            with self.subTest(page=page), patch("install.urllib.request.urlopen",
+                    side_effect=self.public_lookup_responses(page=page)):
+                with self.assertRaises(ValueError):
+                    install.public_desktop_release("macos-arm64")
+
+    def test_public_desktop_lookup_current_and_pending_releases(self):
+        with patch("install.urllib.request.urlopen", side_effect=self.public_lookup_responses()) as lookup:
+            self.assertIsNone(install.public_desktop_release("macos-arm64", newer_than="0.5.4"))
+            self.assertEqual(lookup.call_count, 1)
+        responses = self.public_lookup_responses()
+        responses[1] = urllib.error.HTTPError(self.release["url"] + ".json", 404, "pending", {}, None)
+        with patch("install.urllib.request.urlopen", side_effect=responses):
+            with self.assertRaises(install.DesktopUpdatePending):
+                install.public_desktop_release("macos-arm64")
+
+    def test_invalid_api_metadata_does_not_enable_fallback(self):
+        with patch("install.urllib.request.urlopen", return_value=BytesIO(
+                b'{"tag_name":"v0.5.4","prerelease":true,"assets":[]}')) as lookup:
+            with self.assertRaisesRegex(ValueError, "stable release"):
+                install.get_release("macos-arm64")
+            self.assertEqual(lookup.call_count, 1)
+
     def test_desktop_check_waits_for_publication_and_keeps_download_validation(self):
         current_runtime(self.install_root)
         maintenance, app = self.maintenance()
@@ -301,6 +359,24 @@ class DesktopUpdateTests(unittest.TestCase):
             self.assertTrue(maintenance.generator.quiescing)
             with self.assertRaisesRegex(ValueError, "updating"):
                 maintenance.generator.inspiration({"idea_engine": "phrases"})
+
+    def test_rate_limited_update_uses_normal_prepare_and_restart(self):
+        current_runtime(self.install_root)
+        maintenance, app = self.maintenance()
+        responses = [urllib.error.HTTPError(install.API, 403, "rate limit", {}, None),
+                     *self.public_lookup_responses(),
+                     Download(self.archive.read_bytes(), self.release["url"])]
+        with patch("maintenance.DATA", self.library), patch("maintenance.ROOT", app), patch(
+                "install.urllib.request.urlopen", side_effect=responses), patch("setup_engine.prepare") as compile_engine:
+            maintenance.task = {"status": "running", "action": "update"}
+            maintenance.work("update", {})
+            self.assertEqual(maintenance.task["status"], "done", maintenance.task)
+            self.unchanged()
+            self.assertEqual(maintenance.pending["kind"], "desktop")
+            self.assertEqual(maintenance.apply_pending(), {"status": "restarting"})
+            self.assertEqual(json.loads((self.install_root / "current.json").read_text())["version"], "0.5.4")
+            self.assertEqual((self.library / "keep-song").read_text(), "existing recording")
+            compile_engine.assert_not_called()
 
     def test_missing_asset_and_activation_failure_preserve_retryable_state(self):
         current_runtime(self.install_root)

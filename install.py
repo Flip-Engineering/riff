@@ -50,14 +50,22 @@ def default_install_root():
 
 
 def get_release(desktop_platform=None, *, newer_than=None):
+    if desktop_platform and not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9_]+)+", desktop_platform):
+        raise ValueError("The installed desktop platform is invalid. Reopen Riff Setup.")
     request = urllib.request.Request(API + "/releases/latest", headers={"Accept": "application/vnd.github+json", "User-Agent": "Riff updater"})
     try:
         with urllib.request.urlopen(request, timeout=30) as response:
             release = json.load(response)
     except urllib.error.HTTPError as exc:
+        if desktop_platform and (exc.code in (403, 429) or exc.code >= 500):
+            return public_desktop_release(desktop_platform, newer_than=newer_than)
         if exc.code == 404:
             raise ValueError("No stable Riff release is available yet.") from None
         raise ValueError(f"GitHub could not check releases (HTTP {exc.code}). Try again later.") from None
+    except (urllib.error.URLError, TimeoutError):
+        if desktop_platform:
+            return public_desktop_release(desktop_platform, newer_than=newer_than)
+        raise
     if release.get("draft") or release.get("prerelease"):
         raise ValueError("This is not a stable release.")
     tag = release.get("tag_name", "")
@@ -94,6 +102,50 @@ def get_release(desktop_platform=None, *, newer_than=None):
     if desktop_platform:
         result.update(kind="desktop", platform=desktop_platform)
     return result
+
+
+def public_desktop_release(desktop_platform, *, newer_than=None):
+    """Use published release receipts when the anonymous API is unavailable.
+
+    This uses neither local GitHub credentials nor an external CLI. The sidecar
+    is published with the verified payload, and binds its version, platform,
+    filename, byte count and SHA-256. Normal payload validation still follows.
+    """
+    base = f"https://github.com/{REPOSITORY}/releases"
+    request = urllib.request.Request(base + "/latest", method="HEAD", headers={"User-Agent": "Riff updater"})
+    with urllib.request.urlopen(request, timeout=30) as response:
+        page = response.geturl()
+    prefix = base + "/tag/"
+    if not page.startswith(prefix):
+        raise ValueError("The latest release is outside the Riff release repository.")
+    tag = page[len(prefix):]
+    version_tuple(tag)
+    if not tag.startswith("v"):
+        raise ValueError("The public release has an unsupported tag.")
+    if newer_than is not None and version_tuple(tag) <= version_tuple(newer_than):
+        return None
+    name = f"riff-{tag}-{desktop_platform}.payload.tar.gz"
+    url = f"{base}/download/{tag}/{name}"
+    request = urllib.request.Request(url + ".json", headers={"User-Agent": "Riff updater"})
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            if not response.geturl().startswith("https://"):
+                raise ValueError("The release receipt did not use HTTPS.")
+            receipt = json.load(response)
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            raise DesktopUpdatePending("A compatible desktop update is not available yet. Your current Riff is unchanged; check again later.") from None
+        raise
+    if (not isinstance(receipt, dict) or receipt.get("version") != tag[1:]
+            or receipt.get("platform") != desktop_platform or receipt.get("asset") != name
+            or not isinstance(receipt.get("sha256"), str)
+            or not re.fullmatch(r"[a-f0-9]{64}", receipt["sha256"])
+            or type(receipt.get("bytes")) is not int or receipt["bytes"] <= 0):
+        raise ValueError("The public desktop release receipt is invalid.")
+    return {"version": tag[1:], "tag": tag, "name": name, "url": url,
+            "sha256": receipt["sha256"], "bytes": receipt["bytes"],
+            "notes": "Release notes: " + page, "page": page,
+            "kind": "desktop", "platform": desktop_platform}
 
 
 def verify(path, expected, cancelled=None):
