@@ -226,7 +226,7 @@ try {
     const highId = await page.evaluate(() => videoExport.id);
     const highJob = await (await page.request.get(`${base}/api/video-exports/${highId}`)).json();
   assert.equal(highJob.transport, "h264");
-    assert.equal(highJob.profile, "master");
+    assert.equal(highJob.profile, undefined);
     await page.waitForFunction(() => videoExport === null, null, { timeout: 90000 });
     assert(await page.locator("#video-error").isHidden(), await page.locator("#video-error").textContent());
     const highDownload = await highReady; await highDownload.saveAs("test-results/high-transport.mp4");
@@ -267,7 +267,7 @@ try {
   await page.locator("#compare-end").fill("2.75");
   const draft = await page.evaluate(() => formRecipe());
   await page.locator("#download-video").click();
-  await page.locator("#video-profile").selectOption("share");
+  assert.equal(await page.locator("#video-profile").count(), 0);
   assert.equal(await page.locator("#video-selection").inputValue(), "whole");
   await page.locator("#video-selection").selectOption("passage");
   await page.locator("#video-use-passage").click();
@@ -289,7 +289,7 @@ try {
   await page.waitForFunction(() => videoExport === null);
   const excerpt = await (await page.request.get(`${base}/api/video-exports/${excerptId}`)).json();
   assert.equal(excerpt.source_start, 1.25); assert.equal(excerpt.source_end, 2.75); assert.equal(excerpt.duration, 1.5);
-  assert.equal(excerpt.profile, "share");
+  assert.equal(excerpt.profile, undefined);
   await verifyMP4Playback(excerpt.download_url);
   const originalAudioLink = page.locator("#save-video-audio");
   assert(await originalAudioLink.isVisible());

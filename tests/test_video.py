@@ -236,22 +236,30 @@ class VideoTests(StudioFixture):
         self.assertEqual(kept.read_bytes(), before)
         self.assertEqual(filename, "Riff video.mp4")
 
-    def test_delivery_profiles_keep_dimensions_and_link_bit_exact_original_audio(self):
+    def test_fixed_quality_keeps_dimensions_and_link_bit_exact_original_audio(self):
         import hashlib
+        status, capabilities = self.request("GET", "/api/capabilities")
+        self.assertEqual(status, 200)
+        self.assertNotIn("video_profiles", capabilities)
+        self.assertEqual(capabilities["video_encoding"], {"crf": 16, "audio_bitrate": "320k",
+            "min_bitrate": 8_000_000, "max_bitrate": 32_000_000, "bits_per_pixel": .055})
         original = hashlib.sha256(self.audio.read_bytes()).hexdigest()
-        for profile, crf, bitrate in (("share", "23", "192k"), ("master", "16", "320k")):
-            with self.subTest(profile=profile):
+        for legacy in (False, True):
+            with self.subTest(legacy_schema=legacy):
+                if legacy:
+                    with self.store.db() as db:
+                        db.execute("ALTER TABLE video_exports ADD COLUMN profile TEXT NOT NULL DEFAULT 'master'")
                 status, job = self.request("POST", f"/api/tracks/{self.track}/video-exports",
-                    {"width": 32, "height": 24, "fps": 24, "end_seconds": .05, "profile": profile})
+                    {"width": 32, "height": 24, "fps": 24, "end_seconds": .05})
                 self.assertEqual(status, 201, job)
-                self.assertEqual(job["profile"], profile)
+                self.assertNotIn("profile", job)
                 command = self.server.video_exports.active[job["id"]]["process"].args
-                self.assertEqual(command[command.index("-crf") + 1], crf)
-                self.assertEqual(command[command.index("-b:a") + 1], bitrate)
+                self.assertEqual(command[command.index("-crf") + 1], "16")
+                self.assertEqual(command[command.index("-b:a") + 1], "320k")
                 for index in range(job["frames"]):
                     self.server.video_exports.frame(job["id"], index, png(32, 24, (index * 80, 40, 90)))
                 completed = self.server.video_exports.finish(job["id"])
-                self.assertEqual(completed["receipt"]["profile"], profile)
+                self.assertNotIn("profile", completed["receipt"])
                 self.assertFalse(completed["receipt"]["audio"]["lossless"])
                 self.assertFalse(completed["receipt"]["video"]["lossless"])
                 self.assertEqual(completed["original_audio"]["scope"], "full_recording")
@@ -259,7 +267,18 @@ class VideoTests(StudioFixture):
                 self.assertEqual(status, 200)
                 self.assertEqual(hashlib.sha256(data).hexdigest(), original)
                 self.assertEqual((completed["width"], completed["height"], completed["fps"]), (32, 24, 24))
-        for invalid in ("small", None, True, {}, []):
+        historical = {**completed["receipt"], "profile": "share"}
+        with self.store.db() as db:
+            db.execute("UPDATE video_exports SET profile='share',receipt=? WHERE id=?", (json.dumps(historical), job["id"]))
+        path, _ = self.server.video_exports.download(job["id"])
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        reopened = VideoExports(self.store)
+        try:
+            self.assertEqual(reopened.get(job["id"])["receipt"], historical)
+            self.assertEqual(hashlib.sha256(reopened.download(job["id"])[0].read_bytes()).hexdigest(), digest)
+        finally:
+            reopened.close()
+        for invalid in ("share", "master", "small", None, True, {}, []):
             status, _ = self.request("POST", f"/api/tracks/{self.track}/video-exports", {"profile": invalid})
             self.assertEqual(status, 400)
         self.assertFalse(self.server.video_exports.busy())

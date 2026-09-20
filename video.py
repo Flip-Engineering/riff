@@ -13,10 +13,8 @@ import wave
 
 MOTION_VERSION = 4
 WAVEFORM_POINTS = 64  # Half the contour's 128 vertices; detail remains legible at cover size.
-VIDEO_PROFILES = {
-    "share": {"crf": 23, "audio_bitrate": "192k", "min_bitrate": 2_000_000, "max_bitrate": 12_000_000, "bits_per_pixel": .035},
-    "master": {"crf": 16, "audio_bitrate": "320k", "min_bitrate": 8_000_000, "max_bitrate": 32_000_000, "bits_per_pixel": .055},
-}
+VIDEO_ENCODING = {"crf": 16, "audio_bitrate": "320k", "min_bitrate": 8_000_000,
+                  "max_bitrate": 32_000_000, "bits_per_pixel": .055}
 
 
 def lowpass_coefficients(frequency, sample_rate):
@@ -129,8 +127,6 @@ class VideoExports:
                 db.execute("ALTER TABLE video_exports ADD COLUMN transport TEXT NOT NULL DEFAULT 'png'")
             if "receipt" not in columns:
                 db.execute("ALTER TABLE video_exports ADD COLUMN receipt TEXT")
-            if "profile" not in columns:
-                db.execute("ALTER TABLE video_exports ADD COLUMN profile TEXT NOT NULL DEFAULT 'master'")
             db.execute("UPDATE video_exports SET source_end=source_start+duration WHERE source_end IS NULL")
             db.execute("UPDATE video_exports SET status='interrupted' WHERE status IN ('rendering','encoding')")
         self.stop = threading.Event()
@@ -157,6 +153,8 @@ class VideoExports:
             row = db.execute("SELECT * FROM video_exports WHERE id=?", (export_id,)).fetchone()
         if row is None: raise KeyError("Video export not found.")
         result = dict(row)
+        # Older libraries may retain this unused column; historical receipts stay intact.
+        result.pop("profile", None)
         result["receipt"] = json.loads(result["receipt"]) if result["receipt"] else None
         if result["status"] == "done":
             result["download_url"] = f"/api/video-exports/{export_id}/download"
@@ -173,10 +171,9 @@ class VideoExports:
             raise ValueError("MP4 export needs FFmpeg. Install FFmpeg, then export again.")
         width, height, fps = options.get("width", 3840), options.get("height", 2160), options.get("fps", 60)
         transport = options.get("transport", "png")
-        profile = options.get("profile", "master")
-        if not isinstance(profile, str) or profile not in VIDEO_PROFILES:
-            raise ValueError("Choose the Share or Master delivery profile.")
-        quality = VIDEO_PROFILES[profile]
+        if "profile" in options:
+            raise ValueError("Delivery profiles have been removed. Reload Riff and export again.")
+        quality = VIDEO_ENCODING
         if transport not in ("png", "h264"):
             raise ValueError("Choose a supported video export path.")
         if transport == "h264" and not shutil.which("ffprobe"):
@@ -220,9 +217,9 @@ class VideoExports:
         with self.lock, self.store.db() as db:
             self.active[export_id] = {"process": process, "log": log, "updated": time.monotonic(), "lock": threading.Lock(),
                                       "started": started, "received_bytes": 0, "stdin_seconds": 0.0}
-            db.execute("INSERT INTO video_exports(id,track_id,created,status,width,height,fps,duration,frames,source_start,source_end,transport,profile) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            db.execute("INSERT INTO video_exports(id,track_id,created,status,width,height,fps,duration,frames,source_start,source_end,transport) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
                        (export_id, track_id, time.time(), "rendering", width, height, fps, duration,
-                        math.ceil(duration * fps), start, end, transport, profile))
+                        math.ceil(duration * fps), start, end, transport))
         return self.get(export_id)
 
     def frame(self, export_id, index, data):
@@ -310,16 +307,15 @@ class VideoExports:
             output = self.output / (export_id + ".mp4")
             (self.output / (export_id + ".part.mp4")).replace(output)
             receipt = {"version": 1, "transport": job.get("transport", "png"),
-                       "profile": job["profile"],
                        "video": {"codec": "h264", "lossless": False,
                                  "encoder": "browser" if job["transport"] == "h264" else "libx264",
-                                 "requested_bitrate": round(min(VIDEO_PROFILES[job["profile"]]["max_bitrate"],
-                                     max(VIDEO_PROFILES[job["profile"]]["min_bitrate"],
-                                         job["width"] * job["height"] * job["fps"] * VIDEO_PROFILES[job["profile"]]["bits_per_pixel"])))
+                                 "requested_bitrate": round(min(VIDEO_ENCODING["max_bitrate"],
+                                     max(VIDEO_ENCODING["min_bitrate"],
+                                         job["width"] * job["height"] * job["fps"] * VIDEO_ENCODING["bits_per_pixel"])))
                                      if job["transport"] == "h264" else None,
-                                 "crf": VIDEO_PROFILES[job["profile"]]["crf"] if job["transport"] == "png" else None},
+                                 "crf": VIDEO_ENCODING["crf"] if job["transport"] == "png" else None},
                        "audio": {"codec": "aac", "lossless": False,
-                                 "bitrate": VIDEO_PROFILES[job["profile"]]["audio_bitrate"],
+                                 "bitrate": VIDEO_ENCODING["audio_bitrate"],
                                  "original_download_url": f"/api/tracks/{job['track_id']}/audio?download=1",
                                  "original_scope": "full_recording"},
                        "frames": job["frames"], "received_bytes": active["received_bytes"],

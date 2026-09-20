@@ -1,4 +1,6 @@
-Riff 0.6.14 adds Delete song to the library's three-dot recording menu. Confirm to remove the song and its WAV permanently. Other takes stay usable: needed performance data is copied to them, and the parent link is broken. Saved videos and shared synthesis assets are kept. Archive remains available for reversible removal.
+Riff 0.6.15 removes the rejected Share/Master export profiles. There is one export configuration, retaining the previous high-quality settings. There is no quality downgrade or delivery selector. The original WAV, saved exports and historical receipts are preserved. Export optimization remains separate work, measured at equal quality.
+
+It retains Delete song from 0.6.14 in the library's three-dot recording menu. Confirm to remove the song and its WAV permanently. Other takes stay usable: needed performance data is copied to them, and the parent link is broken. Saved videos and shared synthesis assets are kept. Archive remains available for reversible removal.
 
 Deleting the playing song stops playback and clears its selection without changing your creative draft. Cancelled or failed deletions leave the song in place. This release also fixes a timing-dependent preference-save browser test.
 
@@ -8,11 +10,11 @@ It retains Origin & variations from 0.6.12. Follow recorded parent and performan
 - Original recipes and recordings are not rewritten. This is the ancestry foundation; named study families and development operations remain in progress.
 - The rejected score-analysis proposal is not included. There is no notation-conformance check or automatic regeneration.
 
-It retains the Share and Master video delivery profiles from 0.6.11 without changing your chosen picture size, frame rate or passage.
+It retains the export reliability fixes from 0.6.11 without changing your chosen picture size, frame rate or passage.
 
-- Share targets smaller downloads; Master retains higher-quality settings. Both MP4s use lossy AAC audio, clearly labeled in the dialog. Download the untouched full original WAV beside either video, including when the video covers only a passage.
+- MP4 uses lossy AAC audio, clearly labeled in the dialog. Download the untouched full original WAV beside the video, including when it covers only a passage.
 - Browser encoding uses a non-dropping quality mode with bounded frame draining. This fixes a low-bitrate stall exposed by the Share benchmark; stalled workers also fail with a useful error and remain cancellable.
-- Export receipts and agent capabilities describe the same profile settings. Matched short benchmarks preserve original-WAV hashes and pass the declared relative video-quality floor. Broader long-run and independent mobile-player acceptance remain separate; this release does not claim lossless MP4 or a universal speedup.
+- Export receipts and agent capabilities describe the same fixed encoding settings. Broader long-run and independent mobile-player acceptance remain separate; this release does not claim lossless MP4 or a universal speedup.
 
 It retains the 0.6.10 playback correction: failures retain the actual error, and Play reaches the media player directly without an empty asynchronous preparation step.
 

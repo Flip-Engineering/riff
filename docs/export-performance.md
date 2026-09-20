@@ -5,20 +5,20 @@ Completed exports expose a versioned `receipt` from
 after the app restarts. Historical, unfinished and cancelled exports have no
 receipt; missing measurements are not reported as zero.
 
-## Delivery profiles
+## Fixed export quality
 
-`profile` is `master` (the default, including migrated jobs) or `share`.
-Neither changes the requested dimensions, frame rate or passage. Both deliver
-H.264 video in fast-start MP4 with lossy AAC audio. Master means higher-quality
-delivery, not a lossless video archive. Completed results expose `original_audio`
+Share/Master choices were rejected and removed. Export uses one fixed high-quality
+configuration without reducing the requested dimensions, frame rate or passage.
+It delivers H.264 video in fast-start MP4 with lossy AAC audio, not a lossless
+video archive. Completed results expose `original_audio`
 with a download of the untouched full-recording WAV, even for passage exports.
 The dialog labels the AAC fallback and provides the WAV beside the MP4.
 
-| Setting | Master | Share |
-| --- | --- | --- |
-| PNG/libx264 fallback | veryfast, CRF 16 | veryfast, CRF 23 |
-| Browser H.264 target | 0.055 bits/pixel/frame, 8–32 Mbps | 0.035 bits/pixel/frame, 2–12 Mbps |
-| MP4 audio | AAC 320 kbps | AAC 192 kbps |
+| Setting | Value |
+| --- | --- |
+| PNG/libx264 fallback | veryfast, CRF 16 |
+| Browser H.264 target | 0.055 bits/pixel/frame, 8–32 Mbps |
+| MP4 audio | AAC 320 kbps |
 
 The browser uses variable bitrate, quality latency mode, and a requested keyframe
 every two seconds. Draining each one-frame batch preserves bounded storage without
@@ -31,10 +31,10 @@ Browser encoders choose their own internal preset and frame structure; we do not
 claim a particular B-frame count or hardware implementation. PNG uses yuv420p;
 H.264 output still passes the existing dimension/count/timing validation.
 
-Receipts record the profile, codec, lossy status, requested audio bitrate, and
+Receipts record the codec, lossy status, requested audio bitrate, and
 either the fallback CRF or browser target bitrate. A requested bitrate is not a
 measurement or a server-enforced limit on agent-uploaded H.264. Capabilities
-advertise the same profile targets to browser and agent clients. No new temporary
+advertise the same encoding targets to browser and agent clients. No new temporary
 audio copy or raw-frame directory is created; the existing single-frame
 backpressure and failed/cancelled-part cleanup remain in force.
 
@@ -103,22 +103,15 @@ not inferred from these numbers. SSIM compares against the existing lossy
 PNG/libx264 output, not a lossless master. These limitations and host load belong
 with any reported results; one run does not establish a universal speedup.
 
-For profile comparison, run the same source/durations twice with
-`RIFF_BENCH_PROFILE=master` and `RIFF_BENCH_PROFILE=share`, using separate fresh
-directories, then run:
-
-```sh
-node scripts/compare_video_profiles.mjs /absolute/master-results /absolute/share-results
-```
-
 Each run hashes the source and every original-WAV download, in addition to decoded
-video frame hashes. The comparator reports Share/Master bytes and wall times,
-and uses a declared relative SSIM floor of 0.99. This compares against lossy
-Master, not a lossless renderer reference, and is not a substitute for motion
-review or independent desktop/mobile-player acceptance. Retain the MP4s, frame
-hashes and machine/load metadata with the results.
+video frame hashes. Compare software changes at the same encoding settings;
+lower quality is not accepted as a throughput optimization. Retain the MP4s,
+frame hashes and machine/load metadata with the results.
 
-### September 19 profile trial
+### Historical September 19 profile trial — rejected approach
+
+These figures document the removed experiment, not current options or accepted
+optimization evidence. The profile comparator and lower-quality path were removed.
 
 Two-second passages from a real 45-second recording on the M4, using bundled
 FFmpeg and Chromium 145/Metal. Sizes are decimal MB. The Master run overlapped

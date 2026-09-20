@@ -1,7 +1,7 @@
 """Discover the same musical operations used by the studio and producer."""
 from review_recipe import response_schema
 from model_options import CONTEXT, TOKEN_RATE
-from video import VIDEO_PROFILES
+from video import VIDEO_ENCODING
 
 
 def describe():
@@ -24,7 +24,7 @@ def describe():
     return {
         "model": "YuE2", "context_tokens": CONTEXT, "music_tokens_per_second": TOKEN_RATE,
         "recipe_schema": recipe,
-        "video_profiles": VIDEO_PROFILES,
+        "video_encoding": VIDEO_ENCODING,
         "request_header": {"X-Riff-Request": "1"},
         "operations": {
             "library": {"method": "GET", "path": "/api/state"},
@@ -49,10 +49,10 @@ def describe():
             "move": {"method": "POST", "path": "/api/jobs/{job_id}/move", "body": "direction: up, down or first"},
             "visualization": {"method": "GET", "path": "/api/tracks/{track_id}/visualization"},
             "export_video": {"method": "POST", "path": "/api/tracks/{track_id}/video-exports",
-                             "body": "Optional width, height, fps, start_seconds, end_seconds, profile=share|master (default master), transport=png|h264 (default png). Dimensions/rate remain unchanged by profile. PNG is encoded at the advertised CRF; H.264 clients must use the advertised min/max bitrate and bits_per_pixel target. MP4 audio is lossy AAC; completed results also link the untouched full original WAV, including for passage exports."},
+                             "body": "Optional width, height, fps, start_seconds, end_seconds, transport=png|h264 (default png). One fixed high-quality encoding configuration, advertised in video_encoding. PNG is encoded at the advertised CRF; H.264 clients use the advertised min/max bitrate and bits_per_pixel target. MP4 audio is lossy AAC; completed results also link the untouched full original WAV, including for passage exports."},
             "export_status": {"method": "GET", "path": "/api/video-exports/{export_id}"},
             "export_frame": {"method": "POST", "path": "/api/video-exports/{export_id}/frames",
-                             "body": "PNG bytes (image/png), or one Annex-B H.264 frame (video/h264) when transport=h264; X-Riff-Frame: zero-based frame index. Draw shared artwork at source_start + index / fps using the recording's motion data. H.264 chunks must use the advertised profile target; server-side stream validation does not prove perceptual quality or enforce an uploaded bitrate."},
+                             "body": "PNG bytes (image/png), or one Annex-B H.264 frame (video/h264) when transport=h264; X-Riff-Frame: zero-based frame index. Draw shared artwork at source_start + index / fps using the recording's motion data. H.264 chunks use the advertised encoding target; server-side stream validation does not prove perceptual quality or enforce an uploaded bitrate."},
             "export_finish": {"method": "POST", "path": "/api/video-exports/{export_id}/finish"},
             "export_cancel": {"method": "POST", "path": "/api/video-exports/{export_id}/cancel"},
             "export_download": {"method": "GET", "path": "/api/video-exports/{export_id}/download"},

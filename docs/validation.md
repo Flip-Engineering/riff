@@ -6,6 +6,14 @@ to a personal browser or use stored credentials.
 
 ## Measured inference
 
+### Export-profile removal checks (September 20, 2026)
+
+The fixed-quality export backend and focused video browser suites pass, including
+4K60 export, original-WAV preservation and historical export receipts. The first
+full browser-suite run timed out waiting for the saved `Reedlight room` sound in
+`tests/browser.mjs`; that same test passed on rerun. This intermittent Save sound
+failure remains a test-stability follow-up, not an export regression fix.
+
 An Apple M4 MacBook Air with 16 GB unified memory ran the pinned YuE2 Q4 main model
 and F16 VAE through audio.cpp Metal. Earlier short 12–30 second previews measured
 approximately 2.70–2.72 GiB peak process footprint at guidance 1.0. A 12-second
@@ -386,9 +394,9 @@ and compares its first decoded frame with the renderer at thumbnail resolution.
 This short functional check is not a long-render benchmark or a full perceptual
 quality assessment. H.264 initialization can be skipped by the test on browsers
 without codec support; it ran successfully on this Mac. The existing WAV is
-preserved, but MP4 audio remains AAC, not lossless. Issues #19 and #20 remain open
-for delivery profiles, explicit lossless-audio preservation and representative
-quality/throughput/resource measurements. These checks do not establish release
+preserved, but MP4 audio remains AAC, not lossless. The profile proposal in #19
+was rejected; #20 remains open for representative equal-quality throughput and
+resource measurements. These checks do not establish release
 publication, deployment or acceptance of a newly packaged application.
 
 ## Platform coverage

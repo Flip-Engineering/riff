@@ -16,13 +16,17 @@ rejected; rejected experiments remain documented in the private ledger.
   are recorded separately; no real user songs are deleted during validation.
 
 The September 19 request covers the remaining open issues. Work proceeds through
-export delivery/throughput (#19/#20), variation lineage, shared agent operations
+export throughput (#20), variation lineage, shared agent operations
 and study families (#11/#10), continuous material workflow (#14), bounded warm workers
 (#15), and optional review references (#16). Research tracks #7/#17/#18 keep their
 stated boundaries: no unverified adapter loader, fixed external arranger, or
 production rewrite. Each issue needs its own acceptance evidence; shipping a
 dependency does not close its consumers. Keep commit, CI, publication, installed
 update and live verification distinct.
+
+Share/Master export profiles (#19) were explicitly rejected and removed in
+0.6.15. The issue is closed as not planned; do not reintroduce quality tiers as
+a substitute for optimizing the renderer, encoder or transport at equal quality.
 
 Score-plan analysis (#13) was rejected and its issue deleted at the user's
 request. Its isolated, uncommitted prototype is not part of main or any release.
@@ -92,19 +96,13 @@ returning 200 with matching lengths. No normal-generation path change was needed
   only the corner `riff` textmark. Compare actual playback and exported frames
   at equal seed/audio/time; do not approve a still image in place of motion
   review.
-- [ ] **V10 — Ship practical compressed video profiles with preserved audio.**
-  Add explicit share and master profiles, measure codec/quality/size tradeoffs,
-  and keep audio bit-exact whenever the container permits it. Where a compact
-  share container cannot carry lossless audio, preserve the original lossless
-  asset beside it and state that fallback clearly; never label a lossy codec
-  lossless. Validate decoded frame quality, audio hashes, playback and bounded
-  temporary storage. See [issue #19](https://github.com/Flip-Engineering/riff/issues/19).
-  Share/Master implementation now includes explicit AAC labeling, the untouched
-  full original WAV beside each MP4, shared capability targets and persisted
-  profile receipts. Matched two-second 1080p/2160p cases pass a relative SSIM
-  floor of 0.99 and exact original-audio hashes. Browser tests cover actual MP4
-  playback and narrow layouts. Long-run and independent desktop/mobile-player
-  acceptance remain open; see [export performance](export-performance.md).
+- [ ] **V10/V11 — Optimize export without a quality-choice workaround.**
+  The user rejected Share/Master profiles. Remove the split and retain the
+  original high-quality settings, original WAV, accurate receipts and saved
+  exports. Lowering quality is not a software optimization. Continue measured
+  render/encode/transport/storage work at equal quality under #20; the old #19
+  profile proposal is rejected. Long-run and independent mobile-player checks
+  remain useful acceptance work; see [export performance](export-performance.md).
 - [ ] **V11 — Accelerate high-resolution export end to end.** Profile canvas or
   WebGL rendering, pixel readback, frame encoding, transport, FFmpeg and final
   assembly separately. Evaluate raw or lightweight lossless frame transport,

@@ -307,10 +307,9 @@ async function createVideo(event) {
     if (operation.cancelled) return;
     const width = Number($("#video-width").value), height = Number($("#video-height").value),
       fps = Number($("#video-fps").value);
-    const profile = $("#video-profile").value;
     const capabilities = await api("/api/capabilities");
-    const quality = capabilities.video_profiles?.[profile];
-    if (!quality) throw new Error("This delivery profile is unavailable. Reload Riff and try again.");
+    const quality = capabilities.video_encoding;
+    if (!quality) throw new Error("Export settings are unavailable. Reload Riff and try again.");
     const bitrate = videoBitrate(width, height, fps, quality);
     let transport = await preferredVideoTransport(width, height, fps, bitrate);
     const canvas = document.createElement("canvas");
@@ -328,7 +327,7 @@ async function createVideo(event) {
       encoder = await createVideoFrameEncoder(canvas, operation.controller.signal, { transport, fps });
     }
     const job = await api(`/api/tracks/${track.id}/video-exports`, "POST", {
-        width, height, fps, transport, profile,
+        width, height, fps, transport,
         ...range,
     });
     operation.id = job.id;
@@ -374,7 +373,7 @@ async function createVideo(event) {
     originalAudio.href = result.original_audio.download_url;
     originalAudio.download = `${track.title}.wav`;
     originalAudio.hidden = false;
-    $("#video-status").textContent = `Your ${profile === "share" ? "share" : "master"} video is ready. The original WAV is the full recording.`;
+    $("#video-status").textContent = "Your video is ready. The original WAV is the full recording.";
     download.click();
   } catch (error) {
     if (!operation.cancelled) {
