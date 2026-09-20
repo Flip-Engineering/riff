@@ -1,6 +1,6 @@
 # Riff project todo
 
-Updated: 2026-09-19 20:31 UTC
+Updated: 2026-09-20 01:29 UTC
 
 This is the canonical current-work list. The much larger private ledger in
 `data/TASKS.md` remains useful for receipts and historical evidence, but its
@@ -55,17 +55,6 @@ rejected; rejected experiments remain documented in the private ledger.
   only the corner `riff` textmark. Compare actual playback and exported frames
   at equal seed/audio/time; do not approve a still image in place of motion
   review.
-- [ ] **V09 — Make export progress independent of cursor activity.** Reproduce
-  the cursor-dependent progress behavior without pointer input, separate frame
-  production from browser polling/display, and repair scheduling while keeping
-  live/export geometry, requested resolution/framerate, complete audio and
-  bounded memory. The export loop now yields an explicit browser task after
-  each acknowledged frame so progress and cancellation do not rely on pointer
-  events. Source `video-encoder` and `video` browser suites pass without
-  pointer input; high-resolution production timing and a live cursor-independent
-  progress receipt remain open. Delivery compression is tracked separately in
-  [issue #19](https://github.com/Flip-Engineering/riff/issues/19), and pipeline
-  throughput in [issue #20](https://github.com/Flip-Engineering/riff/issues/20).
 - [ ] **V10 — Ship practical compressed video profiles with preserved audio.**
   Add explicit share and master profiles, measure codec/quality/size tradeoffs,
   and keep audio bit-exact whenever the container permits it. Where a compact
@@ -79,12 +68,21 @@ rejected; rejected experiments remain documented in the private ledger.
   bounded worker backpressure, direct or hardware encoding and resumable
   checkpoints while preserving deterministic geometry, audio sync,
   cursor-independent progress and cancellation. See [issue #20](https://github.com/Flip-Engineering/riff/issues/20).
+  The browser H.264 transport now avoids PNG encoding and a second video
+  encode when supported; PNG remains the fallback. Focused checks cover real
+  4K/60 output, worker fallback, cancellation and final stream validation.
+  Representative short/long benchmarks, quality metrics and resource receipts
+  remain open; the transport change alone is not a measured throughput win.
 - [ ] **D07/D08 — Finish the human-first installer and updater.** Keep the
   clickable web download flow, model-inclusive setup and app-managed updates.
   Complete external-host first launch, model reuse/download accounting,
   post-activation cleanup and storage reporting; keep previous runnable state
   and the library recoverable. Web delivery is the target; App Store
   distribution and Developer ID/notarization are not prerequisites.
+  `docs/validation.md` records v0.6.7 local payload/update acceptance with
+  retained models/library and healthy private routes. GitHub's latest published
+  release was still v0.6.5 at this review; publication and external-host
+  acceptance must not be inferred from the local receipt.
 - [ ] **Q01 — Run the promised independent review passes.** Review model/API
   contracts and failure/recovery/concurrency first, then review UI/UX and live
   artwork against the actual artist feedback, then verify installation,
@@ -197,6 +195,13 @@ rejected; rejected experiments remain documented in the private ledger.
 
 ## Completed or deliberately closed
 
+- [x] **V09 — Cursor-independent export on the supported worker path.**
+  `docs/validation.md` records the completed 180-second, 2160×2160/60 fps
+  export without pointer input (10,800 frames). Focused browser checks cover
+  task yielding, progress, cancellation and exact PNG frames. Browsers using
+  the main-thread fallback retain browser-dependent scheduling; closing or
+  suspending the page still interrupts export. Compression and comparative
+  throughput remain open under V10/V11 and issues #19/#20.
 - [x] Core Riff studio, free/wordless generation, library and saved-sound CRUD,
   secure OpenRouter key storage, structured Gemini producer/review, seed
   retention in variations, score capture/replay, direct-generation/study

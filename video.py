@@ -1,4 +1,4 @@
-"""Shared audio motion data and bounded PNG-to-MP4 exports."""
+"""Shared audio motion data and bounded PNG/H.264-to-MP4 exports."""
 import array
 import json
 import math
@@ -121,6 +121,8 @@ class VideoExports:
                 db.execute("ALTER TABLE video_exports ADD COLUMN source_start REAL NOT NULL DEFAULT 0")
             if "source_end" not in columns:
                 db.execute("ALTER TABLE video_exports ADD COLUMN source_end REAL")
+            if "transport" not in columns:
+                db.execute("ALTER TABLE video_exports ADD COLUMN transport TEXT NOT NULL DEFAULT 'png'")
             db.execute("UPDATE video_exports SET source_end=source_start+duration WHERE source_end IS NULL")
             db.execute("UPDATE video_exports SET status='interrupted' WHERE status IN ('rendering','encoding')")
         self.stop = threading.Event()
@@ -157,6 +159,11 @@ class VideoExports:
         if not shutil.which("ffmpeg"):
             raise ValueError("MP4 export needs FFmpeg. Install FFmpeg, then export again.")
         width, height, fps = options.get("width", 3840), options.get("height", 2160), options.get("fps", 60)
+        transport = options.get("transport", "png")
+        if transport not in ("png", "h264"):
+            raise ValueError("Choose a supported video export path.")
+        if transport == "h264" and not shutil.which("ffprobe"):
+            raise ValueError("Accelerated MP4 export needs ffprobe. Install the media tools, then export again.")
         if any(type(v) is not int or v < 2 or v % 2 for v in (width, height)):
             raise ValueError("Video width and height must be positive even pixel counts.")
         if type(fps) not in (int, float) or not math.isfinite(fps) or fps <= 0:
@@ -175,13 +182,17 @@ class VideoExports:
         start, end, duration = first / rate, last / rate, (last - first) / rate
         export_id = uuid.uuid4().hex
         log = (self.cache / (export_id + ".log")).open("w+")
+        video_input = (["-f", "h264", "-framerate", str(fps), "-i", "pipe:0"]
+                       if transport == "h264" else
+                       ["-f", "image2pipe", "-framerate", str(fps), "-i", "pipe:0"])
+        video_codec = ["-c:v", "copy"] if transport == "h264" else ["-c:v", "libx264", "-preset", "veryfast", "-threads", "2", "-crf", "16", "-pix_fmt", "yuv420p"]
         try:
             process = subprocess.Popen([
                 "ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
-                "-f", "image2pipe", "-framerate", str(fps), "-i", "pipe:0",
+                *video_input,
                 "-ss", str(start), "-t", str(duration), "-i", str(audio),
-                "-map", "0:v:0", "-map", "1:a:0", "-c:v", "libx264", "-preset", "veryfast",
-                "-threads", "2", "-crf", "16", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "320k",
+                "-map", "0:v:0", "-map", "1:a:0", *video_codec,
+                "-c:a", "aac", "-b:a", "320k",
                 "-movflags", "+faststart", str(self.output / (export_id + ".part.mp4")),
             ], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=log)
         except Exception:
@@ -189,19 +200,25 @@ class VideoExports:
             raise
         with self.lock, self.store.db() as db:
             self.active[export_id] = {"process": process, "log": log, "updated": time.monotonic(), "lock": threading.Lock()}
-            db.execute("INSERT INTO video_exports(id,track_id,created,status,width,height,fps,duration,frames,source_start,source_end) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+            db.execute("INSERT INTO video_exports(id,track_id,created,status,width,height,fps,duration,frames,source_start,source_end,transport) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
                        (export_id, track_id, time.time(), "rendering", width, height, fps, duration,
-                        math.ceil(duration * fps), start, end))
+                        math.ceil(duration * fps), start, end, transport))
         return self.get(export_id)
 
     def frame(self, export_id, index, data):
         job = self.get(export_id)
         with self.lock: active = self.active.get(export_id)
         if not active or job["status"] != "rendering": raise ValueError("This export is no longer accepting frames.")
-        if len(data) < 24 or data[:8] != b"\x89PNG\r\n\x1a\n" or data[12:16] != b"IHDR":
-            raise ValueError("Send a PNG visualization frame.")
-        if struct.unpack(">II", data[16:24]) != (job["width"], job["height"]):
-            raise ValueError("The frame size differs from this export.")
+        if job.get("transport", "png") == "png":
+            if len(data) < 24 or data[:8] != b"\x89PNG\r\n\x1a\n" or data[12:16] != b"IHDR":
+                raise ValueError("Send a PNG visualization frame.")
+            if struct.unpack(">II", data[16:24]) != (job["width"], job["height"]):
+                raise ValueError("The frame size differs from this export.")
+        elif job["transport"] == "h264":
+            if len(data) < 5 or not (data.startswith(b"\x00\x00\x00\x01") or data.startswith(b"\x00\x00\x01")):
+                raise ValueError("Send one encoded H.264 frame.")
+        else:
+            raise ValueError("This video export has an unsupported frame path.")
         try:
             with active["lock"]:
                 current = self.get(export_id)
@@ -218,6 +235,27 @@ class VideoExports:
             raise ValueError("Video encoding stopped. Check that FFmpeg includes H.264 encoding.") from None
         return self.get(export_id)
 
+    def valid_h264_output(self, job):
+        # Uploaded chunks are opaque compressed data, not validated PNG headers.
+        # Check the muxed stream before making the asset available to download.
+        try:
+            result = subprocess.run([
+                "ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
+                "stream=codec_name,width,height,nb_frames,avg_frame_rate", "-of", "json",
+                str(self.output / (job["id"] + ".part.mp4")),
+            ], capture_output=True, check=True, timeout=15)
+            stream, = json.loads(result.stdout)["streams"]
+            numerator, denominator = map(int, stream["avg_frame_rate"].split("/"))
+            return (stream["codec_name"] == "h264" and
+                    (stream["width"], stream["height"]) == (job["width"], job["height"]) and
+                    int(stream["nb_frames"]) == job["frames"] and
+                    # WebCodecs timestamps have microsecond precision, so a
+                    # 60 fps frame can last 16667 us rather than 16666.666 us.
+                    math.isclose(numerator / denominator, job["fps"],
+                                 rel_tol=1e-6, abs_tol=job["fps"] ** 2 / 1_000_000))
+        except (OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError, ZeroDivisionError):
+            return False
+
     def finish(self, export_id):
         with self.lock: active = self.active.get(export_id)
         if not active: raise ValueError("This video export has stopped.")
@@ -229,11 +267,16 @@ class VideoExports:
             try: active["process"].stdin.close()
             except (BrokenPipeError, OSError): pass
         result = active["process"].wait()
+        valid = result == 0 and (job.get("transport", "png") != "h264" or self.valid_h264_output(job))
         with self.lock:
             if export_id not in self.active: return self.get(export_id)
             if result:
                 self.cancel(export_id, "failed", "Video encoding could not finish.")
                 raise ValueError("Video encoding could not finish.")
+            if not valid:
+                error = "Video encoding did not preserve the requested dimensions and frame count or timing."
+                self.cancel(export_id, "failed", error)
+                raise ValueError(error)
             (self.output / (export_id + ".part.mp4")).replace(self.output / (export_id + ".mp4"))
             self.active.pop(export_id)
             active["log"].close()

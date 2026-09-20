@@ -19,7 +19,32 @@ function yieldVideoProgress() {
   return new Promise(resolve => setTimeout(resolve, 0));
 }
 
-async function createVideoFrameEncoder(canvas, signal) {
+function videoBitrate(width, height, fps) {
+  return Math.round(Math.min(32_000_000, Math.max(8_000_000, width * height * fps * .055)));
+}
+
+async function preferredVideoTransport(width, height, fps) {
+  // Small exports keep the exact PNG path used for previews and compatibility
+  // checks. The browser codec path is reserved for the expensive high-resolution
+  // case where PNG encoding and FFmpeg video encoding dominate wall time.
+  if (width * height < 1_000_000 || typeof VideoEncoder !== "function" || typeof VideoFrame !== "function") return "png";
+  for (const codec of ["avc1.640034", "avc1.640033", "avc1.64002A"]) {
+    try {
+      const support = await VideoEncoder.isConfigSupported({
+        codec, width, height, framerate: fps, bitrate: videoBitrate(width, height, fps),
+        bitrateMode: "variable", latencyMode: "realtime", hardwareAcceleration: "no-preference",
+        avc: { format: "annexb" },
+      });
+      if (support.supported) return "h264";
+    } catch { /* The PNG path remains available when this browser cannot encode H.264. */ }
+  }
+  return "png";
+}
+
+async function createVideoFrameEncoder(canvas, signal, options = {}) {
+  const requestedTransport = options.transport || "png";
+  const fps = Number(options.fps) || 30;
+  const bitrate = Number(options.bitrate) || videoBitrate(canvas.width, canvas.height, fps);
   let worker = null, pending = null, stopped = null, failure = null, sequence = 0;
   const cancelled = () => new DOMException("Export cancelled.", "AbortError");
   const settle = (id, value, error) => {
@@ -63,8 +88,13 @@ async function createVideoFrameEncoder(canvas, signal) {
         failure = new Error("The browser could not read this video frame.");
         if (pending) settle(pending.id, null, failure);
       };
-      const ready = await wait(id => worker.postMessage({ type: "init", id, width: canvas.width, height: canvas.height }));
-      if (!ready.ready) releaseWorker();
+      const ready = await wait(id => worker.postMessage({
+        type: "init", id, width: canvas.width, height: canvas.height,
+        fps, bitrate, transport: requestedTransport,
+      }));
+      if (!ready.ready || (requestedTransport === "h264" && ready.transport !== "h264")) {
+        releaseWorker();
+      }
     }
   } catch (error) {
     releaseWorker();
@@ -72,8 +102,12 @@ async function createVideoFrameEncoder(canvas, signal) {
     // Older browsers or an unavailable worker can still use the canvas encoder.
   }
   if (stopped) throw stopped;
+  if (requestedTransport === "h264" && !worker) {
+    close();
+    throw new Error("The browser could not open its accelerated video encoder.");
+  }
   return {
-    async encode() {
+    async encode(index = 0) {
       if (stopped) throw stopped;
       if (!worker) {
         return wait(id => canvas.toBlob(async image => {
@@ -92,7 +126,12 @@ async function createVideoFrameEncoder(canvas, signal) {
       }, error => settle(id, null, error)));
       if (stopped) { bitmap.close(); throw stopped; }
       try {
-        const result = await wait(id => worker.postMessage({ type: "frame", id, bitmap }, [bitmap]));
+        const result = await wait(id => worker.postMessage({
+          type: "frame", id, bitmap,
+          timestamp: Math.round(index * 1_000_000 / fps),
+          duration: Math.max(1, Math.round(1_000_000 / fps)),
+          keyFrame: index === 0 || (requestedTransport === "h264" && index % Math.max(1, Math.round(fps * 2)) === 0),
+        }, [bitmap]));
         if (!(result.frame instanceof ArrayBuffer)) throw new Error("The browser could not encode this video frame.");
         return result.frame;
       } finally { bitmap.close(); }
@@ -206,7 +245,10 @@ async function sendVideoFrame(operation, job, index, frame) {
         confirm = false;
       }
       const response = await fetch(`/api/video-exports/${job.id}/frames`, {
-        method: "POST", headers: { "Content-Type": "image/png", "X-Riff-Request": "1", "X-Riff-Frame": String(index) },
+        method: "POST", headers: {
+          "Content-Type": job.transport === "h264" ? "video/h264" : "image/png",
+          "X-Riff-Request": "1", "X-Riff-Frame": String(index),
+        },
         body: frame, signal: operation.controller.signal,
       });
       await checkVideoResponse(response);
@@ -244,25 +286,36 @@ async function createVideo(event) {
     }
     const motion = await visualizationFor(track.id);
     if (operation.cancelled) return;
+    const width = Number($("#video-width").value), height = Number($("#video-height").value),
+      fps = Number($("#video-fps").value);
+    let transport = await preferredVideoTransport(width, height, fps);
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext("2d", { alpha: false });
+    if (!context) throw new Error("The browser could not open a drawing canvas.");
+    try {
+      encoder = await createVideoFrameEncoder(canvas, operation.controller.signal, { transport, fps });
+    } catch (error) {
+      // A codec can be advertised on the window but unavailable in a worker.
+      // Fall back before starting the server job so its pipe format stays exact.
+      if (transport !== "h264") throw error;
+      transport = "png";
+      encoder = await createVideoFrameEncoder(canvas, operation.controller.signal, { transport, fps });
+    }
     const job = await api(`/api/tracks/${track.id}/video-exports`, "POST", {
-        width: Number($("#video-width").value), height: Number($("#video-height").value),
-        fps: Number($("#video-fps").value),
+        width, height, fps, transport,
         ...range,
     });
     operation.id = job.id;
     if (operation.cancelled) return;
-    const canvas = document.createElement("canvas");
-    canvas.width = job.width;
-    canvas.height = job.height;
-    const context = canvas.getContext("2d", { alpha: false });
-    if (!context) throw new Error("The browser could not open a drawing canvas.");
-    encoder = await createVideoFrameEncoder(canvas, operation.controller.signal);
+    if (job.transport !== transport) throw new Error("The studio selected a different video path. Export again.");
     const preview = $("#video-preview"), previewContext = preview.getContext("2d");
     for (let index = 0; index < job.frames; index++) {
       if (operation.cancelled) return;
       const seconds = job.source_start + index / job.fps;
       drawSeedArtwork(context, job.width, job.height, track.recipe.seed, seconds, motionAt(motion, seconds), appearance);
-      const frame = await encoder.encode();
+      const frame = await encoder.encode(index);
       await sendVideoFrame(operation, job, index, frame);
       // Reuse the completed frame for the progress preview; no parallel audio playback.
       previewContext.setTransform(1, 0, 0, 1, 0, 0);

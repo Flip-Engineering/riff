@@ -353,7 +353,7 @@ alternating 120-frame batches, median CPU scene preparation fell from 0.938 to
 0.644 ms. This narrow stage measurement excludes complete drawing, PNG encoding,
 transport, video compression and music inference.
 
-Video export uses a dedicated PNG worker when the browser provides Worker,
+The PNG export path uses a dedicated worker when the browser provides Worker,
 OffscreenCanvas.convertToBlob and createImageBitmap. One frame remains in flight;
 encoding does not wait for animation-frame or idle callbacks. In a headed
 Chromium comparison at 3840×2160 and 60 fps, stationary/moving/stationary pointer
@@ -368,6 +368,28 @@ the canvas.toBlob fallback and its browser scheduling behavior. Closing or
 suspending the page still interrupts a browser-driven export. Worker checks cover
 exact decoded PNG pixels, startup and feature fallback, cancellation during each
 encoding stage, late callbacks, worker errors, FFmpeg cancellation and retry.
+
+The September 19 export review adds browser H.264 encoding for supported exports
+of at least one million pixels, with one frame in flight and FFmpeg stream-copy
+muxing. PNG remains the compatibility path. Regression tests first reproduced
+two failures: unavailable H.264 workers could return PNG bytes under an H.264
+job, and opaque H.264 uploads could complete with incorrect dimensions or extra
+frames. Initialization now rejects unavailable H.264 workers before the server
+job starts, allowing the caller to choose PNG. The server checks the completed
+H.264 stream's codec, dimensions, frame count and average frame rate with bundled
+ffprobe before exposing a download; invalid outputs are failed and removed.
+
+Local validation passed 13 Python video tests and the `video-encoder`, `video`
+and `score-replay` browser suites. The accelerated browser test exports a real
+0.25-second 3840×2160/60 fps passage, checks video/audio duration and frame count,
+and compares its first decoded frame with the renderer at thumbnail resolution.
+This short functional check is not a long-render benchmark or a full perceptual
+quality assessment. H.264 initialization can be skipped by the test on browsers
+without codec support; it ran successfully on this Mac. The existing WAV is
+preserved, but MP4 audio remains AAC, not lossless. Issues #19 and #20 remain open
+for delivery profiles, explicit lossless-audio preservation and representative
+quality/throughput/resource measurements. These checks do not establish release
+publication, deployment or acceptance of a newly packaged application.
 
 ## Platform coverage
 

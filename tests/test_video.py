@@ -23,6 +23,16 @@ def png(width, height, color):
             + chunk(b"IDAT", zlib.compress(pixels)) + chunk(b"IEND", b""))
 
 
+def h264_frame(width, height, color):
+    value = "".join(f"{channel:02x}" for channel in color)
+    return subprocess.check_output([
+        "ffmpeg", "-v", "error", "-f", "lavfi", "-i",
+        f"color=c=0x{value}:s={width}x{height}:r=24:d=0.04",
+        "-frames:v", "1", "-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency",
+        "-f", "h264", "pipe:1",
+    ])
+
+
 class MotionTests(StudioFixture):
     def test_opposite_stereo_channels_retain_energy_and_silence_stays_still(self):
         data = motion_envelope(self.audio)
@@ -167,6 +177,40 @@ class VideoTests(StudioFixture):
         status, content = self.request("GET", result["download_url"], headers={"Range": "bytes=0-31"})
         self.assertEqual((status, len(content)), (206, 32))
         self.assertEqual(self.request("POST", base + "/finish", {})[0], 400)
+
+    def test_h264_frame_transport_muxes_without_a_second_video_encode(self):
+        status, job = self.request("POST", f"/api/tracks/{self.track}/video-exports",
+                                   {"width": 32, "height": 24, "fps": 24, "transport": "h264"})
+        self.assertEqual(status, 201, job)
+        self.assertEqual(job["transport"], "h264")
+        base = f"/api/video-exports/{job['id']}"
+        for index, color in enumerate(((180, 40, 80), (40, 180, 80), (40, 80, 180))):
+            status, result = self.request("POST", base + "/frames", h264_frame(32, 24, color), {
+                "Content-Type": "video/h264", "X-Riff-Frame": str(index),
+            })
+            self.assertEqual(status, 200, result)
+        status, result = self.request("POST", base + "/finish", {})
+        self.assertEqual((status, result["status"]), (200, "done"))
+        path, _ = self.server.video_exports.download(job["id"])
+        probe = json.loads(subprocess.check_output(["ffprobe", "-v", "error", "-show_streams", "-of", "json", str(path)]))
+        streams = {stream["codec_type"]: stream for stream in probe["streams"]}
+        self.assertEqual(streams["video"]["codec_name"], "h264")
+        self.assertEqual(int(streams["video"]["nb_frames"]), job["frames"])
+        self.assertEqual(streams["audio"]["codec_name"], "aac")
+
+    def test_h264_mismatched_dimensions_or_frame_count_cannot_finish(self):
+        for width, copies in ((16, 1), (32, 2)):
+            with self.subTest(width=width, copies=copies):
+                exports = self.server.video_exports
+                job = exports.start(self.track, {"width": 32, "height": 24, "fps": 24, "transport": "h264"})
+                frame = h264_frame(width, 24, (180, 40, 80)) * copies
+                for index in range(job["frames"]):
+                    exports.frame(job["id"], index, frame)
+                with self.assertRaisesRegex(ValueError, "requested dimensions and frame count"):
+                    exports.finish(job["id"])
+                self.assertEqual(exports.get(job["id"])["status"], "failed")
+                self.assertNotIn("download_url", exports.get(job["id"]))
+                self.assertFalse((exports.output / (job["id"] + ".part.mp4")).exists())
 
     def test_frame_origin_order_size_and_cancel_are_enforced(self):
         job = self.start()

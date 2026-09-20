@@ -298,10 +298,19 @@ class Handler(BaseHTTPRequestHandler):
         self.mutate("POST")
 
     def receive_video_frame(self, export_id):
-        if not self.safe_request(mutation=True, content_type="image/png"):
+        content_type = self.headers.get("Content-Type", "").split(";")[0]
+        if content_type not in ("image/png", "video/h264"):
+            if not self.safe_request(mutation=True, content_type="image/png"):
+                return
+            self.json_response(400, {"error": "Send a PNG or encoded H.264 video frame."})
+            return
+        if not self.safe_request(mutation=True, content_type=content_type):
             return
         try:
             job = self.server.video_exports.get(export_id)
+            expected = "video/h264" if job.get("transport", "png") == "h264" else "image/png"
+            if content_type != expected:
+                raise ValueError("This export expects a different frame path.")
             size = int(self.headers.get("Content-Length", "0"))
             index = int(self.headers.get("X-Riff-Frame", "-1"))
             # A single RGBA frame plus PNG overhead, independent of the music text budget.

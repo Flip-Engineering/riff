@@ -182,6 +182,58 @@ try {
   assert(mae < 4, `MP4 differs from Live sound renderer: pixel MAE ${mae}`);
   console.log("PASS Real H.264/AAC MP4 contains complete recording; exported frame matches Live sound; reduced-motion preference does not disable requested video");
 
+  // Exercise the actual 4K/60 production preset. The smaller 320×248 values
+  // above are only for the pixel-exact regression; production export settings
+  // must pass through unchanged while the transport is optimized.
+  const highWidth = 3840, highHeight = 2160, highFps = 60;
+  const highTransport = await page.evaluate(([width, height, fps]) => preferredVideoTransport(width, height, fps), [highWidth, highHeight, highFps]);
+  if (highTransport === "h264") {
+    await page.locator("[data-close=video-dialog]").click();
+    await page.locator("#download-video").click();
+    await page.locator("#video-options").evaluate(element => { element.open = true; });
+    await page.locator("#video-width").fill(String(highWidth)); await page.locator("#video-height").fill(String(highHeight));
+    await page.locator("#video-fps").fill(String(highFps)); await page.locator("#video-selection").selectOption("passage");
+    await page.locator("#video-end").fill("0:00.25");
+    const highReady = page.waitForEvent("download", { timeout: 90000 }); highReady.catch(() => {});
+    await page.locator("#render-video").click();
+    await page.waitForFunction(() => videoExport?.id || !document.querySelector("#video-error").hidden);
+    assert(await page.locator("#video-error").isHidden(), await page.locator("#video-error").textContent());
+    const highId = await page.evaluate(() => videoExport.id);
+    const highJob = await (await page.request.get(`${base}/api/video-exports/${highId}`)).json();
+    assert.equal(highJob.transport, "h264");
+    await page.waitForFunction(() => videoExport === null, null, { timeout: 90000 });
+    assert(await page.locator("#video-error").isHidden(), await page.locator("#video-error").textContent());
+    const highDownload = await highReady; await highDownload.saveAs("test-results/high-transport.mp4");
+    await page.waitForFunction(() => videoExport === null);
+    const highProbe = JSON.parse(execFileSync("ffprobe", ["-v", "error", "-show_streams", "-of", "json", "test-results/high-transport.mp4"]));
+    const highVideo = highProbe.streams.find(stream => stream.codec_type === "video");
+    assert.equal(highVideo.codec_name, "h264"); assert.equal(highVideo.width, highWidth); assert.equal(highVideo.height, highHeight);
+    assert.equal(Number(highVideo.r_frame_rate.split("/")[0]) / Number(highVideo.r_frame_rate.split("/")[1]), highFps);
+    assert.equal(Number(highVideo.nb_frames), highJob.frames);
+    const highSound = highProbe.streams.find(stream => stream.codec_type === "audio");
+    assert.equal(highSound.codec_name, "aac");
+    assert(Math.abs(Number(highSound.duration) - highJob.duration) < .04);
+    assert(Math.abs(Number(highVideo.duration) - highJob.duration) < 1 / highFps);
+    const highExpected = await page.evaluate(async job => {
+      const motion = await visualizationFor(selected.id), canvas = document.createElement("canvas");
+      canvas.width = job.width; canvas.height = job.height;
+      drawSeedArtwork(canvas.getContext("2d"), job.width, job.height, selected.recipe.seed,
+        job.source_start, motionAt(motion, job.source_start));
+      return canvas.toDataURL().split(",")[1];
+    }, highJob);
+    writeFileSync("test-results/high-expected.png", Buffer.from(highExpected, "base64"));
+    const thumbnail = file => execFileSync("ffmpeg", ["-v", "error", "-i", file, "-frames:v", "1", "-vf", "scale=320:180", "-f", "rawvideo", "-pix_fmt", "rgb24", "pipe:1"]);
+    const expectedPixels = thumbnail("test-results/high-expected.png"), actualPixels = thumbnail("test-results/high-transport.mp4");
+    assert.equal(actualPixels.length, expectedPixels.length);
+    const highMAE = expectedPixels.reduce((total, value, i) => total + Math.abs(value - actualPixels[i]), 0) / expectedPixels.length;
+    assert(highMAE < 4, `Accelerated MP4 differs from artwork: thumbnail pixel MAE ${highMAE}`);
+    console.log(`PASS Production 4K/60 H.264 export preserves dimensions, frame count, timing, audio and first-frame artwork (thumbnail MAE ${highMAE.toFixed(3)})`);
+    await page.locator("#video-width").fill("320"); await page.locator("#video-height").fill("248");
+    await page.locator("#video-fps").fill("12");
+  } else {
+    console.log("SKIP High-resolution H.264 transport: browser codec support unavailable");
+  }
+
   await page.locator("[data-close=video-dialog]").click();
   await page.locator("#take-comparison > summary").click();
   await page.locator("#compare-a").selectOption(process.env.RIFF_TEST_TRACK);

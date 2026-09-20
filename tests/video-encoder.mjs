@@ -79,6 +79,49 @@ try {
   assert.deepEqual(await page.evaluate(() => encoderWorkers.map(worker => worker.stopped)), [true]);
   console.log("PASS Same-origin packaged worker encodes exact pixels and frame order without main-thread PNG, animation-frame or idle callbacks");
 
+  await fresh();
+  const encoded = await page.evaluate(async () => {
+    if (typeof VideoEncoder !== "function" || typeof VideoFrame !== "function") return { supported: false };
+    const canvas = document.createElement("canvas"); canvas.width = 320; canvas.height = 248;
+    const context = canvas.getContext("2d", { alpha: false }); context.fillStyle = "#4265a8"; context.fillRect(0, 0, 320, 248);
+    let encoder;
+    try {
+      encoder = await createVideoFrameEncoder(canvas, new AbortController().signal, { transport: "h264", fps: 12 });
+    } catch (error) {
+      return { supported: false, error: error.message };
+    }
+    try {
+      const frame = new Uint8Array(await encoder.encode(0));
+      return { supported: true, annexB: frame[0] === 0 && frame[1] === 0 && frame[2] === 0 && frame[3] === 1, bytes: frame.byteLength };
+    } finally { encoder?.close(); }
+  });
+  if (encoded.supported) {
+    assert(encoded.annexB && encoded.bytes > 32, JSON.stringify(encoded));
+    assert(await page.evaluate(() => encoderWorkers.every(worker => worker.stopped)));
+    console.log("PASS Worker WebCodecs H.264 path emits Annex-B frames for the accelerated export transport");
+  } else {
+    console.log(`SKIP WebCodecs H.264 path: ${encoded.error || "browser support unavailable"}`);
+  }
+
+  for (const support of ["absent", "load-failed", "context-unavailable"]) {
+    await fresh();
+    if (support === "absent") await page.evaluate(() => { window.OffscreenCanvas = undefined; });
+    if (support === "load-failed") await page.route(workerRoute, route => route.fulfill({ status: 404, body: "Missing fixture worker" }));
+    if (support === "context-unavailable") await page.route(workerRoute, route => route.fulfill({ contentType: "text/javascript", body: "self.onmessage=({data})=>self.postMessage({id:data.id,ready:true,transport:'png'});" }));
+    const result = await page.evaluate(async () => {
+      let encoder;
+      try {
+        encoder = await createVideoFrameEncoder(encoderCanvas(), new AbortController().signal, { transport: "h264" });
+        return "accepted";
+      } catch (error) { return error.message; }
+      finally { encoder?.close(); }
+    });
+    assert.match(result, /accelerated video encoder/, support);
+    assert(await page.evaluate(() => encoderWorkers.every(worker => worker.stopped)), support);
+    await page.unroute(workerRoute);
+  }
+  console.log("PASS Unavailable H.264 workers reject initialization before a server job can receive mislabeled PNG bytes");
+
   for (const support of ["absent", "load-failed", "context-unavailable"]) {
     await fresh();
     if (support === "absent") await page.evaluate(() => { window.OffscreenCanvas = undefined; });
