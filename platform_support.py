@@ -51,7 +51,9 @@ def settings():
             "device": saved.get("device", 0), "binary": saved.get("binary", str(default_binary)),
             "model_root": saved.get("model_root", str(MODELS)),
             "model_file": saved.get("model_file", "yue2-3b-q4_0.gguf"),
-            "vae_file": saved.get("vae_file", "yue2-vae-f16.gguf")}
+            "vae_file": saved.get("vae_file", "yue2-vae-f16.gguf"),
+            # Keep one engine process with resident weights between takes.
+            "warm_engine": saved.get("warm_engine", False)}
 
 
 def configure(payload):
@@ -61,6 +63,8 @@ def configure(payload):
     current.update(payload)
     if current["backend"] not in ("metal", "cuda", "cpu"):
         raise ValueError("Choose Metal, NVIDIA CUDA, or CPU.")
+    if type(current["warm_engine"]) is not bool:
+        raise ValueError("Warm engine must be true or false.")
     for key, minimum in (("threads", 1), ("device", 0)):
         if type(current[key]) is not int or current[key] < minimum:
             raise ValueError(f"{key.capitalize()} must be a whole number of at least {minimum}.")

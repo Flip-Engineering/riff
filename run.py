@@ -145,8 +145,10 @@ def _engine_capabilities(binary, model_root, identity):
     acoustic = (metadata.get("feature.yue2.acoustic_checkpoint") == "1" and
                 metadata.get("feature.yue2.acoustic_decode") == "1" and
                 metadata.get("format.yue2.acoustic") == "riff.yue2.acoustic.v1")
+    # Persistent job mode with resident AR/NAR weights (patches/yue2-warm-engine.patch).
+    warm = metadata.get("feature.yue2.keep_resident") == "1" and metadata.get("format.yue2.jobs") == "riff.jobs.v1"
     return {"exact_score_replay": exact, "acoustic_checkpoint": acoustic, "score_format": metadata.get("format.yue2.score_tokens"),
-            "prefix_contract": metadata.get("format.yue2.prefix")}
+            "prefix_contract": metadata.get("format.yue2.prefix"), "warm_engine": warm}
 
 
 def engine_capabilities(settings=None):

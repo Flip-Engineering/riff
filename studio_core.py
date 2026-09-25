@@ -23,6 +23,7 @@ from paths import ROOT, WORKSPACE
 import model_options
 from model_admission import AdmissionCancelled, ModelAdmission, SchedulerUnavailable
 from symbolic import read_plan
+from warm_engine import WarmEngine, job_from_command
 
 CONTEXT = model_options.CONTEXT
 TOKEN_RATE = model_options.TOKEN_RATE
@@ -718,6 +719,7 @@ class Generator:
         self.quiescing = False
         self.live = None
         self.monitor = engine.platform_runtime.ProcessMemory()
+        self.warm = WarmEngine(store.data_root / "warm-engine.log", cwd=ROOT)
         self.admission = admission if admission is not None else ModelAdmission(store.data_root)
         from score_artifacts import ScoreArtifacts
         from acoustic_artifacts import AcousticArtifacts
@@ -744,6 +746,21 @@ class Generator:
                                     score_file=self.store.artifacts.input_path(Path(output).stem) if recipe.get("score_source") else None,
                                     acoustic_out=Path(output).with_suffix(".yac") if recipe.get("acoustic_launch_sha256") else None,
                                     acoustic_only=recipe.get("render_mode") == "sound")
+
+    @staticmethod
+    def warm_plan(command):
+        """Return (enabled, (session, job) or None) for the warm engine setting.
+
+        Commands the warm engine cannot run, such as acoustic decoding, return no
+        job and keep the per-take process path. An engine without job mode is
+        never sent a take.
+        """
+        settings = engine.platform_runtime.settings()
+        if not settings.get("warm_engine"):
+            return False, None
+        if not engine.engine_capabilities(settings).get("warm_engine"):
+            return True, None
+        return True, job_from_command(command)
 
     @staticmethod
     def writer_ready():
@@ -1131,12 +1148,22 @@ class Generator:
             with self.store.db() as db:
                 db.execute("UPDATE jobs SET recipe=? WHERE id=?", (json.dumps(recipe), job_id))
             command = self.command_builder(recipe, output)
+            warm_enabled, warm = self.warm_plan(command)
+            if warm:
+                # Starting or restarting the engine happens before the take is
+                # published as running, outside the studio lock.
+                self.warm.prepare(warm[0])
+            elif not warm_enabled:
+                self.warm.stop()
             with log_path.open("w") as log, self.lock:
                 if cancelled.is_set() or self.stop.is_set():
                     return
                 self.live = {"id": job_id, "title": recipe["title"], "stage": "Preparing the studio", "stage_index": 0,
                              "elapsed": 0, "footprint": 0, "peak_footprint": 0}
-                proc = subprocess.Popen(command, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT)
+                if warm:
+                    proc = self.warm.submit(warm[1], log_path)
+                else:
+                    proc = subprocess.Popen(command, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT)
                 self.process = proc
                 self.admission.attach(identity, proc)
             with log_path.open() as log:
@@ -1147,7 +1174,8 @@ class Generator:
                     if not separator:
                         lines = ""
                     footprint, memory_peak = self.monitor.read(proc.pid)
-                    peak = max(peak, memory_peak)
+                    # A warm engine's lifetime peak covers earlier takes; sample this take.
+                    peak = max(peak, footprint if warm else memory_peak)
                     with self.lock:
                         observe_generation(self.live, lines)
                         self.live.update(elapsed=time.monotonic() - started,
@@ -1158,8 +1186,10 @@ class Generator:
             returncode = proc.wait()
             metrics = {"wall_seconds": time.monotonic() - started, "exit_code": returncode,
                        "command": command, "peak_process_memory_bytes": peak, "memory_note": self.monitor.note,
-                       "memory_reservation": reservation}
-            if self.monitor.libproc:
+                       "memory_reservation": reservation, "engine": "warm" if warm else "process"}
+            if warm:
+                metrics["memory_note"] += " Warm engine: sampled footprint of the shared engine process during this take."
+            if self.monitor.libproc and not warm:
                 metrics["macos_lifetime_peak_footprint_bytes_observed"] = peak
             output.with_suffix(".metrics.json").write_text(json.dumps(metrics, indent=2) + "\n")
             # Keep completed stages after user cancellation; application shutdown
@@ -1244,6 +1274,7 @@ class Generator:
         if writer:
             writer.wait()
         self.thread.join()
+        self.warm.close()
         # A standalone HTTP writer can still be unwinding a waiting admission.
         # Its slot is released only after its owned child and lease are reaped.
         with self.writer_gate:
