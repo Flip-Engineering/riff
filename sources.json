@@ -81,6 +81,10 @@
     "patches/yue2-vae-checkpoint.patch": {
       "bytes": 59400,
       "sha256": "8c727009f25999d222b106951a672fd2be77be82deb1e9e45ab71cc878c0da90"
+    },
+    "patches/yue2-warm-engine.patch": {
+      "bytes": 14442,
+      "sha256": "d3e3236c058e26a7b1cf067f6b2dfb0db549b0fa4df1dc04607fb71898158b47"
     }
   },
   "native_capabilities": {
@@ -89,7 +93,9 @@
     "format.yue2.prefix": "riff.yue2.prefix.v1",
     "feature.yue2.acoustic_checkpoint": "1",
     "feature.yue2.acoustic_decode": "1",
-    "format.yue2.acoustic": "riff.yue2.acoustic.v1"
+    "format.yue2.acoustic": "riff.yue2.acoustic.v1",
+    "feature.yue2.keep_resident": "1",
+    "format.yue2.jobs": "riff.jobs.v1"
   },
   "writer": {
     "repo": "Qwen/Qwen3-0.6B-MLX-4bit",

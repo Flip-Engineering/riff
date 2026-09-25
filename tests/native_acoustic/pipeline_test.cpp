@@ -53,9 +53,10 @@ fs::path model_fixture(const fs::path & root,const std::string & name,const fs::
     gguf(model/"yue2-vae-f16.gguf",{{"decoder.layers.0.weight_g",{2048,1,1}}});
     return model;
 }
-std::unique_ptr<Yue2Session> session(const fs::path & model,const std::string & precision=""){
+std::unique_ptr<Yue2Session> session(const fs::path & model,const std::string & precision="",const std::string & keep_resident=""){
     engine::runtime::SessionOptions options;
     if(!precision.empty())options.options["yue2.vae_weight_type"]=precision;
+    if(!keep_resident.empty())options.options["yue2.keep_resident"]=keep_resident;
     engine::runtime::TaskSpec task;task.task=engine::runtime::VoiceTaskKind::AudioGeneration;task.mode=engine::runtime::RunMode::Offline;
     auto out=std::make_unique<Yue2Session>(task,options,load_yue2_assets(model));out->prepare({});return out;
 }
@@ -163,6 +164,27 @@ int main(int argc,char ** argv){
         e06_test::reset();{auto s=session(failure_model);auto result=run(*s,{{"cot","full"},{"score_tokens_file",score.string()},{"plan_only","true"},{"score_tokens_out",(root/"plan.json").string()}});
             check(!result.audio_output.has_value() && e06_test::calls.ar==0 && e06_test::calls.solve==0 && e06_test::calls.vae==0,"plan-only changed");}
         pass("exact empty-score plan-only behavior remains intact");
+        // Warm engine: yue2.keep_resident keeps AR/NAR between requests of one session.
+        const auto warm_model=model_fixture(root,"warm",tokenizer);
+        const std::unordered_map<std::string,std::string> warm_request={{"cot","off"},{"seed","71"},{"num_inference_steps","4"}};
+        engine::runtime::AudioBuffer reference;
+        e06_test::reset();{auto s=session(warm_model);reference=*run(*s,warm_request).audio_output;run(*s,warm_request);
+            check(e06_test::calls.ar==2 && e06_test::calls.nar==2 && e06_test::calls.vae==1,"default session kept AR/NAR between requests");}
+        pass("default session still releases AR/NAR after every request");
+        e06_test::reset();{auto s=session(warm_model,"","true");
+            auto first=run(*s,warm_request);auto second=run(*s,warm_request);
+            check(first.audio_output && second.audio_output && equal(*first.audio_output,reference) && equal(*second.audio_output,reference),"resident output differs from a fresh session");
+            check(e06_test::calls.ar==1 && e06_test::calls.nar==1 && e06_test::calls.vae==1 && e06_test::calls.solve==2,"resident runtimes were rebuilt");
+            pass("keep_resident reuses AR/NAR/VAE across requests with identical output");
+            e06_test::calls.fail_nar=true;
+            rejects("resident session reports a failed request",[&]{run(*s,warm_request);});
+            e06_test::calls.fail_nar=false;
+            auto recovered=run(*s,warm_request);
+            check(recovered.audio_output && equal(*recovered.audio_output,reference) && e06_test::calls.ar==1 && e06_test::calls.nar==1,"failed request changed the next resident request");
+            pass("keep_resident request after a failed request matches a fresh session");
+            auto performance=run(*s,{{"cot","off"},{"seed","71"},{"semantic_only","true"},{"semantic_codes_out",(root/"warm.codes").string()}});
+            check(!performance.audio_output.has_value() && e06_test::calls.ar==1 && fs::exists(root/"warm.codes"),"performance-only rebuilt AR or lost codes");}
+        rejects("keep_resident requires a boolean",[&]{session(warm_model,"","sometimes");});
         std::cout<<"{\"passed\":"<<passed<<",\"failed\":0,\"model_weights_loaded\":false,\"backend_initialized\":false,\"boundary_doubles\":true}\n";return 0;
     }catch(const std::exception & e){std::cerr<<"FAIL "<<e.what()<<'\n';return 1;}
 }

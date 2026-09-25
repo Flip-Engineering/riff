@@ -1,0 +1,339 @@
+--- a/app/cli/main.cpp
++++ b/app/cli/main.cpp
+@@ -18,6 +18,7 @@
+ #include "engine/framework/runtime/session.h"
+ 
+ #include <algorithm>
++#include <cctype>
+ #include <chrono>
+ #include <cmath>
+ #include <cstddef>
+@@ -79,6 +80,7 @@ void print_task_list_help() {
+         << "    --batch-audio-role audio|voice_ref|source_audio|target_voice|prosody_ref|style_ref\n"
+         << "    --batch-merge-audio none|concat\n"
+         << "    --batch-manifest-out <json>\n"
++        << "    --jobs -  Keep one offline session open and run one JSON job per stdin line\n"
+         << "    Shared CLI inputs and options are defaults for --batch-text-file, --batch-text-dir, and --batch-audio-dir\n"
+         << "  Pipelines:\n"
+         << "    --pipeline <json>  Run a JSON app workflow instead of a raw task\n"
+@@ -607,6 +609,109 @@ void run_streaming(
+     }
+ }
+ 
++// Persistent job mode (--jobs -). The session, and any model weights it keeps
++// resident, outlives individual requests. Each stdin line is one JSON job:
++// build_request_from_json fields plus "id" (required), "out" (audio path) and
++// "metrics" (bool). Output between the begin/end markers is that job's normal
++// log, result and metrics text. Markers are single lines flushed immediately.
++bool valid_job_id(const std::string & id) {
++    if (id.empty() || id.size() > 128) {
++        return false;
++    }
++    return std::all_of(id.begin(), id.end(), [](unsigned char c) {
++        return std::isalnum(c) != 0 || c == '.' || c == '_' || c == ':' || c == '-';
++    });
++}
++
++std::string single_line(std::string text) {
++    for (char & c : text) {
++        if (c == '\n' || c == '\r') {
++            c = ' ';
++        }
++    }
++    return text;
++}
++
++// A failed backend computation can leave device state a later job must not
++// inherit. The caller restarts the process instead of continuing.
++bool backend_unrecoverable(const std::string & message) {
++    return message.find("compute failed") != std::string::npos;
++}
++
++int run_job_stream(
++    std::istream & input,
++    engine::runtime::IVoiceTaskSession & session,
++    engine::runtime::IOfflineVoiceTaskSession & offline,
++    const engine::runtime::TaskRequest & defaults,
++    bool metrics_default) {
++    std::cout << "@@riff-engine-ready riff.jobs.v1" << std::endl;
++    std::string line;
++    while (std::getline(input, line)) {
++        if (!line.empty() && line.back() == '\r') {
++            line.pop_back();
++        }
++        if (line.find_first_not_of(" \t") == std::string::npos) {
++            continue;
++        }
++        std::string id = "-";
++        bool begun = false;
++        try {
++            const auto job = engine::io::json::parse(line);
++            if (!job.is_object()) {
++                throw std::runtime_error("a job must be a JSON object");
++            }
++            const auto job_id = minitts::cli::json_optional_string(job, "id");
++            if (!job_id.has_value() || !valid_job_id(*job_id)) {
++                throw std::runtime_error("a job id must be 1-128 characters from [A-Za-z0-9._:-]");
++            }
++            id = *job_id;
++            std::cout << "@@riff-job-begin " << id << std::endl;
++            begun = true;
++            const auto out = minitts::cli::json_optional_string(job, "out");
++            bool metrics = metrics_default;
++            if (const auto * value = job.find("metrics"); value != nullptr && !value->is_null()) {
++                metrics = value->as_bool();
++            }
++            auto request = minitts::cli::build_request_from_json(job, std::filesystem::current_path());
++            for (const auto & [key, value] : defaults.options) {
++                request.options.emplace(key, value);
++            }
++            const auto start = std::chrono::steady_clock::now();
++            session.prepare(engine::runtime::build_preparation_request(request));
++            const auto result = offline.run(request);
++            const double wall_ms = duration_ms(std::chrono::steady_clock::now() - start);
++            std::cout << "family=" << session.family() << "\n";
++            std::cout << "task=" << engine::runtime::to_string(session.task_kind()) << "\n";
++            std::cout << "mode=" << engine::runtime::to_string(session.run_mode()) << "\n";
++            minitts::app::emit_task_result(
++                result,
++                out.has_value() ? std::optional<std::filesystem::path>(*out) : std::nullopt,
++                std::nullopt,
++                std::nullopt,
++                std::nullopt,
++                std::nullopt,
++                std::nullopt);
++            if (metrics) {
++                minitts::app::emit_task_metrics(result, audio_metrics_info(request), wall_ms);
++            }
++            std::cout << "@@riff-job-end " << id << " status=ok" << std::endl;
++        } catch (const std::exception & ex) {
++            const auto message = single_line(ex.what());
++            const bool fatal = backend_unrecoverable(message);
++            if (!begun) {
++                std::cout << "@@riff-job-begin " << id << "\n";
++            }
++            std::cout << "audiocpp_cli failed: " << message << "\n";
++            std::cout << "@@riff-job-end " << id << " status=error" << (fatal ? " fatal=1" : "")
++                      << " message=" << message << std::endl;
++            if (fatal) {
++                return 3;
++            }
++        }
++    }
++    return 0;
++}
++
+ }  // namespace
+ 
+ #ifdef _WIN32
+@@ -856,6 +961,28 @@ int audiocpp_cli_main(int argc, char ** argv) {
+         };
+         const auto input_format = find_arg(argc, argv, "--input-format").value_or("s16le");
+ 
++        if (const auto jobs_source = find_arg(argc, argv, "--jobs")) {
++            if (*jobs_source != "-") {
++                throw std::runtime_error("--jobs supports only - (one JSON job per stdin line)");
++            }
++            if (task_spec.mode != engine::runtime::RunMode::Offline) {
++                throw std::runtime_error("--jobs requires offline mode");
++            }
++            if (has_batch_input(argc, argv) || voice_state_out.has_value() || has_vad_chunk_option(argc, argv) ||
++                outputs.audio_out.has_value() || outputs.output_dir.has_value() || text_out.has_value() ||
++                words_out.has_value() || stream_audio_from_stdin(argc, argv)) {
++                throw std::runtime_error("--jobs reads inputs and outputs from each job line");
++            }
++            auto * offline = dynamic_cast<engine::runtime::IOfflineVoiceTaskSession *>(session.get());
++            if (offline == nullptr) {
++                throw std::runtime_error("selected task session does not support offline execution");
++            }
++            // Command-line request options are defaults for every job.
++            const auto defaults = build_request_from_cli(argc, argv);
++            require_known_args(argc, argv);
++            return run_job_stream(std::cin, *session, *offline, defaults, metrics_requested);
++        }
++
+         if (has_batch_input(argc, argv)) {
+             if (task_spec.mode != engine::runtime::RunMode::Offline) {
+                 throw std::runtime_error("batch inputs require offline mode");
+--- a/include/engine/models/yue2/pipeline.h
++++ b/include/engine/models/yue2/pipeline.h
+@@ -37,6 +37,9 @@ public:
+     runtime::AudioBuffer decode_audio(const std::vector<float> & latents, int64_t frames);
+     runtime::AudioBuffer run(const Yue2Request & request);
+     void release_runtime_graphs();
++    // Keep AR/NAR weights uploaded between run() calls. Every run still
++    // starts and ends without graphs, KV caches or prefix snapshots.
++    void set_keep_resident(bool keep_resident);
+ 
+ private:
+     class Impl;
+--- a/include/engine/models/yue2/session.h
++++ b/include/engine/models/yue2/session.h
+@@ -31,6 +31,7 @@ private:
+     std::shared_ptr<const Yue2Assets> assets_;
+     std::unique_ptr<Yue2PipelineRuntime> pipeline_;
+     bool pipeline_decode_only_ = false;
++    bool keep_resident_ = false;
+ };
+ 
+ std::shared_ptr<runtime::IVoiceModelLoader> make_yue2_loader();
+--- a/model_specs/yue2.json
++++ b/model_specs/yue2.json
+@@ -358,6 +358,13 @@
+         "required": false,
+         "min": 1,
+         "default": 1536
++      },
++      {
++        "name": "keep_resident",
++        "type": "bool",
++        "description": "Keep AR/NAR weights uploaded between requests of one session (audiocpp_cli --jobs).",
++        "required": false,
++        "default": false
+       }
+     ],
+     "load": []
+--- a/src/models/yue2/pipeline.cpp
++++ b/src/models/yue2/pipeline.cpp
+@@ -361,6 +361,24 @@ public:
+     }
+ 
+     runtime::AudioBuffer run(const Yue2Request & request) {
++        if (!keep_resident) {
++            return run_request(request);
++        }
++        // Resident weights only: a request begins with no graph, KV cache or
++        // prefix snapshot from an earlier (possibly failed) request, exactly
++        // like a fresh process, and releases them again when it ends.
++        release_runtime_graphs();
++        try {
++            auto audio = run_request(request);
++            release_runtime_graphs();
++            return audio;
++        } catch (...) {
++            release_runtime_graphs();
++            throw;
++        }
++    }
++
++    runtime::AudioBuffer run_request(const Yue2Request & request) {
+         validate_yue2_acoustic_input(request);
+         if (!request.acoustic_latents_file.empty()) {
+             const auto load_start = Clock::now();
+@@ -437,8 +455,15 @@ public:
+         auto latents = synthesize_latents(semantic, request.generation, request.nar_noise, request.seed);
+         engine::debug::timing_log_scalar("yue2.nar_ms", engine::debug::elapsed_ms(nar_start, Clock::now()));
+         const int64_t frames = static_cast<int64_t>(latents.size()) / assets->config.model.latent_dim;
+-        ar.reset();
+-        nar.reset();
++        if (keep_resident) {
++            // Drop the acoustic graph before the AR prefix snapshot it borrows.
++            nar->release_runtime_graphs();
++            ar->release_runtime_graphs();
++            engine::debug::timing_log_scalar("yue2.resident.retained", 1);
++        } else {
++            ar.reset();
++            nar.reset();
++        }
+         if (acoustic) {
+             // A complete result is accepted only if its frame count matches all
+             // requested semantic codes. A solver exception/partial chunk never
+@@ -469,17 +494,20 @@ public:
+     }
+ 
+     void release_runtime_graphs() {
+-        if (vae) {
+-            vae->release_runtime_graphs();
++        // The NAR graph borrows the AR prefix snapshot; release it first.
++        if (nar) {
++            nar->release_runtime_graphs();
+         }
+         if (ar) {
+             ar->release_runtime_graphs();
+         }
+-        if (nar) {
+-            nar->release_runtime_graphs();
++        if (vae) {
++            vae->release_runtime_graphs();
+         }
+     }
+ 
++    bool keep_resident = false;
++
+ private:
+     const Yue2TextTokenizer & get_tokenizer() {
+         if (!text_tokenizer) {
+@@ -516,6 +544,7 @@ private:
+ 
+     void ensure_ar() {
+         if (ar) {
++            if (keep_resident) engine::debug::timing_log_scalar("yue2.ar.resident_reuse", 1);
+             return;
+         }
+         const auto start = Clock::now();
+@@ -555,6 +584,7 @@ private:
+ 
+     void ensure_nar() {
+         if (nar) {
++            if (keep_resident) engine::debug::timing_log_scalar("yue2.nar.resident_reuse", 1);
+             return;
+         }
+         const auto start = Clock::now();
+@@ -637,4 +667,8 @@ void Yue2PipelineRuntime::release_runtime_graphs() {
+     impl_->release_runtime_graphs();
+ }
+ 
++void Yue2PipelineRuntime::set_keep_resident(bool keep_resident) {
++    impl_->keep_resident = keep_resident;
++}
++
+ }  // namespace engine::models::yue2
+--- a/src/models/yue2/session.cpp
++++ b/src/models/yue2/session.cpp
+@@ -126,6 +126,11 @@ std::shared_ptr<const Yue2Assets> select_component_assets(
+     return selected;
+ }
+ 
++bool keep_resident_option(const std::unordered_map<std::string, std::string> & options) {
++    const auto value = runtime::find_option(options, {"yue2.keep_resident"});
++    return value.has_value() && runtime::parse_bool_option(*value, "yue2.keep_resident");
++}
++
+ std::unique_ptr<runtime::IVoiceTaskSession> create_yue2_session(
+     const runtime::TaskSpec & task,
+     const runtime::SessionOptions & options,
+@@ -180,6 +185,8 @@ runtime::ModelCliInterface yue2_cli_interface() {
+         {"feature.yue2.acoustic_checkpoint", "1"},
+         {"feature.yue2.acoustic_decode", "1"},
+         {"format.yue2.acoustic", checkpoint::kFormat},
++        {"feature.yue2.keep_resident", "1"},
++        {"format.yue2.jobs", "riff.jobs.v1"},
+     };
+     out.request_options = {
+         {"style", "string", "Optional music style prompt.", false},
+@@ -211,6 +218,7 @@ runtime::ModelCliInterface yue2_cli_interface() {
+         {"yue2.ar_decode_graph_arena_mb", "int", "AR one-token decode graph arena size in MiB.", false, "1536", "1"},
+         {"yue2.nar_graph_arena_mb", "int", "NAR acoustic flow graph arena size in MiB.", false, "6144", "1"},
+         {"yue2.vae_graph_arena_mb", "int", "VAE decode graph arena size in MiB.", false, "1536", "1"},
++        {"yue2.keep_resident", "true|false", "Keep AR/NAR weights uploaded between requests of one session (audiocpp_cli --jobs).", false, "false"},
+     };
+     return out;
+ }
+@@ -223,7 +231,8 @@ Yue2Session::Yue2Session(
+     std::shared_ptr<const Yue2Assets> assets)
+     : runtime::RuntimeSessionBase(options),
+       task_(task),
+-      assets_(require_assets(std::move(assets))) {
++      assets_(require_assets(std::move(assets))),
++      keep_resident_(keep_resident_option(this->options().options)) {
+     if (task_.task != runtime::VoiceTaskKind::AudioGeneration || task_.mode != runtime::RunMode::Offline) {
+         throw std::runtime_error("Yue2 supports only offline gen/music");
+     }
+@@ -247,6 +256,7 @@ void Yue2Session::ensure_pipeline(bool decode_only) {
+         runtime::parse_size_mb_option(options.options, {"yue2.ar_decode_graph_arena_mb"}, 1536ull * 1024ull * 1024ull),
+         runtime::parse_size_mb_option(options.options, {"yue2.nar_graph_arena_mb"}, 6144ull * 1024ull * 1024ull),
+         runtime::parse_size_mb_option(options.options, {"yue2.vae_graph_arena_mb"}, 1536ull * 1024ull * 1024ull));
++    pipeline_->set_keep_resident(keep_resident_);
+     pipeline_decode_only_ = decode_only;
+ }
+ 

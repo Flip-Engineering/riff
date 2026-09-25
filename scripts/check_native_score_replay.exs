@@ -178,9 +178,15 @@ defmodule Riff.Native.ScoreReplayCheck do
     # The acoustic checkpoint patch changes runtime ownership, not symbolic
     # sampling/prefix construction. Keep the pre-score-replay production oracle
     # and compare it with the complete current pipeline. New downstream patches
-    # still require this explicit review.
+    # still require this explicit review. The warm-engine patch adds an opt-in
+    # yue2.keep_resident session option and the CLI job loop; with the option
+    # unset (as in this oracle comparison) the pipeline releases AR/NAR exactly
+    # as before.
     unless downstream ==
-             Enum.map([@patch, "patches/yue2-vae-checkpoint.patch"], &Path.join(@app, &1)),
+             Enum.map(
+               [@patch, "patches/yue2-vae-checkpoint.patch", "patches/yue2-warm-engine.patch"],
+               &Path.join(@app, &1)
+             ),
            do: raise("Review the original-pipeline oracle after changing downstream patches")
 
     for patch <- patches do
