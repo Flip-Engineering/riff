@@ -674,13 +674,36 @@ function renderRecent() {
     : '<p class="empty-recent">Start a take. The ones you make will collect here.</p>';
   observeArtPosters($("#recent-tracks"));
 }
+// Library search: every word must appear in the title, sound description, notes or genre tags, in any order.
+// A "#tag" word (spaces written as hyphens, e.g. #city-pop) matches a genre tag exactly.
+function searchTokens(query) {
+  return query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
+}
+function tagToken(tag) {
+  return `#${tag.toLocaleLowerCase().replace(/\s+/g, "-")}`;
+}
+function matchesSearch(track, tokens) {
+  const tags = (track.tags || []).map(tagToken);
+  const text = `${track.title} ${track.style} ${track.notes || ""} ${(track.tags || []).join(" ")}`.toLocaleLowerCase();
+  return tokens.every((token) => (token.startsWith("#") && token.length > 1 ? tags.includes(token) : text.includes(token)));
+}
+function tagChips(track, tokens) {
+  if (!track.tags?.length) return "";
+  return `<div class="card-tags">${track.tags
+    .map((tag) => {
+      const token = tagToken(tag);
+      return `<button type="button" class="tag-chip" data-tag="${esc(token)}" aria-pressed="${tokens.includes(token)}" aria-label="Show ${esc(tag)} recordings">${esc(tag)}</button>`;
+    })
+    .join("")}</div>`;
+}
 function renderLibrary() {
   const query = $("#search").value.trim().toLocaleLowerCase();
+  const tokens = searchTokens(query);
   let tracks = state.tracks.filter(
     (t) =>
       (filter === "archive" ? t.archived : !t.archived) &&
       (filter !== "favorites" || t.favorite) &&
-      `${t.title} ${t.style}`.toLocaleLowerCase().includes(query),
+      matchesSearch(t, tokens),
   );
   tracks.sort((a, b) =>
     $("#sort").value === "name"
@@ -694,7 +717,7 @@ function renderLibrary() {
   $("#library-grid").innerHTML = tracks
     .map(
       (t) =>
-        `<article class="library-card"><button class="library-card-art" type="button" data-play="${t.id}" aria-label="Play ${esc(t.title)}">${artThumbnail(t.seed)}<span class="card-play-overlay">${icon("play")}</span></button><div class="library-card-body"><div class="library-card-title"><button type="button" data-select="${t.id}">${esc(t.title)}</button><button class="icon-button" type="button" data-favorite="${t.id}" aria-label="Favorite ${esc(t.title)}" aria-pressed="${t.favorite}">${icon("heart")}</button></div><p>${esc(t.style)}</p><div class="card-meta"><span>${formatDuration(t.duration)}</span><span>${esc(formatDate(t.created))}</span><button class="icon-button" type="button" data-detail="${t.id}" aria-label="Details for ${esc(t.title)}">${icon("more")}</button></div></div></article>`,
+        `<article class="library-card"><button class="library-card-art" type="button" data-play="${t.id}" aria-label="Play ${esc(t.title)}">${artThumbnail(t.seed)}<span class="card-play-overlay">${icon("play")}</span></button><div class="library-card-body"><div class="library-card-title"><button type="button" data-select="${t.id}">${esc(t.title)}</button><button class="icon-button" type="button" data-favorite="${t.id}" aria-label="Favorite ${esc(t.title)}" aria-pressed="${t.favorite}">${icon("heart")}</button></div><p>${esc(t.style)}</p>${tagChips(t, tokens)}<div class="card-meta"><span>${formatDuration(t.duration)}</span><span>${esc(formatDate(t.created))}</span><button class="icon-button" type="button" data-detail="${t.id}" aria-label="Details for ${esc(t.title)}">${icon("more")}</button></div></div></article>`,
     )
     .join("");
   observeArtPosters($("#library-grid"));
@@ -707,7 +730,7 @@ function renderLibrary() {
         ? "A place for earlier takes."
         : "A collection starts with a sound.";
   $("#empty-description").textContent = query
-    ? "Try another title, instrument, or sound."
+    ? "Try another title, sound, genre, or note."
     : filter === "favorites"
       ? "Tap a heart on any recording to collect it here."
       : filter === "archive"
@@ -726,6 +749,15 @@ $$("[data-filter]").forEach((button) =>
   }),
 );
 $("#search").addEventListener("input", renderLibrary);
+// A genre chip adds its tag to the search, or takes it back out when it is already there.
+$("#library-grid").addEventListener("click", (event) => {
+  const chip = event.target.closest("[data-tag]");
+  if (!chip) return;
+  const tokens = searchTokens($("#search").value);
+  const token = chip.dataset.tag;
+  $("#search").value = (tokens.includes(token) ? tokens.filter((t) => t !== token) : [...tokens, token]).join(" ");
+  renderLibrary();
+});
 $("#sort").addEventListener("change", renderLibrary);
 document.addEventListener("click", async (event) => {
   const play = event.target.closest("[data-play]"),

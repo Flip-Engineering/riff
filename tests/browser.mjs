@@ -408,12 +408,12 @@ try {
     .getByRole("button", { name: "All recordings", exact: true })
     .click();
   await page
-    .getByRole("searchbox", { name: "Find a recording" })
+    .getByRole("searchbox", { name: "Search recordings" })
     .fill("a title that is absent");
   await page
     .getByRole("heading", { name: "Try a different search.", exact: true })
     .waitFor();
-  await page.getByRole("searchbox", { name: "Find a recording" }).fill("");
+  await page.getByRole("searchbox", { name: "Search recordings" }).fill("");
   await page
     .getByLabel("Sort recordings", { exact: true })
     .selectOption("oldest");

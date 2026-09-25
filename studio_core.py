@@ -18,6 +18,7 @@ import wave
 import sys
 
 import run as engine
+from genres import genre_tags
 from inspiration import inspire, seed_number
 from paths import ROOT, WORKSPACE
 import model_options
@@ -694,7 +695,8 @@ class Store:
             recipe, audio = json.loads(row["recipe"]), json.loads(row["audio"])
             tracks.append({"id": row["id"], "title": row["title"], "created": row["created"],
                            "favorite": bool(row["favorite"]), "archived": bool(row["archived"]),
-                           "style": recipe["style"], "seed": recipe["seed"], "duration": audio["duration"],
+                           "style": recipe["style"], "tags": genre_tags(recipe["style"]), "notes": row["notes"] or "",
+                           "seed": recipe["seed"], "duration": audio["duration"],
                            "mode": recipe.get("mode", "lyrics"), "score_available": bool((recipe.get("symbolic_plan") or {}).get("artifact_id")), "performance_available": bool(recipe.get("performance")),
                            "acoustic_source": (recipe.get("acoustic") or {}).get("artifact_id", "")})
         with self.db() as db:

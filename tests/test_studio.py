@@ -151,6 +151,13 @@ class StoreTests(StudioFixture):
         with self.assertRaises(ValueError):
             self.store.audio_path(track_id)
 
+    def test_library_state_carries_genre_tags_and_notes_for_search(self):
+        track_id = self.store.add_track(self.audio, recipe(style="English, a 1958 doo-wop ballad. References: The Platters"), {})
+        self.store.update_track(track_id, {"notes": "for the album"})
+        track = self.store.snapshot()["tracks"][0]
+        self.assertEqual(track["tags"], ["doo-wop", "ballad"])
+        self.assertEqual(track["notes"], "for the album")
+
     def test_existing_import_is_idempotent_and_skips_failed_jobs(self):
         metrics = {"exit_code": 0, "command": ["audiocpp_cli", "--lyrics", "Original lyrics", "--seed", "77", "--request-option", "style=Jazz", "--request-option", "semantic_max_tokens=500"]}
         self.audio.with_suffix(".metrics.json").write_text(json.dumps(metrics))
