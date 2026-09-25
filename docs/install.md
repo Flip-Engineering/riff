@@ -69,6 +69,34 @@ with `--cuda-arch`, for example `--cuda-arch '75;86;89'`; it otherwise detects t
 build host's GPU. Existing custom engines, GGUF models and device IDs can be used
 through the advanced engine settings.
 
+### Warm engine (resident weights)
+
+By default every take starts a new `audiocpp_cli`, which uploads the YuE2 AR,
+NAR and VAE weights to the accelerator again. Warm mode keeps one engine process
+running and sends each take to it, so the weights are uploaded once and stay
+resident between takes. This reduces repeated bulk transfers to the GPU, which
+helps on hosts where large uploads are unreliable (for example GPUs behind a
+narrow PCIe link), and removes the per-take load time.
+
+Enable it by adding `"warm_engine": true` to `data/engine.json`, or by posting
+`{"warm_engine": true}` to `/api/system/engine`. It takes effect with the next
+take. The engine must be built from the current patch set
+(`patches/yue2-warm-engine.patch`); an older engine does not advertise
+`feature.yue2.keep_resident`, and Riff keeps using one process per take.
+
+- Composition, full renders, performance-only and sound-synthesis takes, saved
+  scores and saved performances use the warm engine.
+- Finishing a saved sound (acoustic decode) uses a decoder-only session and
+  still runs in its own process; the warm engine stays loaded meanwhile.
+- Stopping a take stops the warm engine (SIGTERM, never SIGKILL); the next take
+  starts a new one. The engine also restarts after a crash, a backend compute
+  failure, or a change to the engine binary, model files, backend, device or
+  threads.
+- While idle, the engine holds its weights in memory (about the size of the
+  selected GGUF files plus the VAE). Turning warm mode off stops it before the
+  next take. Engine start-up and lifecycle messages go to `data/warm-engine.log`;
+  each take's own output still goes to `data/<take>.log`.
+
 ## Credentials and optional writing
 
 Desktop setup carries the local writer and FFmpeg. For source installations,
