@@ -97,8 +97,26 @@ try {
   });
   if (encoded.supported) {
     assert(encoded.annexB && encoded.bytes > 32, JSON.stringify(encoded));
-    assert(await page.evaluate(() => encoderWorkers.every(worker => worker.stopped)));
-    console.log("PASS Worker WebCodecs H.264 path emits Annex-B frames for the accelerated export transport");
+    assert.equal(await page.evaluate(() => encoderWorkers.length), 0, "H.264 frames come straight from the canvas");
+    console.log("PASS Canvas WebCodecs H.264 path emits Annex-B frames without a worker or bitmap copy");
+    const pipelined = await page.evaluate(async () => {
+      const canvas = document.createElement("canvas"); canvas.width = 1920; canvas.height = 1080;
+      const context = canvas.getContext("2d", { alpha: false });
+      const encoder = await createVideoFrameEncoder(canvas, new AbortController().signal, { transport: "h264", fps: 30 });
+      try {
+        const frames = [];
+        // Submit without waiting for any output, as the export does.
+        for (let i = 0; i < 30; i++) {
+          drawSeedArtwork(context, 1920, 1080, "15961", i / 30, [.7, .6, .5, .4, .3, .2, .1, 0]);
+          frames.push((await encoder.submit(i)).frame);
+        }
+        await encoder.flush();
+        const bytes = await Promise.all(frames.map(frame => frame.then(value => new Uint8Array(value))));
+        return { count: bytes.length, annexB: bytes.every(frame => frame[0] === 0 && frame[1] === 0 && (frame[2] === 1 || frame[3] === 1)) };
+      } finally { encoder.close(); }
+    });
+    assert.deepEqual(pipelined, { count: 30, annexB: true });
+    console.log("PASS Pipelined H.264 submission delivers exactly one ordered Annex-B frame per drawn frame after a final drain");
     const lowBitrate = await page.evaluate(async () => {
       const canvas = document.createElement("canvas"); canvas.width = 1920; canvas.height = 1080;
       const context = canvas.getContext("2d");
@@ -122,24 +140,24 @@ try {
     console.log(`SKIP WebCodecs H.264 path: ${encoded.error || "browser support unavailable"}`);
   }
 
-  for (const support of ["absent", "load-failed", "context-unavailable"]) {
+  for (const support of ["absent", "unsupported"]) {
     await fresh();
-    if (support === "absent") await page.evaluate(() => { window.OffscreenCanvas = undefined; });
-    if (support === "load-failed") await page.route(workerRoute, route => route.fulfill({ status: 404, body: "Missing fixture worker" }));
-    if (support === "context-unavailable") await page.route(workerRoute, route => route.fulfill({ contentType: "text/javascript", body: "self.onmessage=({data})=>self.postMessage({id:data.id,ready:true,transport:'png'});" }));
+    if (support === "absent") await page.evaluate(() => { window.VideoEncoder = undefined; });
+    if (support === "unsupported") await page.evaluate(() => { if (window.VideoEncoder) VideoEncoder.isConfigSupported = async () => ({ supported: false }); });
     const result = await page.evaluate(async () => {
+      const canvas = document.createElement("canvas"); canvas.width = 320; canvas.height = 248;
       let encoder;
       try {
-        encoder = await createVideoFrameEncoder(encoderCanvas(), new AbortController().signal, { transport: "h264" });
+        encoder = await createVideoFrameEncoder(canvas, new AbortController().signal, { transport: "h264" });
         return "accepted";
       } catch (error) { return error.message; }
       finally { encoder?.close(); }
     });
     assert.match(result, /accelerated video encoder/, support);
-    assert(await page.evaluate(() => encoderWorkers.every(worker => worker.stopped)), support);
-    await page.unroute(workerRoute);
+    assert.equal(await page.evaluate(() => encoderWorkers.length), 0, support);
+    assert.equal(await page.evaluate(() => preferredVideoTransport(3840, 2160, 60)), "png", support);
   }
-  console.log("PASS Unavailable H.264 workers reject initialization before a server job can receive mislabeled PNG bytes");
+  console.log("PASS Unavailable browser H.264 rejects initialization and selects PNG before a server job can receive mislabeled bytes");
 
   for (const support of ["absent", "load-failed", "context-unavailable"]) {
     await fresh();

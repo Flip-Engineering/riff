@@ -119,8 +119,9 @@ const RiffArtwork = (() => {
         p[index * 2 + 1] = 143 + ty * perspective * .93;
       }
     }
-    orderFaces(g);
-    if (withFaces) shadeFaces(g);
+    // WebGL resolves depth per pixel; only the Canvas fallback needs faces
+    // sorted and shaded.
+    if (withFaces) { orderFaces(g); shadeFaces(g); }
     return g;
   }
 
@@ -269,7 +270,8 @@ const RiffArtwork = (() => {
         data[row + 8] = g.stress[index];
       }
       gl.viewport(0, 0, width, height); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-      for (const name of Object.keys(uniforms)) gl.uniform3fv(uniforms[name], rgb(g.palette[name]).map(v => v / 255));
+      g.colors ||= Object.fromEntries(Object.keys(uniforms).map(name => [name, rgb(g.palette[name]).map(v => v / 255)]));
+      for (const name of Object.keys(uniforms)) gl.uniform3fv(uniforms[name], g.colors[name]);
       gl.uniform1f(presence, g.presence);
       gl.uniform4fv(sound, g.sound); gl.uniform2f(amount, g.color, g.texture); gl.uniform1f(phase, g.lightPhase);
       gl.bindBuffer(gl.ARRAY_BUFFER, buffer); gl.bufferSubData(gl.ARRAY_BUFFER, 0, data);
@@ -315,8 +317,8 @@ const RiffArtwork = (() => {
       const history = motion.history?.map(scaled);
       motion = Object.assign(scaled(motion), { history });
     }
-    // WebGL computes its own material from vertex normals. Prepare Canvas
-    // shading only on fallback; retain depth ordering across renderer changes.
+    // WebGL computes its own material from vertex normals and depth. Order
+    // and shade faces for the Canvas fallback only.
     const g = scene(seed, seconds, motion, false), { palette: c, projected: p } = g;
     g.presence = clamp(appearance.surface ?? defaults.surface);
     g.color = clamp(appearance.color ?? defaults.color);
@@ -333,6 +335,7 @@ const RiffArtwork = (() => {
     context.fillStyle = shadow; context.fillRect(-152, -152, 304, 304); context.restore();
     context.lineJoin = "round";
     if (!drawSurface(context, g, scale)) {
+      orderFaces(g);
       shadeFaces(g);
       for (const face of g.faces) {
         const a = face.a * 2, b = face.b * 2, cc = face.c * 2, d = face.d * 2;

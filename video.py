@@ -13,8 +13,21 @@ import wave
 
 MOTION_VERSION = 4
 WAVEFORM_POINTS = 64  # Half the contour's 128 vertices; detail remains legible at cover size.
-VIDEO_ENCODING = {"crf": 16, "audio_bitrate": "320k", "min_bitrate": 8_000_000,
-                  "max_bitrate": 32_000_000, "bits_per_pixel": .055}
+# One final encoding for both frame paths. On real 4K60 artwork, x264
+# slow/animation at CRF 19 from lossless frames measured VMAF 94.3 and RGB
+# PSNR 47.8 dB at 7.6 Mbit/s, against 92.2 and 46.8 dB at 11.7 Mbit/s for the
+# former veryfast CRF 16, without its blocking in soft shadows. Browsers send
+# H.264 at a fixed quantizer (VBR where unsupported); QP 14 measured 52.8 dB
+# at about 44 Mbit/s, so re-encoding keeps nearly all of that quality.
+VIDEO_ENCODING = {"crf": 19, "preset": "slow", "tune": "animation", "audio_bitrate": "320k",
+                  "quantizer": 14, "min_bitrate": 8_000_000, "max_bitrate": 64_000_000,
+                  "bits_per_pixel": .11}
+# BT.709 from full-resolution chroma, tagged so players show the renderer's
+# colours. x264 chooses its thread count from the machine's cores.
+VIDEO_CODEC = ("-vf", "scale=out_color_matrix=bt709:out_range=tv:flags=accurate_rnd+full_chroma_int,format=yuv420p",
+               "-c:v", "libx264", "-preset", VIDEO_ENCODING["preset"], "-tune", VIDEO_ENCODING["tune"],
+               "-crf", str(VIDEO_ENCODING["crf"]), "-colorspace", "bt709", "-color_primaries", "bt709",
+               "-color_trc", "bt709", "-color_range", "tv")
 
 
 def lowpass_coefficients(frequency, sample_rate):
@@ -149,6 +162,10 @@ class VideoExports:
             return value
 
     def get(self, export_id):
+        with self.lock:
+            # Frame progress lives in memory while an export runs; the row
+            # records its start and each later change of status.
+            if export_id in self.active: return dict(self.active[export_id]["job"])
         with self.store.db() as db:
             row = db.execute("SELECT * FROM video_exports WHERE id=?", (export_id,)).fetchone()
         if row is None: raise KeyError("Video export not found.")
@@ -201,31 +218,35 @@ class VideoExports:
         video_input = (["-f", "h264", "-r", str(fps), "-i", "pipe:0"]
                        if transport == "h264" else
                        ["-f", "image2pipe", "-framerate", str(fps), "-i", "pipe:0"])
-        video_codec = ["-c:v", "copy"] if transport == "h264" else ["-c:v", "libx264", "-preset", "veryfast", "-threads", "2", "-crf", str(quality["crf"]), "-pix_fmt", "yuv420p"]
         try:
             process = subprocess.Popen([
                 "ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
                 *video_input,
                 "-ss", str(start), "-t", str(duration), "-i", str(audio),
-                "-map", "0:v:0", "-map", "1:a:0", *video_codec,
+                "-map", "0:v:0", "-map", "1:a:0", *VIDEO_CODEC,
                 "-c:a", "aac", "-b:a", quality["audio_bitrate"],
                 "-movflags", "+faststart", str(self.output / (export_id + ".part.mp4")),
             ], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=log)
         except Exception:
             log.close()
             raise
-        with self.lock, self.store.db() as db:
+        with self.lock:
+            with self.store.db() as db:
+                db.execute("INSERT INTO video_exports(id,track_id,created,status,width,height,fps,duration,frames,source_start,source_end,transport) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                           (export_id, track_id, time.time(), "rendering", width, height, fps, duration,
+                            math.ceil(duration * fps), start, end, transport))
             self.active[export_id] = {"process": process, "log": log, "updated": time.monotonic(), "lock": threading.Lock(),
-                                      "started": started, "received_bytes": 0, "stdin_seconds": 0.0}
-            db.execute("INSERT INTO video_exports(id,track_id,created,status,width,height,fps,duration,frames,source_start,source_end,transport) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
-                       (export_id, track_id, time.time(), "rendering", width, height, fps, duration,
-                        math.ceil(duration * fps), start, end, transport))
+                                      "started": started, "received_bytes": 0, "stdin_seconds": 0.0,
+                                      "job": self.get(export_id)}
         return self.get(export_id)
 
     def frame(self, export_id, index, data):
-        job = self.get(export_id)
         with self.lock: active = self.active.get(export_id)
-        if not active or job["status"] != "rendering": raise ValueError("This export is no longer accepting frames.")
+        if not active:
+            self.get(export_id)
+            raise ValueError("This export is no longer accepting frames.")
+        job = active["job"]
+        if job["status"] != "rendering": raise ValueError("This export is no longer accepting frames.")
         if job.get("transport", "png") == "png":
             if len(data) < 24 or data[:8] != b"\x89PNG\r\n\x1a\n" or data[12:16] != b"IHDR":
                 raise ValueError("Send a PNG visualization frame.")
@@ -238,26 +259,24 @@ class VideoExports:
             raise ValueError("This video export has an unsupported frame path.")
         try:
             with active["lock"]:
-                current = self.get(export_id)
-                if index != current["received"] or index >= current["frames"]:
+                if index != job["received"] or index >= job["frames"]:
                     raise ValueError("The video frame sequence is incomplete or out of order.")
-                if current["status"] != "rendering": raise ValueError("This video export has stopped.")
+                if job["status"] != "rendering": raise ValueError("This video export has stopped.")
                 sending = time.monotonic()
                 active["process"].stdin.write(data)
                 active["process"].stdin.flush()
                 active["stdin_seconds"] += time.monotonic() - sending
                 active["received_bytes"] += len(data)
                 active["updated"] = time.monotonic()
-                with self.store.db() as db:
-                    db.execute("UPDATE video_exports SET received=received+1 WHERE id=?", (export_id,))
+                job["received"] += 1
         except (BrokenPipeError, OSError):
             self.cancel(export_id, "failed", "Video encoding stopped. Check that FFmpeg includes H.264 encoding.")
             raise ValueError("Video encoding stopped. Check that FFmpeg includes H.264 encoding.") from None
         return self.get(export_id)
 
-    def valid_h264_output(self, job):
-        # Uploaded chunks are opaque compressed data, not validated PNG headers.
-        # Check the muxed stream before making the asset available to download.
+    def valid_output(self, job):
+        # Uploaded H.264 chunks are opaque compressed data, not validated PNG
+        # headers. Check the encoded stream before making it available.
         try:
             result = subprocess.run([
                 "ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
@@ -287,14 +306,16 @@ class VideoExports:
         with self.lock: active = self.active.get(export_id)
         if not active: raise ValueError("This video export has stopped.")
         with active["lock"]:
-            job = self.get(export_id)
+            job = active["job"]
             if job["status"] != "rendering": raise ValueError("This video is already finishing.")
             if job["received"] != job["frames"]: raise ValueError("Finish drawing the video frames before downloading.")
-            with self.store.db() as db: db.execute("UPDATE video_exports SET status='encoding' WHERE id=?", (export_id,))
+            job["status"] = "encoding"
+            with self.store.db() as db:
+                db.execute("UPDATE video_exports SET status='encoding',received=? WHERE id=?", (job["received"], export_id))
             try: active["process"].stdin.close()
             except (BrokenPipeError, OSError): pass
         result = active["process"].wait()
-        valid = result == 0 and (job.get("transport", "png") != "h264" or self.valid_h264_output(job))
+        valid = result == 0 and self.valid_output(job)
         with self.lock:
             if export_id not in self.active: return self.get(export_id)
             if result:
@@ -307,13 +328,10 @@ class VideoExports:
             output = self.output / (export_id + ".mp4")
             (self.output / (export_id + ".part.mp4")).replace(output)
             receipt = {"version": 1, "transport": job.get("transport", "png"),
-                       "video": {"codec": "h264", "lossless": False,
-                                 "encoder": "browser" if job["transport"] == "h264" else "libx264",
-                                 "requested_bitrate": round(min(VIDEO_ENCODING["max_bitrate"],
-                                     max(VIDEO_ENCODING["min_bitrate"],
-                                         job["width"] * job["height"] * job["fps"] * VIDEO_ENCODING["bits_per_pixel"])))
-                                     if job["transport"] == "h264" else None,
-                                 "crf": VIDEO_ENCODING["crf"] if job["transport"] == "png" else None},
+                       "video": {"codec": "h264", "lossless": False, "encoder": "libx264",
+                                 "source": "browser_h264" if job["transport"] == "h264" else "png",
+                                 "crf": VIDEO_ENCODING["crf"], "preset": VIDEO_ENCODING["preset"],
+                                 "tune": VIDEO_ENCODING["tune"], "color": "bt709"},
                        "audio": {"codec": "aac", "lossless": False,
                                  "bitrate": VIDEO_ENCODING["audio_bitrate"],
                                  "original_download_url": f"/api/tracks/{job['track_id']}/audio?download=1",
@@ -336,6 +354,7 @@ class VideoExports:
         with self.lock:
             active = self.active.pop(export_id, None)
             if active:
+                active["job"]["status"] = status
                 active["process"].terminate()
                 try: active["process"].wait(timeout=5)
                 except subprocess.TimeoutExpired:
@@ -346,7 +365,8 @@ class VideoExports:
                 active["log"].close()
                 (self.output / (export_id + ".part.mp4")).unlink(missing_ok=True)
                 with self.store.db() as db:
-                    db.execute("UPDATE video_exports SET status=?,error=? WHERE id=?", (status, error, export_id))
+                    db.execute("UPDATE video_exports SET status=?,error=?,received=? WHERE id=?",
+                               (status, error, active["job"]["received"], export_id))
         return self.get(export_id)
 
     def download(self, export_id):
@@ -364,7 +384,7 @@ class VideoExports:
         while not self.stop.wait(15):
             with self.lock:
                 expired = [key for key, value in self.active.items()
-                           if self.get(key)["status"] == "rendering" and time.monotonic() - value["updated"] > 120]
+                           if value["job"]["status"] == "rendering" and time.monotonic() - value["updated"] > 120]
             for key in expired: self.cancel(key, "interrupted", "The browser stopped sending video frames.")
 
     def close(self):

@@ -16,25 +16,31 @@ The dialog labels the AAC fallback and provides the WAV beside the MP4.
 
 | Setting | Value |
 | --- | --- |
-| PNG/libx264 fallback | veryfast, CRF 16 |
-| Browser H.264 target | 0.055 bits/pixel/frame, 8–32 Mbps |
+| Final video encode, both paths | libx264 slow, tune animation, CRF 19 |
+| Colour | BT.709 from full-resolution chroma, limited range, tagged |
+| Browser H.264 intermediate | fixed quantizer 14; else VBR 0.11 bits/pixel/frame, 8–64 Mbps |
 | MP4 audio | AAC 320 kbps |
 
-The browser uses variable bitrate, quality latency mode, and a requested keyframe
-every two seconds. Draining each one-frame batch preserves bounded storage without
-waiting for codec lookahead. Realtime mode is inappropriate here because it may
-drop frames to meet a bitrate, which stalled a low-bitrate trial after its first
-frame. Quality mode must not drop frames for that reason
-([WebCodecs latency modes](https://www.w3.org/TR/webcodecs/#latency-mode)). A stalled
-worker request is also bounded to 60 seconds and remains cancellable.
-Browser encoders choose their own internal preset and frame structure; we do not
-claim a particular B-frame count or hardware implementation. PNG uses yuv420p;
-H.264 output still passes the existing dimension/count/timing validation.
+Every export ends in the same libx264 encode on the server. Frames arrive either
+as lossless PNG (small exports and browsers without WebCodecs H.264) or as browser
+H.264, which is an intermediate the server decodes and re-encodes, never copies.
+The browser takes each H.264 frame straight from the export canvas as a
+`VideoFrame` (no bitmap copy or worker round trip) and encodes it at a fixed
+quantizer where supported, variable bitrate in quality latency mode otherwise, with
+a requested keyframe every two seconds. Quality mode must not drop frames to meet
+a bitrate ([WebCodecs latency modes](https://www.w3.org/TR/webcodecs/#latency-mode)).
+Frames are not flushed one by one: drawing, encoding and upload overlap while
+uploads stay in frame order. An encoder may hold frames until more arrive, so the
+export drains it whenever its upload queue is full (one second of H.264 frames;
+one PNG uploads while the next encodes) and at the end. A drain is bounded to 60
+seconds and remains cancellable. Every output passes the dimension, frame-count
+and frame-rate validation before it can be downloaded.
 
-Receipts record the codec, lossy status, requested audio bitrate, and
-either the fallback CRF or browser target bitrate. A requested bitrate is not a
-measurement or a server-enforced limit on agent-uploaded H.264. Capabilities
-advertise the same encoding targets to browser and agent clients. No new temporary
+Receipts record the final encoder, CRF, preset, tune, colour, frame source
+(`png` or `browser_h264`), lossy status and audio bitrate. Capabilities advertise
+the same settings, including the quantizer and fallback bitrate targets, to
+browser and agent clients. An agent may send H.264 at any quality; the final
+encode is the same. No new temporary
 audio copy or raw-frame directory is created; the existing single-frame
 backpressure and failed/cancelled-part cleanup remain in force.
 
@@ -55,9 +61,9 @@ The browser submits `client_reported` durations in seconds:
 | --- | --- |
 | `prepare_seconds` | Motion data, canvas/encoder setup and server job creation |
 | `draw_seconds` | Renderer calls for the requested video frames |
-| `snapshot_seconds` | Awaiting `createImageBitmap` snapshots for a worker |
-| `encode_seconds` | Awaiting encoded worker output, or main-thread PNG output |
-| `upload_seconds` | Frame uploads and acknowledgements, including retry waits |
+| `snapshot_seconds` | Creating H.264 `VideoFrame`s from the canvas, or awaiting PNG `createImageBitmap` snapshots |
+| `encode_seconds` | Waiting for the browser H.264 encoder to accept a frame, or for PNG output |
+| `upload_seconds` | Frame uploads and acknowledgements, including retry waits; overlaps drawing |
 | `preview_seconds` | Progress preview drawing and UI updates |
 | `yield_seconds` | Yielding browser tasks between frames |
 | `before_finish_seconds` | Total browser time before requesting final assembly |
@@ -107,6 +113,41 @@ Each run hashes the source and every original-WAV download, in addition to decod
 video frame hashes. Compare software changes at the same encoding settings;
 lower quality is not accepted as a throughput optimization. Retain the MP4s,
 frame hashes and machine/load metadata with the results.
+
+### September 27 measurement — current settings
+
+Quality is measured against the lossless frames themselves: the same 4-second
+passage (240 frames, 3840×2160 at 60 fps) of a real 4-minute Riff song captured
+as the PNG frames the browser draws. Scores decode each MP4 by its own colour
+tags; VMAF uses the default model. Encoder comparisons on those frames (M4):
+
+| Final encode | Mbit/s | RGB PSNR | VMAF |
+| --- | --- | --- | --- |
+| Former PNG path: veryfast CRF 16, untagged | 11.7 | 46.8 dB | 92.2 |
+| slow, tune animation, CRF 19, BT.709 | 7.6 | 47.8 dB | 94.3 |
+| Browser QP 14 intermediate alone | 44.0 | 52.8 dB | 97.4 |
+| Browser QP 14, then the final encode | 8.6 | 47.1 dB | 94.4 |
+| Browser hardware H.264 alone at QP 30 | 7.5 | 43.0 dB | 91.9 |
+
+The former untagged output also showed visible blocking in the soft shadow. A
+browser JPEG transport was rejected: at quality 0.98 it cost the final video
+2.5 dB and 1.1 VMAF. Hardware H.264 alone needs far more bits than libx264 for
+the same quality, so it remains an intermediate.
+
+End to end, Chrome 153 on the M4 exported to an isolated fixture studio on the
+Linux host (64 threads) through Tailscale, with no other export running:
+
+| Version | Frames stage | Whole export | Size | RGB PSNR | VMAF |
+| --- | --- | --- | --- | --- | --- |
+| 0.6.19 (per-frame flush, copied browser H.264) | 20.4 s | 31.7 s | 15.7 Mbit/s | 46.6 dB | 93.6 |
+| This change | 12.6 s | 22.6 s | 9.0 Mbit/s | 47.0 dB | 94.4 |
+
+The whole export includes about 10 s of first-time motion analysis, cached per
+recording. libx264 slow encoded 4K60 at 30.4 frames per second on that host, so
+longer exports are bounded by the host encoder rather than the browser, which
+drew and encoded 4K60 at 48–50 frames per second in isolation. On a single
+machine the browser and libx264 share its cores. One passage and one host; load
+and content change these figures.
 
 ### Historical September 19 profile trial — rejected approach
 
