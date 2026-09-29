@@ -19,32 +19,126 @@ function yieldVideoProgress() {
   return new Promise(resolve => setTimeout(resolve, 0));
 }
 
-function videoBitrate(width, height, fps, quality = { max_bitrate: 32_000_000, min_bitrate: 8_000_000, bits_per_pixel: .055 }) {
+function videoBitrate(width, height, fps, quality = { max_bitrate: 64_000_000, min_bitrate: 8_000_000, bits_per_pixel: .11 }) {
   return Math.round(Math.min(quality.max_bitrate, Math.max(quality.min_bitrate, width * height * fps * quality.bits_per_pixel)));
 }
 
-async function preferredVideoTransport(width, height, fps, bitrate = videoBitrate(width, height, fps)) {
+// The server makes the final libx264 encode, so browser H.264 is an
+// intermediate: a fixed quantizer keeps it near lossless (QP 14 measured
+// 52.8 dB RGB PSNR on 4K artwork); VBR serves browsers without that mode.
+async function h264EncoderConfig(width, height, fps, bitrate, quantizer) {
+  if (typeof VideoEncoder !== "function" || typeof VideoFrame !== "function") return null;
+  const modes = quantizer ? [{ bitrateMode: "quantizer" }] : [];
+  modes.push({ bitrate, bitrateMode: "variable", latencyMode: "quality" });
+  for (const codec of ["avc1.640034", "avc1.640033", "avc1.64002A"]) {
+    for (const mode of modes) {
+      try {
+        const support = await VideoEncoder.isConfigSupported({
+          codec, width, height, framerate: fps, hardwareAcceleration: "no-preference",
+          avc: { format: "annexb" }, ...mode,
+        });
+        if (support.supported) return support.config;
+      } catch { /* The next mode or the PNG path remains available. */ }
+    }
+  }
+  return null;
+}
+
+async function preferredVideoTransport(width, height, fps, bitrate = videoBitrate(width, height, fps), quantizer = 14) {
   // Small exports keep the exact PNG path used for previews and compatibility
   // checks. The browser codec path is reserved for the expensive high-resolution
-  // case where PNG encoding and FFmpeg video encoding dominate wall time.
-  if (width * height < 1_000_000 || typeof VideoEncoder !== "function" || typeof VideoFrame !== "function") return "png";
-  for (const codec of ["avc1.640034", "avc1.640033", "avc1.64002A"]) {
+  // case where PNG encoding and transfer dominate wall time.
+  if (width * height < 1_000_000) return "png";
+  return await h264EncoderConfig(width, height, fps, bitrate, quantizer) ? "h264" : "png";
+}
+
+// H.264 frames are taken straight from the canvas on this thread: no bitmap
+// copy and no per-frame flush, so drawing, encoding and upload overlap.
+function canvasH264Encoder(canvas, signal, config, fps, quantizer) {
+  const timings = { snapshot_seconds: 0, encode_seconds: 0 };
+  const outputs = [];
+  let stopped = null;
+  const fail = error => {
+    stopped ||= error;
+    for (const pending of outputs.splice(0)) pending.reject(stopped);
+  };
+  const encoder = new VideoEncoder({
+    output(chunk) {
+      const pending = outputs.shift();
+      if (!pending) return fail(new Error("The browser video encoder produced an unexpected frame."));
+      const bytes = new ArrayBuffer(chunk.byteLength);
+      chunk.copyTo(bytes);
+      pending.resolve(bytes);
+    },
+    error() { fail(new Error("The browser could not encode this video frame.")); },
+  });
+  encoder.configure(config);
+  const close = () => {
+    fail(new DOMException("Export cancelled.", "AbortError"));
+    if (encoder.state !== "closed") encoder.close();
+    signal.removeEventListener("abort", close);
+  };
+  signal.addEventListener("abort", close, { once: true });
+  if (signal.aborted) close();
+  const fixed = config.bitrateMode === "quantizer", keyInterval = Math.max(1, Math.round(fps * 2));
+  const accepted = () => new Promise(resolve => "ondequeue" in encoder
+    ? encoder.addEventListener("dequeue", resolve, { once: true }) : setTimeout(resolve, 0));
+  // An encoder may hold frames until more arrive. Draining releases them
+  // whenever the export stops feeding it, within a bounded wait.
+  const drain = async () => {
+    if (stopped) throw stopped;
+    if (!outputs.length) return;
+    let timer;
     try {
-      const support = await VideoEncoder.isConfigSupported({
-        codec, width, height, framerate: fps, bitrate,
-        bitrateMode: "variable", latencyMode: "quality", hardwareAcceleration: "no-preference",
-        avc: { format: "annexb" },
-      });
-      if (support.supported) return "h264";
-    } catch { /* The PNG path remains available when this browser cannot encode H.264. */ }
-  }
-  return "png";
+      await Promise.race([encoder.flush(), new Promise((_, reject) => { timer = setTimeout(() =>
+        reject(new Error("The browser video encoder stopped responding. Try exporting again.")), 60000); })]);
+    } catch (error) { fail(error); throw stopped; }
+    finally { clearTimeout(timer); }
+  };
+  const submit = async index => {
+    if (stopped) throw stopped;
+    const started = performance.now();
+    // The frame holds the canvas's current pixels; the next frame may be drawn at once.
+    const frame = new VideoFrame(canvas, { timestamp: Math.round(index * 1_000_000 / fps),
+      duration: Math.max(1, Math.round(1_000_000 / fps)) });
+    timings.snapshot_seconds += (performance.now() - started) / 1000;
+    const output = new Promise((resolve, reject) => outputs.push({ resolve, reject }));
+    output.catch(() => {});
+    try {
+      encoder.encode(frame, { keyFrame: index % keyInterval === 0, ...(fixed ? { avc: { quantizer } } : {}) });
+    } catch (error) { fail(error); throw stopped; }
+    finally { frame.close(); }
+    const waiting = performance.now();
+    // One frame may wait behind the one being encoded; that keeps the encoder busy.
+    while (encoder.encodeQueueSize > 1 && !stopped) await accepted();
+    timings.encode_seconds += (performance.now() - waiting) / 1000;
+    if (stopped) throw stopped;
+    return { frame: output };
+  };
+  return {
+    timings, submit, drain, close,
+    async encode(index = 0) {
+      const { frame } = await submit(index);
+      await drain();
+      return frame;
+    },
+    flush: drain,
+  };
 }
 
 async function createVideoFrameEncoder(canvas, signal, options = {}) {
   const requestedTransport = options.transport || "png";
   const fps = Number(options.fps) || 30;
   const bitrate = Number(options.bitrate) || videoBitrate(canvas.width, canvas.height, fps);
+  if (requestedTransport === "h264") {
+    if (signal.aborted) throw new DOMException("Export cancelled.", "AbortError");
+    const quantizer = options.quantizer === undefined ? 14 : Number(options.quantizer);
+    const config = await h264EncoderConfig(canvas.width, canvas.height, fps, bitrate, quantizer);
+    if (signal.aborted) throw new DOMException("Export cancelled.", "AbortError");
+    if (!config) throw new Error("The browser could not open its accelerated video encoder.");
+    try { return canvasH264Encoder(canvas, signal, config, fps, quantizer); }
+    catch { throw new Error("The browser could not open its accelerated video encoder."); }
+  }
   const timings = { snapshot_seconds: 0, encode_seconds: 0 };
   let worker = null, pending = null, stopped = null, failure = null, sequence = 0;
   const cancelled = () => new DOMException("Export cancelled.", "AbortError");
@@ -96,11 +190,8 @@ async function createVideoFrameEncoder(canvas, signal, options = {}) {
       };
       const ready = await wait(id => worker.postMessage({
         type: "init", id, width: canvas.width, height: canvas.height,
-        fps, bitrate, transport: requestedTransport,
       }));
-      if (!ready.ready || (requestedTransport === "h264" && ready.transport !== "h264")) {
-        releaseWorker();
-      }
+      if (!ready.ready) releaseWorker();
     }
   } catch (error) {
     releaseWorker();
@@ -108,11 +199,7 @@ async function createVideoFrameEncoder(canvas, signal, options = {}) {
     // Older browsers or an unavailable worker can still use the canvas encoder.
   }
   if (stopped) throw stopped;
-  if (requestedTransport === "h264" && !worker) {
-    close();
-    throw new Error("The browser could not open its accelerated video encoder.");
-  }
-  return {
+  const png = {
     timings,
     async encode(index = 0) {
       if (stopped) throw stopped;
@@ -139,19 +226,19 @@ async function createVideoFrameEncoder(canvas, signal, options = {}) {
       if (stopped) { bitmap.close(); throw stopped; }
       try {
         const encodingStarted = performance.now();
-        const result = await wait(id => worker.postMessage({
-          type: "frame", id, bitmap,
-          timestamp: Math.round(index * 1_000_000 / fps),
-          duration: Math.max(1, Math.round(1_000_000 / fps)),
-          keyFrame: index === 0 || (requestedTransport === "h264" && index % Math.max(1, Math.round(fps * 2)) === 0),
-        }, [bitmap]));
+        const result = await wait(id => worker.postMessage({ type: "frame", id, bitmap }, [bitmap]));
         if (!(result.frame instanceof ArrayBuffer)) throw new Error("The browser could not encode this video frame.");
         timings.encode_seconds += (performance.now() - encodingStarted) / 1000;
         return result.frame;
       } finally { bitmap.close(); }
     },
+    // One PNG is encoded at a time; the previous frame uploads meanwhile.
+    async submit(index) { return { frame: Promise.resolve(await png.encode(index)) }; },
+    async drain() {},
+    async flush() {},
     close,
   };
+  return png;
 }
 
 function updateVideoPicture() {
@@ -311,14 +398,15 @@ async function createVideo(event) {
     const quality = capabilities.video_encoding;
     if (!quality) throw new Error("Export settings are unavailable. Reload Riff and try again.");
     const bitrate = videoBitrate(width, height, fps, quality);
-    let transport = await preferredVideoTransport(width, height, fps, bitrate);
+    let transport = await preferredVideoTransport(width, height, fps, bitrate, quality.quantizer);
     const canvas = document.createElement("canvas");
     canvas.width = width;
     canvas.height = height;
     const context = canvas.getContext("2d", { alpha: false });
     if (!context) throw new Error("The browser could not open a drawing canvas.");
     try {
-      encoder = await createVideoFrameEncoder(canvas, operation.controller.signal, { transport, fps, bitrate });
+      encoder = await createVideoFrameEncoder(canvas, operation.controller.signal,
+        { transport, fps, bitrate, quantizer: quality.quantizer });
     } catch (error) {
       // A codec can be advertised on the window but unavailable in a worker.
       // Fall back before starting the server job so its pipe format stays exact.
@@ -335,27 +423,62 @@ async function createVideo(event) {
     if (job.transport !== transport) throw new Error("The studio selected a different video path. Export again.");
     timings.prepare_seconds = (performance.now() - started) / 1000;
     const preview = $("#video-preview"), previewContext = preview.getContext("2d");
-    for (let index = 0; index < job.frames; index++) {
-      if (operation.cancelled) return;
-      const seconds = job.source_start + index / job.fps;
-      let stageStarted = performance.now();
-      drawSeedArtwork(context, job.width, job.height, track.recipe.seed, seconds, motionAt(motion, seconds), appearance);
-      timings.draw_seconds += (performance.now() - stageStarted) / 1000;
-      const frame = await encoder.encode(index);
-      stageStarted = performance.now();
-      await sendVideoFrame(operation, job, index, frame);
-      timings.upload_seconds += (performance.now() - stageStarted) / 1000;
-      stageStarted = performance.now();
-      // Reuse the completed frame for the progress preview; no parallel audio playback.
-      previewContext.setTransform(1, 0, 0, 1, 0, 0);
-      previewContext.drawImage(canvas, 0, 0, preview.width, preview.height);
-      const progress = (index + 1) / job.frames;
-      $("#video-progress").value = progress;
-      $("#video-status").textContent = `Drawing your video · ${Math.round(progress * 100)}% · Keep this window open`;
-      timings.preview_seconds += (performance.now() - stageStarted) / 1000;
-      stageStarted = performance.now();
-      await yieldVideoProgress();
-      timings.yield_seconds += (performance.now() - stageStarted) / 1000;
+    // Frames upload strictly in order while later frames are drawn and
+    // encoded. H.264 frames are small, so one second of them absorbs network
+    // jitter; a PNG frame is a whole image, so one uploads while the next encodes.
+    const capacity = transport === "h264" ? Math.max(2, Math.ceil(job.fps)) : 2;
+    const queued = [];
+    let uploaded = 0, wakeUploader = () => {}, wakeDrawer = () => {}, stopped = false;
+    const upload = (async () => {
+      for (let index = 0; index < job.frames; index++) {
+        while (!queued.length) {
+          if (stopped) return;
+          await new Promise(resolve => wakeUploader = resolve);
+        }
+        const frame = await queued.shift();
+        let stageStarted = performance.now();
+        await sendVideoFrame(operation, job, index, frame);
+        timings.upload_seconds += (performance.now() - stageStarted) / 1000;
+        uploaded = index + 1;
+        wakeDrawer();
+        stageStarted = performance.now();
+        const progress = uploaded / job.frames;
+        $("#video-progress").value = progress;
+        $("#video-status").textContent = `Drawing your video · ${Math.round(progress * 100)}% · Keep this window open`;
+        timings.preview_seconds += (performance.now() - stageStarted) / 1000;
+        stageStarted = performance.now();
+        await yieldVideoProgress();
+        timings.yield_seconds += (performance.now() - stageStarted) / 1000;
+      }
+    })();
+    const failure = upload.then(() => new Promise(() => {}));
+    failure.catch(() => {});
+    try {
+      for (let index = 0; index < job.frames; index++) {
+        if (queued.length >= capacity) {
+          await Promise.race([encoder.drain(), failure]);
+          while (queued.length >= capacity) await Promise.race([new Promise(resolve => wakeDrawer = resolve), failure]);
+        }
+        if (operation.cancelled) return;
+        const seconds = job.source_start + index / job.fps;
+        let stageStarted = performance.now();
+        drawSeedArtwork(context, job.width, job.height, track.recipe.seed, seconds, motionAt(motion, seconds), appearance);
+        timings.draw_seconds += (performance.now() - stageStarted) / 1000;
+        const { frame } = await Promise.race([encoder.submit(index), failure]);
+        frame.catch(() => {}); // The uploader reports it in frame order.
+        queued.push(frame);
+        wakeUploader();
+        stageStarted = performance.now();
+        // The drawn frame doubles as the progress preview; no parallel audio playback.
+        previewContext.setTransform(1, 0, 0, 1, 0, 0);
+        previewContext.drawImage(canvas, 0, 0, preview.width, preview.height);
+        timings.preview_seconds += (performance.now() - stageStarted) / 1000;
+      }
+      await Promise.race([encoder.flush(), failure]);
+      await upload;
+    } finally {
+      stopped = true;
+      wakeUploader();
     }
     if (operation.cancelled) return;
     $("#video-status").textContent = "Finishing your MP4…";

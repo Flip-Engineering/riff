@@ -1,4 +1,10 @@
-Riff 0.6.17 fixes a refresh race that could make a newly saved sound disappear from the interface. An older background response can no longer overwrite a newer completed refresh. Saving, library changes and creative drafts keep their existing behavior.
+Riff 0.6.20 exports smaller, sharper videos faster. Every export now ends in one libx264 encode (preset slow, tuned for animation, CRF 19, BT.709 from full-resolution chroma). Frames are taken straight from the canvas as a near-lossless browser intermediate and uploaded in order while rendering continues. Measured on a real 4K60 passage: 9.0 Mbit/s at 47.0 dB RGB PSNR and VMAF 94.4, against 15.7 Mbit/s, 46.6 dB and 93.6 before. The frame stage takes 12.6 s instead of 20.4 s. Frame progress stays in memory during an export, and the library row records each status change. The studio's listen backlog uses the system limit, which fixes page loads that were reset under load. The live renderer sorts faces only for the Canvas fallback.
+
+The library can be searched by title, description, notes and genre tags.
+
+An optional warm engine keeps the YuE2 weights loaded between takes, so later takes skip model loading. It is off by default. Enable it by adding `"warm_engine": true` to `data/engine.json`, or by posting `{"warm_engine": true}` to `/api/system/engine`; it takes effect with the next take. Finishing a saved sound still runs in its own process while the warm engine stays loaded, and stopping a take stops the warm engine.
+
+It retains the refresh fix from 0.6.17: an older background response can no longer overwrite a newer completed refresh, so a newly saved sound no longer disappears from the interface.
 
 It retains the desktop update recovery from 0.6.16: when GitHub's anonymous API is rate-limited or unavailable, the updater automatically uses the public stable release and its published payload receipt, without a GitHub login or command-line tools. Version, platform, filename, size, checksum and package validation remain required. An incomplete desktop publication leaves the current app unchanged.
 

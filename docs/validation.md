@@ -406,3 +406,20 @@ probes. A CUDA 12.8 build checks the NVIDIA compilation path with an explicit ta
 architecture. CI does not contain a GPU inference acceptance run. NVIDIA hardware
 inference and Windows/WSL2 behavior still require hardware validation. Each release
 links to the exact workflow results rather than treating configured jobs as passed.
+
+- The September 27 export change keeps one final libx264 encode (slow, tune
+  animation, CRF 19, BT.709) for PNG and browser H.264 frames. Browser H.264 is
+  taken straight from the canvas at a fixed quantizer and pipelined with ordered
+  uploads instead of flushed per frame. Against lossless frames of a real 4K60
+  passage it measured 9.0 Mbit/s, 47.0 dB RGB PSNR and VMAF 94.4, against 15.7
+  Mbit/s, 46.6 dB and 93.6 for 0.6.19, and the frames stage took 12.6 s instead
+  of 20.4 s end to end (see [export performance](export-performance.md)). Frame
+  progress stays in memory during an export; the library row records each
+  status change. The studio's listen backlog now uses the operating system's
+  limit: with the default of five, bursts of page-load connections were reset on
+  a loaded machine, which failed the video-encoder browser suite on unchanged
+  code twice in a row and passed with the larger backlog. The live renderer
+  sorts faces only for the Canvas fallback: the inline Sound view's median
+  main-thread frame fell from 1.20 to 1.00 ms in Chrome on the M4. An offscreen
+  WebGL hand-over was measured and rejected; it was pixel-identical and 14%
+  faster at 4K, but 46% slower per frame at the inline view's size.

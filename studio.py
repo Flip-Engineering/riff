@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 import re
 import signal
+import socket
 import sqlite3
 import sys
 import threading
@@ -71,6 +72,10 @@ def byte_range(value, size):
 
 class StudioServer(ThreadingHTTPServer):
     daemon_threads = True
+    # A page load opens many connections at once. Python's default backlog of
+    # five overflows while a busy machine is slow to accept, resetting script
+    # and API requests; use the operating system's limit instead.
+    request_queue_size = socket.SOMAXCONN
 
     def __init__(self, address, store, generator, reviews=None, maintenance=None):
         self.store, self.generator = store, generator

@@ -132,16 +132,25 @@ B.run!(
     "0:v:0",
     "-map",
     "1:a:0",
+    # Mirrors video.VIDEO_CODEC, the studio's final encode for both frame paths.
+    "-vf",
+    "scale=out_color_matrix=bt709:out_range=tv:flags=accurate_rnd+full_chroma_int,format=yuv420p",
     "-c:v",
     "libx264",
     "-preset",
-    "veryfast",
-    "-threads",
-    "2",
+    "slow",
+    "-tune",
+    "animation",
     "-crf",
-    "16",
-    "-pix_fmt",
-    "yuv420p",
+    "19",
+    "-colorspace",
+    "bt709",
+    "-color_primaries",
+    "bt709",
+    "-color_trc",
+    "bt709",
+    "-color_range",
+    "tv",
     "-c:a",
     "aac",
     "-b:a",
@@ -175,13 +184,17 @@ accelerated = Path.join(output, "accelerated.mp4")
 B.run!(entry.("ffmpeg"), ["-v", "error", "-f", "image2pipe", "-framerate", "60",
   "-i", frames, "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p",
   "-f", "h264", encoded], env: environment)
+# Browser H.264 is an intermediate; the studio re-encodes it with the same settings.
 B.run!(entry.("ffmpeg"), ["-v", "error", "-f", "h264", "-r", "60",
   "-i", encoded, "-t", "1", "-i", wave, "-map", "0:v:0", "-map", "1:a:0",
-  "-c:v", "copy", "-c:a", "aac", "-movflags", "+faststart", accelerated], env: environment)
+  "-vf", "scale=out_color_matrix=bt709:out_range=tv:flags=accurate_rnd+full_chroma_int,format=yuv420p",
+  "-c:v", "libx264", "-preset", "slow", "-tune", "animation", "-crf", "19",
+  "-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709", "-color_range", "tv",
+  "-c:a", "aac", "-movflags", "+faststart", accelerated], env: environment)
 accelerated_result = probe.(accelerated)
 [accelerated_visual] = Enum.filter(accelerated_result["streams"], &(&1["codec_type"] == "video"))
 unless accelerated_visual["codec_name"] == "h264" and accelerated_visual["nb_frames"] == "60",
-  do: raise("Bundled media tools did not preserve the H.264 transport frames")
+  do: raise("Bundled media tools did not re-encode every H.264 transport frame")
 
 result = %{
   runtime: runtime,

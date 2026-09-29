@@ -178,7 +178,7 @@ class VideoTests(StudioFixture):
         self.assertEqual((status, len(content)), (206, 32))
         self.assertEqual(self.request("POST", base + "/finish", {})[0], 400)
 
-    def test_h264_frame_transport_muxes_without_a_second_video_encode(self):
+    def test_h264_frame_transport_is_reencoded_at_the_fixed_quality(self):
         status, job = self.request("POST", f"/api/tracks/{self.track}/video-exports",
                                    {"width": 32, "height": 24, "fps": 24, "transport": "h264"})
         self.assertEqual(status, 201, job)
@@ -186,6 +186,8 @@ class VideoTests(StudioFixture):
         command = self.server.video_exports.active[job["id"]]["process"].args
         self.assertEqual(command[command.index("-r") + 1], "24")
         self.assertLess(command.index("-r"), command.index("-i"))
+        self.assertEqual(command[command.index("-c:v") + 1], "libx264")
+        self.assertEqual(command[command.index("-crf") + 1], "19")
         base = f"/api/video-exports/{job['id']}"
         for index, color in enumerate(((180, 40, 80), (40, 180, 80), (40, 80, 180))):
             status, result = self.request("POST", base + "/frames", h264_frame(32, 24, color), {
@@ -199,7 +201,9 @@ class VideoTests(StudioFixture):
         streams = {stream["codec_type"]: stream for stream in probe["streams"]}
         self.assertEqual(streams["video"]["codec_name"], "h264")
         self.assertEqual(int(streams["video"]["nb_frames"]), job["frames"])
+        self.assertEqual((streams["video"]["color_space"], streams["video"]["color_range"]), ("bt709", "tv"))
         self.assertEqual(streams["audio"]["codec_name"], "aac")
+        self.assertEqual(result["receipt"]["video"]["source"], "browser_h264")
 
     def test_export_receipt_survives_reopening_and_rejects_invalid_client_timings(self):
         job = self.start()
@@ -241,8 +245,9 @@ class VideoTests(StudioFixture):
         status, capabilities = self.request("GET", "/api/capabilities")
         self.assertEqual(status, 200)
         self.assertNotIn("video_profiles", capabilities)
-        self.assertEqual(capabilities["video_encoding"], {"crf": 16, "audio_bitrate": "320k",
-            "min_bitrate": 8_000_000, "max_bitrate": 32_000_000, "bits_per_pixel": .055})
+        self.assertEqual(capabilities["video_encoding"], {"crf": 19, "preset": "slow", "tune": "animation",
+            "audio_bitrate": "320k", "quantizer": 14, "min_bitrate": 8_000_000, "max_bitrate": 64_000_000,
+            "bits_per_pixel": .11})
         original = hashlib.sha256(self.audio.read_bytes()).hexdigest()
         for legacy in (False, True):
             with self.subTest(legacy_schema=legacy):
@@ -254,7 +259,8 @@ class VideoTests(StudioFixture):
                 self.assertEqual(status, 201, job)
                 self.assertNotIn("profile", job)
                 command = self.server.video_exports.active[job["id"]]["process"].args
-                self.assertEqual(command[command.index("-crf") + 1], "16")
+                self.assertEqual(command[command.index("-crf") + 1], "19")
+                self.assertNotIn("-threads", command)
                 self.assertEqual(command[command.index("-b:a") + 1], "320k")
                 for index in range(job["frames"]):
                     self.server.video_exports.frame(job["id"], index, png(32, 24, (index * 80, 40, 90)))
