@@ -1,4 +1,4 @@
-Riff 0.6.21 adds YuE2 LoRA styles to the studio and native generation pipeline.
+Riff 0.6.22 adds YuE2 LoRA styles to the studio and native generation pipeline.
 
 - Browse Hugging Face styles, inspect model cards and licenses, listen to previews, or import compatible safetensors/PEFT files.
 - Keep versioned adapters in your local library. Search and filter styles, edit their names and notes, and explicitly add trigger words to your direction.

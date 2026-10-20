@@ -39,7 +39,7 @@ class TrainingPreparationTests(unittest.TestCase):
         self.assertFalse(result["dependency_lock_complete"])
         folder = self.root / "prepared"
         process = json.loads((folder / "train.json").read_text())["config"]["process"][0]
-        self.assertEqual(process["datasets"][0]["folder_path"], str(folder / "train"))
+        self.assertEqual(process["datasets"][0]["folder_path"], str((folder / "train").resolve()))
         self.assertEqual(process["datasets"][0]["caption_dropout_rate"], 0)
         self.assertFalse(process["model"]["model_kwargs"]["merge_nar_lora"])
         self.assertTrue(process["train"]["disable_sampling"])
