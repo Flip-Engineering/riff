@@ -6,11 +6,14 @@ try {
   const page = await browser.newPage();
   const errors = [];
   page.on("pageerror", error => errors.push(error.message));
-  await page.goto(`${process.env.RIFF_URL}/?recording=${process.env.RIFF_TEST_TRACK}#studio`);
-  await page.locator("#play:not([disabled])").waitFor();
   let releaseAnalysis;
   const analysisGate = new Promise(resolve => releaseAnalysis = resolve);
   await page.route("**/visualization", async route => { await analysisGate; await route.continue(); });
+  await page.goto(`${process.env.RIFF_URL}/?recording=${process.env.RIFF_TEST_TRACK}#studio`);
+  await page.locator("#play:not([disabled])").waitFor();
+  assert.equal(await page.locator("[data-visual=sound]").getAttribute("aria-pressed"), "true");
+  assert.equal(await page.locator("[data-visual=art]").getAttribute("aria-pressed"), "false");
+  assert(await page.locator("#sound-field").isVisible(), "Live sound is visible by default");
   await page.evaluate(() => {
     window.liveFrames = [];
     const draw = drawSeedArtwork;
@@ -19,7 +22,6 @@ try {
       return draw(...args);
     };
   });
-  await page.locator("[data-visual=sound]").click();
   const started = Date.now();
   await page.locator("#play").click();
   await page.waitForFunction(() => liveFrames.length >= 3 && audio.currentTime > .2);

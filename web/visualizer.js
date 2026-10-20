@@ -1,6 +1,6 @@
 /* The recording's seed contours move on the audio clock, including after seeks. */
 let soundAnimation = null;
-let visualization = "art";
+let visualization = "sound";
 let soundMotion = null;
 let soundMotionTrack = null;
 let soundSnapshotPending = false;

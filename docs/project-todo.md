@@ -27,6 +27,8 @@ rejected; rejected experiments remain documented in the private ledger.
   rather than waiting for whole-recording motion analysis. A regression holds
   that response and verifies live nonzero motion on the playback clock.
   Full-recording analysis remains the video export and fallback path.
+  The 0.6.27 follow-up opens Live sound by default, with the canvas visible and
+  its selector active immediately; Seed artwork remains an explicit choice.
 
 - Graphics recovery: failed WebGL initialization now retries at five-second
   intervals instead of permanently selecting CPU rendering. Context restoration
