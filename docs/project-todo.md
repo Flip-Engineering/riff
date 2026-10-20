@@ -1,6 +1,6 @@
 # Riff project todo
 
-Updated: 2026-10-19
+Updated: 2026-10-20
 
 This is the canonical current-work list. The much larger private ledger in
 `data/TASKS.md` remains useful for receipts and historical evidence, but its
@@ -16,8 +16,9 @@ rejected; rejected experiments remain documented in the private ledger.
   Hugging Face browsing and local library, independent AR/NAR controls, saved
   provenance, and a dataset/config preparation helper. See the
   [validation record](lora-validation.md) for completed checks and remaining
-  hardware, training and listening acceptance. This is not a released build or
-  evidence that a new Riff adapter has been trained.
+  hardware, training and listening acceptance. LoRA support shipped in 0.6.22;
+  the 0.6.23 follow-up restricts discovery to YuE2 adapter weight repositories
+  and removes GGUF files from adapter details. No new Riff adapter has been trained.
 
 - #22: reproduced a delayed pre-save poll replacing the post-save state and
   removing the newly saved sound from the UI. Refresh application is now

@@ -547,10 +547,12 @@ class HubTests(LoRAFixture):
         def json_response(url):
             params = parse_qs(urlsplit(url).query)
             queries.append(params)
+            adapter = {"siblings": [{"rfilename": "adapter.safetensors"}],
+                       "cardData": {"base_model": "m-a-p/YuE2-3B"}}
             if "filter" in params:
-                return [{"id": "artist/Folk", "tags": ["lora", "folk"], "likes": 3, "downloads": 2}], {}
-            return [{"id": "artist/Folk", "tags": ["lora", "folk"], "likes": 3, "downloads": 2},
-                    {"id": "artist/YuE2-jazz-lora", "tags": ["jazz"], "likes": 10, "downloads": 8}], {}
+                return [{**adapter, "id": "artist/Folk", "tags": ["lora", "folk"], "likes": 3, "downloads": 2}], {}
+            return [{**adapter, "id": "artist/Folk", "tags": ["lora", "folk"], "likes": 3, "downloads": 2},
+                    {**adapter, "id": "artist/YuE2-jazz-lora", "tags": ["jazz"], "likes": 10, "downloads": 8}], {}
         hub.json = json_response
         self.assertEqual(hub.search(limit=1, sort="likes")["models"][0]["repo"], "artist/YuE2-jazz-lora")
         self.assertEqual(hub.search(limit=1, page=1, sort="likes")["models"][0]["repo"], "artist/Folk")
@@ -558,14 +560,53 @@ class HubTests(LoRAFixture):
         self.assertTrue(any("filter" in q for q in queries))
         self.assertTrue(any("search" in q for q in queries))
 
+    def test_search_excludes_base_models_image_adapters_and_empty_repositories(self):
+        def model(repo, files, tags=(), card=None):
+            return {"id": repo, "tags": list(tags), "cardData": card or {},
+                    "siblings": [{"rfilename": path} for path in files]}
+        rows = [
+            model("audio-cpp/Yue2-3B-GGUF", ["yue2-3b-q8_0.gguf", "lora/README.md"], ["yue2"]),
+            model("thepatch/YuE2-3B-GGUF", ["weights.gguf", "examples/lora.wav"], ["yue2"]),
+            model("artist/YuE2-IRA-Merge", ["model.safetensors", "model.gguf"], ["lora"],
+                  {"base_model": "m-a-p/YuE2-3B", "base_model_relation": "merge"}),
+            model("artist/YuE2-NF4-for-LoRA-Training", ["model/weights/lm_head.safetensors"],
+                  ["base_model:quantized:m-a-p/YuE2-3B", "lora-training"]),
+            model("Yue-2003/image-lora", ["adapter_model.safetensors"], ["lora"],
+                  {"base_model": "CompVis/stable-diffusion-v1-4"}),
+            model("artist/yue2", ["adapter_model.safetensors"], ["lora"],
+                  {"base_model": "black-forest-labs/FLUX.1-dev"}),
+            model("artist/YuE2-voice-lora", ["README.md"]),
+            model("artist/YuE2-base", ["model.safetensors", "loras/README.md"], ["lora"]),
+            model("artist/YuE2-shards-lora", ["model-00001-of-00002.safetensors"]),
+            model("artist/YuE2-jpop-lora", ["yue2_jpop.safetensors"]),
+            model("artist/Folk", ["folk.safetensors"], ["base_model:adapter:Comfy-Org/YuE2"]),
+            model("artist/YuE2-mixed", ["base.gguf", "model.safetensors", "lora/style.safetensors"],
+                  ["base_model:merge:m-a-p/YuE2-3B"]),
+            model("artist/YuE2-peft", ["model.safetensors", "adapter_config.json"], ["yue2"]),
+        ]
+        hub = HuggingFace()
+        hub.json = lambda url: (rows, {})
+        result = hub.search(limit=20)
+        self.assertEqual({row["repo"] for row in result["models"]},
+                         {"artist/YuE2-jpop-lora", "artist/Folk", "artist/YuE2-mixed", "artist/YuE2-peft"})
+        self.assertFalse(result["has_more"])
+        self.assertEqual(hub.search(query="gguf")["models"][0]["repo"], "artist/YuE2-mixed")
+
+    def test_detail_excludes_gguf_base_weights_in_a_mixed_adapter_repository(self):
+        self.library.hub = FakeHub({"adapter.safetensors": adapter_bytes(), "base.gguf": b"base weights"})
+        detail = self.library.hub_detail(REPO)
+        self.assertEqual([file["path"] for file in detail["files"]], ["adapter.safetensors"])
+
     def test_search_keeps_paging_until_filtered_matches_and_has_no_page_cap(self):
         hub = HuggingFace()
         calls = []
         def json_response(url):
             calls.append(url)
+            adapter = {"siblings": [{"rfilename": "adapter.safetensors"}],
+                       "cardData": {"base_model": "m-a-p/YuE2-3B"}}
             if "cursor=next" in url:
-                return [{"id": "artist/rare-lora", "tags": ["folk"], "trendingScore": 5}], {}
-            return [{"id": "artist/other-lora", "tags": ["jazz"]} for _ in range(30)], {
+                return [{**adapter, "id": "artist/rare-lora", "tags": ["folk"], "trendingScore": 5}], {}
+            return [{**adapter, "id": "artist/other-lora", "tags": ["jazz"]} for _ in range(30)], {
                 "Link": '<https://huggingface.co/api/models?cursor=next>; rel="next"'}
         hub.json = json_response
         result = hub.search(genre="folk", sort="trendingScore", limit=1)

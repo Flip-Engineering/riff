@@ -47,6 +47,57 @@ def canonical(value):
     return json.dumps(value, sort_keys=True, ensure_ascii=True, separators=(",", ":"), allow_nan=False)
 
 
+def _adapter_search_candidate(model):
+    """Discover adapter weights, rather than mentions of LoRA in base models.
+
+    This is a catalog filter, not a compatibility claim; pinned tensor headers
+    and full file contents are still validated before installation.
+    """
+    if not isinstance(model, dict):
+        return False
+    repo = model.get("id", model.get("modelId", ""))
+    if not isinstance(repo, str):
+        return False
+    card = model.get("cardData") or {}
+    card = card if isinstance(card, dict) else {}
+    tags = model.get("tags") or []
+    tags = [tag.casefold() for tag in tags if isinstance(tag, str)] if isinstance(tags, list) else []
+    base = card.get("base_model") or []
+    base = [base] if isinstance(base, str) else base if isinstance(base, list) else []
+    bases = [value.casefold() for value in base if isinstance(value, str)]
+    bases.extend(tag.split(":")[-1] for tag in tags if tag.startswith("base_model:"))
+    yue2 = lambda text: bool(re.search(r"(?:^|[^a-z0-9])yue2(?:$|[^a-z0-9])", text.casefold()))
+    name = repo.rsplit("/", 1)[-1].casefold()
+    # An owner's name is not evidence of a model family (e.g. Yue-2003).
+    if bases and not any(yue2(value.rsplit("/", 1)[-1]) for value in bases):
+        return False
+    if not (any(yue2(value.rsplit("/", 1)[-1]) for value in bases)
+            or yue2(name) or "yue2" in tags):
+        return False
+    files = model.get("siblings") or []
+    paths = [file.get("rfilename", "").casefold() for file in files
+             if isinstance(file, dict) and isinstance(file.get("rfilename"), str)]
+    relation = str(card.get("base_model_relation", "")).casefold()
+    full_model = relation in ("quantized", "merge") or any(
+        tag.startswith(("base_model:quantized:", "base_model:merge:")) for tag in tags)
+    declared_adapter = relation == "adapter" or any(tag.startswith("base_model:adapter:") for tag in tags)
+    for path in paths:
+        if PurePosixPath(path).suffix != ".safetensors":
+            continue
+        parts = PurePosixPath(path)
+        explicit = bool(re.search(r"(?:^|[^a-z0-9])(?:lora[s]?|adapter)(?:$|[^a-z0-9])", path))
+        peft = str(parts.parent / "adapter_config.json") in paths
+        if full_model and not (explicit or peft):
+            continue
+        # Full/sharded base weights are not adapters, even in a LoRA repository.
+        if re.fullmatch(r"(?:model|diffusion_pytorch_model)(?:-\d+-of-\d+)?\.safetensors", parts.name):
+            if not (peft or declared_adapter or explicit):
+                continue
+        if explicit or peft or declared_adapter or "lora" in tags or "lora" in name:
+            return True
+    return False
+
+
 def identifier(value):
     if not isinstance(value, str) or not re.fullmatch(ID_PATTERN, value):
         raise ValueError("Choose an installed LoRA from the library.")
@@ -255,12 +306,11 @@ class HuggingFace:
         ]
         terms = (query + " " + genre).lower().split()
         def matches(model):
-            if not isinstance(model, dict):
+            if not _adapter_search_candidate(model):
                 return False
             repo = model.get("id", model.get("modelId", ""))
             text = canonical([repo, model.get("tags"), model.get("cardData"), model.get("siblings")]).lower()
-            return (("lora" in text or "base_model:adapter:" in text)
-                    and all(term in text for term in terms))
+            return all(term in text for term in terms)
         def search_one(strategy):
             params = {"full": "true", "cardData": "true", "sort": sort, "direction": -1,
                       "limit": min(max(30, limit), 100), **strategy}
@@ -773,6 +823,8 @@ class LoRALibrary:
         adapters, demos = [], []
         for file in files:
             suffix = PurePosixPath(file["path"]).suffix.lower()
+            if suffix == ".gguf":
+                continue
             if suffix in MEDIA_TYPES:
                 demos.append({**file, "mime": MEDIA_TYPES[suffix]})
             if suffix in CHECKPOINT_EXTENSIONS:
