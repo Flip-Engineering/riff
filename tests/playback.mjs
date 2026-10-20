@@ -8,8 +8,30 @@ try {
   page.on("pageerror", error => errors.push(error.message));
   await page.goto(`${process.env.RIFF_URL}/?recording=${process.env.RIFF_TEST_TRACK}#studio`);
   await page.locator("#play:not([disabled])").waitFor();
+  let releaseAnalysis;
+  const analysisGate = new Promise(resolve => releaseAnalysis = resolve);
+  await page.route("**/visualization", async route => { await analysisGate; await route.continue(); });
+  await page.evaluate(() => {
+    window.liveFrames = [];
+    const draw = drawSeedArtwork;
+    drawSeedArtwork = (...args) => {
+      if (args[5]?.[0] > .01) liveFrames.push({time: args[4], clock: audio.currentTime, level: args[5][0], at: performance.now()});
+      return draw(...args);
+    };
+  });
+  await page.locator("[data-visual=sound]").click();
+  const started = Date.now();
   await page.locator("#play").click();
-  await page.waitForFunction(() => audio.currentTime > .2);
+  await page.waitForFunction(() => liveFrames.length >= 3 && audio.currentTime > .2);
+  assert(Date.now() - started < 2500, "Live motion must start without full-recording analysis");
+  const motion = await page.evaluate(() => ({frames: liveFrames.slice(0, 3), pending: soundMotion === null, data: liveSound.read(audio.currentTime)}));
+  assert(motion.pending, "The full-recording analysis is still deliberately blocked");
+  assert(motion.frames.every(frame => Math.abs(frame.time - frame.clock) < .05), "Live frames use the current audio clock");
+  assert(motion.frames[2].time > motion.frames[0].time);
+  assert(motion.data.some(value => value > .01), "The actual playing audio drives the motion");
+  releaseAnalysis();
+  await page.waitForFunction(() => soundMotion?.frames.length);
+  await page.unroute("**/visualization");
   await page.locator("#play").click();
   const result = await page.evaluate(async () => {
     const original = audio.play;
@@ -28,5 +50,6 @@ try {
   assert.equal(result.synchronous, true, "Play must reach the media element without an unrelated async preparation step");
   assert.equal(result.message, "Playback fixture: source unavailable.");
   assert.deepEqual(errors, []);
+  console.log("PASS Live audio motion starts before delayed analysis and follows the playback clock");
   console.log("PASS Recording plays on one click; playback failures retain the actual error instead of a retry instruction");
 } finally { await browser.close(); }

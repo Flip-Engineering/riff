@@ -23,6 +23,11 @@ rejected; rejected experiments remain documented in the private ledger.
   and adds visible retry and bounded loading for file checks.
   No new Riff adapter has been trained.
 
+- Live sound visualization (0.6.25): playback reads the playing audio directly
+  rather than waiting for whole-recording motion analysis. A regression holds
+  that response and verifies live nonzero motion on the playback clock.
+  Full-recording analysis remains the video export and fallback path.
+
 - #22: reproduced a delayed pre-save poll replacing the post-save state and
   removing the newly saved sound from the UI. Refresh application is now
   monotonic by request order; a deterministic regression holds and releases the
