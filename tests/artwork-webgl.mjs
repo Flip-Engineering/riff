@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, readFileSync } from "node:fs";
 import { chromium } from "playwright";
 
 // Keep this trusted local fixture on an explicit graphics backend. Modern
@@ -52,4 +52,80 @@ try {
   await page.locator("#sound-field").screenshot({ path: "test-results/artwork-webgl.png" });
   assert.deepEqual(errors, []);
   console.log(`PASS Actual WebGL rendering, material controls, motion, resizing and seeking: ${result.renderer}`);
+  for (const failure of ["unavailable", "exception"]) {
+    const recovery = await browser.newPage();
+    await recovery.evaluate(failure => {
+      window.graphicsProbe = { blocked: true, attempts: 0, contexts: [], draws: 0, clock: 0 };
+      const now = performance.now.bind(performance);
+      performance.now = () => now() + graphicsProbe.clock;
+      const getContext = HTMLCanvasElement.prototype.getContext;
+      HTMLCanvasElement.prototype.getContext = function (type, ...args) {
+        if (type === "webgl2") {
+          graphicsProbe.attempts++;
+          if (graphicsProbe.blocked) {
+            if (failure === "exception") throw new Error("Temporary context allocation failure");
+            return null;
+          }
+        }
+        const context = getContext.call(this, type, ...args);
+        if (type === "webgl2" && context) graphicsProbe.contexts.push(context);
+        return context;
+      };
+      const drawElements = WebGL2RenderingContext.prototype.drawElements;
+      WebGL2RenderingContext.prototype.drawElements = function (...args) {
+        graphicsProbe.draws++;
+        return drawElements.apply(this, args);
+      };
+    }, failure);
+    await recovery.addScriptTag({ content: readFileSync("web/artwork.js", "utf8") });
+    const recovered = await recovery.evaluate(() => {
+      const canvas = document.createElement("canvas"); canvas.width = 880; canvas.height = 680;
+      window.drawRecoveryFrame = () => {
+        drawSeedArtwork(canvas.getContext("2d"), 880, 680, "15961", 1, [.6, .7, .5, .2, .1, .4, .3, .2]);
+        return canvas.toDataURL();
+      };
+      drawRecoveryFrame();
+      graphicsProbe.blocked = false;
+      for (let i = 0; i < 5; i++) drawRecoveryFrame();
+      const throttledAttempts = graphicsProbe.attempts;
+      graphicsProbe.clock += 5001;
+      window.recoveryPixels = drawRecoveryFrame();
+      return { throttledAttempts, attempts: graphicsProbe.attempts, draws: graphicsProbe.draws };
+    });
+    assert.equal(recovered.throttledAttempts, 1, "Unavailable graphics are not probed on every frame");
+    assert.equal(recovered.attempts, 2, "Renderer retries a temporary initialization failure");
+    assert.equal(recovered.draws, 1, "GPU rendering resumes in the same page without reloading");
+    if (failure === "unavailable") {
+      for (let cycle = 0; cycle < 2; cycle++) {
+        await recovery.evaluate(() => {
+          if (!graphicsProbe.lossExtension) {
+            const gl = graphicsProbe.contexts[0];
+            graphicsProbe.lossExtension = gl.getExtension("WEBGL_lose_context");
+            graphicsProbe.losses = 0; graphicsProbe.restorations = 0;
+            gl.canvas.addEventListener("webglcontextlost", () => graphicsProbe.losses++);
+            gl.canvas.addEventListener("webglcontextrestored", () => graphicsProbe.restorations++);
+          }
+          graphicsProbe.lossExtension.loseContext();
+        });
+        await recovery.waitForFunction(count => graphicsProbe.losses === count, cycle + 1);
+        const fallback = await recovery.evaluate(() => {
+          const before = graphicsProbe.draws;
+          drawRecoveryFrame();
+          return graphicsProbe.draws === before;
+        });
+        assert(fallback, "Lost contexts use the Canvas fallback");
+        await recovery.evaluate(() => graphicsProbe.lossExtension.restoreContext());
+        await recovery.waitForFunction(count => graphicsProbe.restorations === count, cycle + 1);
+        const restored = await recovery.evaluate(() => ({ pixels: drawRecoveryFrame() === recoveryPixels,
+          attempts: graphicsProbe.attempts, contexts: graphicsProbe.contexts.length,
+          uniqueContexts: new Set(graphicsProbe.contexts).size }));
+        assert(restored.pixels, "Restored shaders reproduce the same artwork");
+        assert.equal(restored.attempts, 3 + cycle, "Restoration reuses the original canvas and context");
+        assert.equal(restored.contexts, 2 + cycle);
+        assert.equal(restored.uniqueContexts, 1, "Restoration must not allocate replacement contexts");
+      }
+    }
+    await recovery.close();
+  }
+  console.log("PASS Temporary GPU initialization failures retry without reload; repeated context restoration preserves pixels and reuses its canvas");
 } finally { await browser.close(); }

@@ -8,7 +8,7 @@ const RiffArtwork = (() => {
   ];
   const defaults = Object.freeze({ surface: .72, motion: 1, color: .7, texture: .48 });
   const cache = new Map(), rings = 40, steps = 128;
-  let surfaceRenderer;
+  let surfaceRenderer, surfaceRetryAt = 0;
   const clamp = (x, low = 0, high = 1) => Math.max(low, Math.min(high, Number(x) || 0));
   const rgb = hex => [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16));
   const mix = (a, b, amount) => a.map((v, i) => Math.round(v + (b[i] - v) * amount));
@@ -153,12 +153,19 @@ const RiffArtwork = (() => {
     }
   }
 
-  function createSurfaceRenderer() {
-    const canvas = document.createElement("canvas");
+  function createSurfaceRenderer(restoredCanvas) {
+    const canvas = restoredCanvas || document.createElement("canvas");
     const gl = canvas.getContext("webgl2", { alpha: true, antialias: true, depth: true, preserveDrawingBuffer: true });
     if (!gl) return null;
-    canvas.addEventListener("webglcontextlost", event => event.preventDefault());
-    canvas.addEventListener("webglcontextrestored", () => { surfaceRenderer = undefined; });
+    if (!restoredCanvas) {
+      canvas.addEventListener("webglcontextlost", event => event.preventDefault());
+      canvas.addEventListener("webglcontextrestored", () => {
+        // Rebuild resources on the restored context instead of abandoning it
+        // and allocating another context on every restoration.
+        surfaceRetryAt = performance.now() + 5000;
+        try { surfaceRenderer = createSurfaceRenderer(canvas); } catch { surfaceRenderer = null; }
+      });
+    }
     const compile = (type, text) => {
       const shader = gl.createShader(type); gl.shaderSource(shader, text); gl.compileShader(shader);
       if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(shader));
@@ -282,7 +289,10 @@ const RiffArtwork = (() => {
   }
 
   function drawSurface(context, g, scale) {
-    if (surfaceRenderer === undefined) {
+    if (surfaceRenderer === undefined || (surfaceRenderer === null && performance.now() >= surfaceRetryAt)) {
+      // A temporary context allocation failure must not pin this tab to the
+      // CPU renderer forever. Limit probes while graphics remain unavailable.
+      surfaceRetryAt = performance.now() + 5000;
       try { surfaceRenderer = createSurfaceRenderer(); } catch { surfaceRenderer = null; }
     }
     return surfaceRenderer?.(context, g, scale) || false;

@@ -28,6 +28,13 @@ rejected; rejected experiments remain documented in the private ledger.
   that response and verifies live nonzero motion on the playback clock.
   Full-recording analysis remains the video export and fallback path.
 
+- Graphics recovery: failed WebGL initialization now retries at five-second
+  intervals instead of permanently selecting CPU rendering. Context restoration
+  rebuilds shader resources on the original canvas. Browser checks cover both
+  unavailable and throwing initialization, bounded retries, and two real
+  loss/restoration cycles with identical restored pixels. This does not establish
+  an export speedup while the browser itself continues refusing WebGL contexts.
+
 - #22: reproduced a delayed pre-save poll replacing the post-save state and
   removing the newly saved sound from the UI. Refresh application is now
   monotonic by request order; a deterministic regression holds and releases the

@@ -80,6 +80,22 @@ the existing API and records server measurements with `client_reported: null`.
 
 ## Matched benchmark
 
+### Renderer availability and recovery
+
+The artwork renderer falls back to Canvas when WebGL cannot be initialized or
+its context is lost. Initial allocation failures retry at most once every five
+seconds so a temporary failure does not permanently select CPU rendering for
+the page. Context restoration rebuilds shader resources on the original canvas
+rather than allocating replacement contexts. Neither recovery requires a page
+reload or browser restart.
+
+When profiling frame capture, `VideoFrame` construction can include deferred
+Canvas rasterization. A large snapshot duration does not by itself establish
+that copying pixels or the video codec is the bottleneck. Compare graphics
+availability in the affected page and a fresh page before attributing a failure
+to Riff. Recovery cannot enable WebGL while the browser refuses contexts in
+both pages; do not describe retry handling as a measured export speedup.
+
 Run from the repository with development dependencies, Chromium, FFmpeg and
 ffprobe installed:
 
