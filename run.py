@@ -45,7 +45,7 @@ def sysctl_int(name):
 def build_command(*, lyrics, style, max_seconds, steps, cot, seed, threads, output,
                   backend=None, abc="", mode="lyrics", cfg_scale=1., temperature=1., refinement=None, render_mode="music",
                   performance_file=None, semantic_only=False, solver="midpoint", score_file=None,
-                  acoustic_out=None, acoustic_only=False):
+                  acoustic_out=None, acoustic_only=False, lora_options=None):
     """Shared native invocation for the command line and Riff studio."""
     if solver not in ("midpoint", "ab2"):
         raise ValueError("Choose midpoint or ab2 for acoustic synthesis.")
@@ -74,6 +74,23 @@ def build_command(*, lyrics, style, max_seconds, steps, cot, seed, threads, outp
         "--request-option", "ode_method=" + solver,
         "--seed", str(seed), "--out", str(output), "--log", "--metrics",
     ]
+    if lora_options and any(lora_options.get(stage + "_lora") and lora_options.get(stage + "_lora_scale", 1) != 0 for stage in ("ar", "nar")):
+        if not engine_capabilities(settings).get("lora"):
+            raise ValueError("Update the music engine in Studio settings to use LoRAs.")
+        # The library resolves and verifies private paths before this boundary.
+        # Adapters belong to the session, so warm mode restarts on selection or
+        # strength changes. Never pass them as per-request generation settings.
+        for stage in ("ar", "nar"):
+            path = lora_options.get(stage + "_lora")
+            if not path:
+                continue
+            scale = lora_options.get(stage + "_lora_scale", 1.0)
+            if isinstance(scale, bool) or not isinstance(scale, (float, int)) or not math.isfinite(scale):
+                raise ValueError("LoRA strength must be a finite number.")
+            if scale == 0:
+                continue
+            command += ["--session-option", f"yue2.{stage}_lora={Path(path).resolve()}",
+                        "--session-option", f"yue2.{stage}_lora_scale={scale}"]
     if style:
         command += ["--request-option", "style=" + style]
     if abc:
@@ -147,8 +164,9 @@ def _engine_capabilities(binary, model_root, identity):
                 metadata.get("format.yue2.acoustic") == "riff.yue2.acoustic.v1")
     # Persistent job mode with resident AR/NAR weights (patches/yue2-warm-engine.patch).
     warm = metadata.get("feature.yue2.keep_resident") == "1" and metadata.get("format.yue2.jobs") == "riff.jobs.v1"
+    lora = metadata.get("feature.yue2.lora") == "1" and metadata.get("format.yue2.lora") == "riff.yue2.lora.v1"
     return {"exact_score_replay": exact, "acoustic_checkpoint": acoustic, "score_format": metadata.get("format.yue2.score_tokens"),
-            "prefix_contract": metadata.get("format.yue2.prefix"), "warm_engine": warm}
+            "prefix_contract": metadata.get("format.yue2.prefix"), "warm_engine": warm, "lora": lora}
 
 
 def engine_capabilities(settings=None):
@@ -258,6 +276,10 @@ def main():
     parser.add_argument("--threads", type=int, default=platform_runtime.settings()["threads"])
     parser.add_argument("--backend", choices=("metal", "cuda", "cpu"), default=platform_runtime.settings()["backend"])
     parser.add_argument("--refinement", type=Path, help="JSON object of YuE2 sampling controls")
+    parser.add_argument("--lora", action="append", default=[], help="Installed LoRA library ID; repeat for nonoverlapping AR/NAR adapters")
+    parser.add_argument("--lora-strength", type=float, help="Overall adapter strength; omitted uses the library default")
+    parser.add_argument("--ar-lora-strength", type=float, help="Override composition-adapter strength")
+    parser.add_argument("--nar-lora-strength", type=float, help="Override sound-adapter strength")
     parser.add_argument("--out", type=Path, help="Output WAV; defaults to a new file in outputs/")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
@@ -267,6 +289,11 @@ def main():
         parser.error("seed must be in [0, 2^63)")
     if not 0 <= args.guidance <= 20 or not 0 <= args.temperature <= 5:
         parser.error("guidance must be in [0, 20] and temperature in [0, 5], as required by the runtime")
+    if not args.lora and any(value is not None for value in
+                            (args.lora_strength, args.ar_lora_strength, args.nar_lora_strength)):
+        parser.error("LoRA strength options require at least one --lora.")
+    if len(set(args.lora)) != len(args.lora):
+        parser.error("Choose each LoRA only once.")
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
     output = (args.out or WORKSPACE / "outputs" / f"song-{stamp}.wav").resolve()
     if output.exists():
@@ -284,6 +311,32 @@ def main():
         parser.error("--plan-only requires --cot melody or --cot full")
     if args.plan_only and (args.performance or args.performance_only):
         parser.error("score-only composition and performance rendering are separate operations")
+    lora_library, lora_options = None, None
+    if args.lora:
+        from loras import LoRALibrary
+        from paths import DATA
+        lora_library = LoRALibrary(DATA / "loras")
+        try:
+            selection, selected_stages = [], set()
+            for identity in args.lora:
+                item = {"id": identity}
+                if args.lora_strength is not None:
+                    item["strength"] = args.lora_strength
+                stages = lora_library.get(identity)["stages"]
+                selected_stages.update(stages)
+                for stage in stages:
+                    value = getattr(args, stage + "_lora_strength")
+                    if value is not None:
+                        item[stage + "_scale"] = value
+                selection.append(item)
+            for stage in ("ar", "nar"):
+                if getattr(args, stage + "_lora_strength") is not None and stage not in selected_stages:
+                    raise ValueError(f"--{stage}-lora-strength requires a selected {stage.upper()} adapter.")
+            lora_options = lora_library.resolve(selection)
+            if any(lora_options.get(stage + "_lora") for stage in ("ar", "nar")) and not engine_capabilities().get("lora"):
+                raise ValueError("Update the music engine in Studio settings to use LoRAs.")
+        except (ValueError, OSError, KeyError) as exc:
+            parser.error(str(exc))
     command = build_command(lyrics=lyrics, style=style, max_seconds=args.max_seconds,
                             steps=args.steps, cot=args.cot, seed=args.seed, threads=args.threads,
                             output=output, backend=args.backend, abc=abc, mode=mode,
@@ -291,7 +344,8 @@ def main():
                             refinement=json.loads(args.refinement.read_text()) if args.refinement else {},
                             render_mode="plan" if args.plan_only else "music",
                             performance_file=args.performance, semantic_only=args.performance_only, solver=args.solver,
-                            score_file=args.score_tokens.resolve() if args.score_tokens else None)
+                            score_file=args.score_tokens.resolve() if args.score_tokens else None,
+                            lora_options=lora_options)
     if args.dry_run:
         print(json.dumps(command, indent=2))
         return
@@ -313,6 +367,11 @@ def main():
     started = time.monotonic()
     next_update = started
     print(f"Generating up to {args.max_seconds:g}s using Q4 + F16 VAE on {args.backend}.\nLog: {log_path}", flush=True)
+    if lora_library:
+        try:
+            lora_library.resolve_saved(lora_options["loras"])
+        except (ValueError, OSError, KeyError) as exc:
+            parser.error(str(exc))
     with log_path.open("w") as log:
         proc = subprocess.Popen(command, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT)
         try:
@@ -337,6 +396,15 @@ def main():
         "memory_note": monitor.note,
         "log": str(log_path),
     }
+    if lora_options:
+        metrics["lora_provenance"] = lora_options["loras"]
+        metrics["loras"] = [{"id": item["id"], **{stage + "_scale": item[stage + "_scale"] for stage in item["stages"]}}
+                            for item in lora_options["loras"]]
+        try:
+            lora_library.resolve_saved(lora_options["loras"])
+        except (ValueError, OSError, KeyError) as exc:
+            metrics["lora_error"] = str(exc)
+            metrics["exit_code"] = proc.returncode = proc.returncode or 1
     if monitor.libproc:
         metrics["macos_lifetime_peak_footprint_bytes_observed"] = peak_footprint
     if proc.returncode == 0 and args.cot != "off":

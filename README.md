@@ -70,7 +70,12 @@ The application license does not change the model's terms.
   Producer variations retain the source seed and can reuse the saved score,
   performance or synthesis; the corresponding controls remain editable.
 - **Saved sounds.** Browse, create, edit, and remove reusable sound prompts.
-  [Adapter research](docs/adapters.md) distinguishes these from learned LoRAs.
+- **Learned style adapters.** Browse public YuE2-3B LoRAs on Hugging Face, hear
+  their demo clips, inspect compatibility and licenses, or import a local
+  safetensors file. Choose independent composition (AR) and sound (NAR)
+  strengths. Each take keeps its exact adapter revision and file hashes.
+  See [using adapters](docs/adapters.md), the [library API](docs/loras-api.md),
+  and the [validation scope](docs/lora-validation.md).
 - **Keep creating.** The desktop runtime can write a new idea while music renders
   when memory permits. Each operation keeps its own progress and cancellation.
 

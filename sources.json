@@ -85,6 +85,10 @@
     "patches/yue2-warm-engine.patch": {
       "bytes": 14442,
       "sha256": "d3e3236c058e26a7b1cf067f6b2dfb0db549b0fa4df1dc04607fb71898158b47"
+    },
+    "patches/yue2-weight-adapters.patch": {
+      "bytes": 47359,
+      "sha256": "49bcda5084a9de945a5317845455487e11760ce34b44605ccc8b2410ca849f35"
     }
   },
   "native_capabilities": {
@@ -95,7 +99,9 @@
     "feature.yue2.acoustic_decode": "1",
     "format.yue2.acoustic": "riff.yue2.acoustic.v1",
     "feature.yue2.keep_resident": "1",
-    "format.yue2.jobs": "riff.jobs.v1"
+    "format.yue2.jobs": "riff.jobs.v1",
+    "feature.yue2.lora": "1",
+    "format.yue2.lora": "riff.yue2.lora.v1"
   },
   "writer": {
     "repo": "Qwen/Qwen3-0.6B-MLX-4bit",

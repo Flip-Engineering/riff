@@ -1,5 +1,6 @@
 """Riff's library and resource-aware, independently cancellable model work."""
 import array
+import copy
 from contextlib import contextmanager
 import ctypes
 import hashlib
@@ -25,6 +26,7 @@ import model_options
 from model_admission import AdmissionCancelled, ModelAdmission, SchedulerUnavailable
 from symbolic import read_plan
 from warm_engine import WarmEngine, job_from_command
+from loras import LoRALibrary
 
 CONTEXT = model_options.CONTEXT
 TOKEN_RATE = model_options.TOKEN_RATE
@@ -151,6 +153,12 @@ def validate_recipe(payload):
             raise ValueError("Choose whether to hold the words or sound.")
         holds[name] = value
     provenance = {name: text(name) for name in ("writer_model", "writer_summary") if payload.get(name)}
+    loras = validate_loras(payload.get("loras", []))
+    if "lora_provenance" in payload:
+        # This is a claimed receipt until Store.prepare_loras checks it against
+        # the immutable library files. Retain it through writer/performance
+        # normalization so retries cannot silently repin modified weights.
+        provenance["lora_provenance"] = validate_lora_provenance(payload["lora_provenance"])
     return {"title": title, "title_auto": title_auto, "lyrics": lyrics, "style": style, "abc": abc, "mode": mode, "lyrics_source": source,
             "idea_engine": idea_engine, "brief": text("brief"), "writer_tokens": tokens,
             "cfg_scale": number("cfg_scale", 1., 0., 20.), "temperature": number("temperature", 1., 0., 5.),
@@ -160,7 +168,55 @@ def validate_recipe(payload):
             "max_seconds": seconds, "steps": steps, "solver": solver, "cot": cot, "seed": str(seed),
             "refinement": model_options.validate(payload.get("refinement", {}), seconds), "render_mode": render_mode,
             "performance_source": "", "score_source": score_source, "acoustic_source": acoustic_source,
-            "decoder": decoder, **origin, **holds, **provenance}
+            "decoder": decoder, "loras": loras, **origin, **holds, **provenance}
+
+
+def validate_loras(value):
+    """Validate public selections without accepting any caller-supplied paths."""
+    if not isinstance(value, list) or len(value) > 2:
+        raise ValueError("Choose one LoRA, or separate composition and sound adapters.")
+    result = []
+    for item in value:
+        if not isinstance(item, dict) or set(item) - {"id", "strength", "ar_scale", "nar_scale"}:
+            raise ValueError("A LoRA selection needs its library ID and strength.")
+        if not isinstance(item.get("id"), str) or not re.fullmatch(r"[a-f0-9]{64}", item["id"]):
+            raise ValueError("Choose a LoRA from the installed library.")
+        selection = {"id": item["id"]}
+        for field in ("strength", "ar_scale", "nar_scale"):
+            if field not in item:
+                continue
+            number = item[field]
+            if isinstance(number, bool) or not isinstance(number, (int, float)):
+                raise ValueError("LoRA strength must be a finite number.")
+            try:
+                number = float(number)
+            except (OverflowError, ValueError) as exc:
+                raise ValueError("LoRA strength must be a finite number.") from exc
+            if not math.isfinite(number):
+                raise ValueError("LoRA strength must be a finite number.")
+            selection[field] = number
+        result.append(selection)
+    if len({item["id"] for item in result}) != len(result):
+        raise ValueError("Choose each LoRA only once.")
+    return result
+
+
+def validate_lora_provenance(value):
+    """Check receipt structure before queue code uses its IDs and stage names."""
+    if not isinstance(value, list) or len(value) > 2:
+        raise ValueError("The saved LoRA identity is invalid.")
+    for item in value:
+        if (not isinstance(item, dict) or not isinstance(item.get("id"), str)
+                or not re.fullmatch(r"[a-f0-9]{64}", item["id"])):
+            raise ValueError("The saved LoRA identity is invalid.")
+        stages = item.get("stages")
+        if (not isinstance(stages, list) or not 1 <= len(stages) <= 2
+                or any(not isinstance(stage, str) or stage not in ("ar", "nar") for stage in stages)
+                or len(set(stages)) != len(stages)):
+            raise ValueError("The saved LoRA stages are invalid.")
+    if len({item["id"] for item in value}) != len(value):
+        raise ValueError("The saved LoRA identity repeats an adapter.")
+    return copy.deepcopy(value)
 
 
 def analyze_audio(path):
@@ -202,7 +258,8 @@ def recipe_from_metrics(metrics):
             "seed": str(opts.get("seed", "831001")), "steps": int(opts.get("num_inference_steps", 8)),
             "solver": opts.get("ode_method", "midpoint"),
             "cot": opts.get("cot", "off"), "max_seconds": int(opts.get("semantic_max_tokens", 750)) / TOKEN_RATE,
-            "abc": opts.get("abc", "")}
+            "abc": opts.get("abc", ""),
+            **{key: copy.deepcopy(metrics[key]) for key in ("loras", "lora_provenance") if key in metrics}}
 
 
 class Store:
@@ -249,6 +306,62 @@ class Store:
                 staged = original.with_name("." + row["id"] + ".deleting")
                 if not original.exists() and staged.is_file() and not staged.is_symlink():
                     staged.rename(original)
+        self.loras = LoRALibrary(self.data_root / "loras", references=self.lora_references)
+
+    def lora_references(self, adapter_id):
+        """Keep active takes safe and explain which historical takes use a file."""
+        result = []
+        with self.db() as db:
+            for table, kind in (("tracks", "track"), ("jobs", "job"), ("detached_performances", "performance")):
+                for row in db.execute(f"SELECT * FROM {table}"):
+                    record = dict(row)
+                    if kind == "job" and record.get("track_id"):
+                        continue
+                    recipe = json.loads(record["recipe"])
+                    if any(item.get("id") == adapter_id for item in recipe.get("lora_provenance", []) + recipe.get("loras", [])):
+                        result.append({"kind": kind, "id": record["id"], "status": record.get("status", "recorded"),
+                                       "title": record.get("title", recipe.get("title", "Saved performance"))})
+        return result
+
+    def prepare_loras(self, recipe, bind=False):
+        """Pin at enqueue; reverify exactly those files before every execution."""
+        recipe = dict(recipe)
+        saved = validate_lora_provenance(recipe["lora_provenance"]) if "lora_provenance" in recipe else None
+        if recipe.get("acoustic_source"):
+            # Completed acoustic data already includes the adapter's effect.
+            # Decode still works after an adapter was removed from the library.
+            return recipe
+        selections = validate_loras(recipe.get("loras", []))
+        if not selections:
+            if recipe.get("lora_provenance"):
+                raise ValueError("The saved LoRA identity does not match the selected adapters.")
+            recipe.pop("lora_memory_bytes", None)
+            return recipe
+        if saved is not None:
+            if {item.get("id") for item in saved} != {item["id"] for item in selections} or len(saved) != len(selections):
+                raise ValueError("The saved LoRA identity does not match the selected adapters.")
+            for selection in selections:
+                receipt = next(item for item in saved if item["id"] == selection["id"])
+                for stage in receipt.get("stages", []):
+                    key = stage + "_scale"
+                    chosen = selection.get(key, selection.get("strength", receipt.get(key)))
+                    if not bind and chosen != receipt.get(key):
+                        raise ValueError("The queued LoRA strength has changed. Create a new take.")
+                    receipt[key] = chosen
+            resolved = self.loras.resolve_saved(saved)
+        elif bind:
+            resolved = self.loras.resolve(selections)
+        else:
+            raise ValueError("This take has no verified LoRA identity. Select the adapter and create a new take.")
+        if any(resolved.get(stage + "_lora") for stage in ("ar", "nar")) and not engine.engine_capabilities().get("lora"):
+            raise ValueError("Update the music engine in Studio settings to use LoRAs.")
+        recipe["lora_provenance"] = resolved["loras"]
+        # Capture effective defaults so editing the library does not change a
+        # queued or restored recipe. Keep independent AR/NAR controls explicit.
+        recipe["loras"] = [{"id": item["id"], **{stage + "_scale": item[stage + "_scale"]
+                           for stage in item["stages"]}} for item in resolved["loras"]]
+        recipe["lora_memory_bytes"] = resolved.get("memory_bytes", 0)
+        return recipe
 
     @contextmanager
     def db(self):
@@ -747,7 +860,9 @@ class Generator:
                                     performance_file=self.store.performance_path(recipe["performance_source"]) if recipe.get("performance_source") else None,
                                     score_file=self.store.artifacts.input_path(Path(output).stem) if recipe.get("score_source") else None,
                                     acoustic_out=Path(output).with_suffix(".yac") if recipe.get("acoustic_launch_sha256") else None,
-                                    acoustic_only=recipe.get("render_mode") == "sound")
+                                    acoustic_only=recipe.get("render_mode") == "sound",
+                                    lora_options=self.store.loras.resolve_saved(recipe["lora_provenance"])
+                                    if recipe.get("lora_provenance") else None)
 
     @staticmethod
     def warm_plan(command):
@@ -1018,6 +1133,7 @@ class Generator:
         job_id = uuid.uuid4().hex
         with self.lock:
             self._accepting()
+            recipe = self.store.prepare_loras(recipe, bind=True)
             with self.store.db() as db:
                 db.execute("BEGIN IMMEDIATE")
                 position = db.execute("SELECT COALESCE(MAX(queue_position),0)+1 FROM jobs").fetchone()[0]
@@ -1139,6 +1255,7 @@ class Generator:
                 kind = "acoustic_decode"
             else:
                 recipe = self.store.prepare_performance(recipe, cancelled=cancelled)
+                recipe = self.store.prepare_loras(recipe)
                 kind = "native"
             reservation = self.admission.reserve(identity, recipe, kind, cancelled, on_wait=waiting)
             reserved = True
@@ -1149,6 +1266,10 @@ class Generator:
                 recipe["stage_capture_pending"] = True
             with self.store.db() as db:
                 db.execute("UPDATE jobs SET recipe=? WHERE id=?", (json.dumps(recipe), job_id))
+            # A take may have waited for memory after its first verification.
+            # Recheck at the actual child boundary, even for custom builders.
+            if kind == "native" and recipe.get("lora_provenance"):
+                self.store.prepare_loras(recipe)
             command = self.command_builder(recipe, output)
             warm_enabled, warm = self.warm_plan(command)
             if warm:
@@ -1196,6 +1317,8 @@ class Generator:
             output.with_suffix(".metrics.json").write_text(json.dumps(metrics, indent=2) + "\n")
             # Keep completed stages after user cancellation; application shutdown
             # can interrupt capture and recover it from the launch receipt later.
+            if not recipe.get("acoustic_source") and recipe.get("lora_provenance"):
+                self.store.loras.resolve_saved(recipe["lora_provenance"])
             recipe = self.store.capture_artifacts(job_id, recipe, cancelled=self.stop)
             plan = recipe.get("symbolic_plan")
             with self.store.db() as db:

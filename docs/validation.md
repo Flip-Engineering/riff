@@ -4,6 +4,11 @@ September 13, 2026. Claims below distinguish model inference, application behavi
 and compilation. The browser is an isolated Chromium instance; tests do not attach
 to a personal browser or use stored credentials.
 
+The October 19 [LoRA validation record](lora-validation.md) covers the native
+adapter backport, public-export import checks, queue/provenance behavior and
+the studio library. Earlier model measurements below are not adapter-specific
+memory or quality results.
+
 ## Measured inference
 
 ### Export-profile removal checks (September 20, 2026)

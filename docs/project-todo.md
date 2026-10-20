@@ -1,6 +1,6 @@
 # Riff project todo
 
-Updated: 2026-09-20 05:04 UTC
+Updated: 2026-10-19
 
 This is the canonical current-work list. The much larger private ledger in
 `data/TASKS.md` remains useful for receipts and historical evidence, but its
@@ -9,6 +9,15 @@ this list only when it is completed, deliberately closed, or explicitly
 rejected; rejected experiments remain documented in the private ledger.
 
 ## Open-issue execution pass
+
+- #7/#23/#24/#25: the October 19 [LoRA research](yue2-lora-research.md)
+  supersedes the missing-community-encoder and missing-native-loader premises.
+  The source now includes a pinned native adapter backport, validated import,
+  Hugging Face browsing and local library, independent AR/NAR controls, saved
+  provenance, and a dataset/config preparation helper. See the
+  [validation record](lora-validation.md) for completed checks and remaining
+  hardware, training and listening acceptance. This is not a released build or
+  evidence that a new Riff adapter has been trained.
 
 - #22: reproduced a delayed pre-save poll replacing the post-save state and
   removing the newly saved sound from the UI. Refresh application is now
@@ -199,11 +208,13 @@ returning 200 with matching lengths. No normal-generation path change was needed
   acoustic-noise reuse/interpolation and the companion VAE encoder only with
   valid dimensions, lineage and direct audio comparisons. This does not imply
   inversion, covers or voice cloning.
-- [ ] **L01/#7 — Semantic tokenizer, fine-tuning and LoRA research.** Reverse
-  engineer the missing audio-to-discrete-semantic path, distinguish it from
-  the text/ABC and VAE paths, validate representation compatibility, and only
-  then expose compatible adapter CRUD and loading. Keep this a major side
-  task; no speculative adapter loader is shipped.
+- [ ] **L01/#7 — Fine-tuning and listening acceptance.** Use the published
+  community semantic encoder and pinned training handoff with a licensed
+  recording dataset. Run training, record realized dependencies and checkpoint
+  hashes, and complete held-out baseline/AR/NAR/combined listening comparisons.
+  Native loading and adapter CRUD are implemented; CUDA/Metal inference and
+  musical-quality acceptance remain separate gates. No inverse-tokenizer
+  implementation is needed solely to begin this experiment.
 - [ ] **P01 — Elixir/Rust migration.** Move application orchestration and
   distribution toward Elixir, using Rust where native integration needs it.
   Preserve the tested Python boundary during each migration step and retain

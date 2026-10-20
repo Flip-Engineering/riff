@@ -23,6 +23,7 @@ API to Riff and records remaining stage-reuse and composition workflows.
 | Planning length | Minimum/maximum ABC tokens |
 | Performance length | Duration and minimum semantic tokens |
 | Semantic guidance | Guidance |
+| Learned composition and sound styles | YuE2-3B AR/NAR LoRA library, separate strengths, pinned adapter receipts |
 | Acoustic rendering | Solver steps and synthesis method: Midpoint or Multistep (AB2) |
 | Retain phrasing during acoustic refinement | Refine this performance; saved native codes, original score, revised sound, seed and solver steps |
 | Finish saved sound without repeating synthesis | Finish audio; owned completed acoustic tensor and captured decoder settings |
@@ -36,10 +37,27 @@ API to Riff and records remaining stage-reuse and composition workflows.
 
 The score is conditioning for a new performance, not an audio editor. Changing
 ABC, harmony or lyrics renders another take. The native runtime does not expose
-sample-accurate audio inpainting, editable stems, voice-reference encoding or a
-compatible YuE2 LoRA loader. The studio does not label unrelated adapters or
+sample-accurate audio inpainting, editable stems or voice-reference encoding.
+The studio does not label unrelated adapters or
 quantizations as those features. Existing-score work accepts supplied notation
 and lyrics; there is no transcription pipeline.
+
+[Style adapters](adapters.md) accept validated YuE2-3B safetensors in native,
+ComfyUI, PEFT and verified AI Toolkit layouts. Browse and import remain available
+with an older engine; active use requires `feature.yue2.lora=1` and the Riff
+format capability. AR changes composition, NAR changes sound, and a combined
+export can supply both. A native session applies the adapters at load time;
+changing a path or strength restarts that session. Zero bypasses the stage.
+Quantized bases are dequantized for the merge and requantized for inference.
+The [numerical and hardware validation scope](lora-validation.md) distinguishes
+tested behavior from listening and GPU acceptance work.
+
+The generation recipe's `loras` selects installed content IDs and finite
+strengths. Riff binds verified `lora_provenance` at enqueue, freezes the effective
+defaults, includes adapter memory in admission, and rechecks bytes before and
+after execution. Writer jobs retain the queued adapter selection. A saved
+acoustic checkpoint already contains the adapted sound: decoding it requires
+its compatible VAE and captured inputs, without loading a removed LoRA.
 
 [Saved sound synthesis](acoustic-recovery.md) retains a completed acoustic stage
 before audio decoding. `acoustic_source` creates a new queued take from those

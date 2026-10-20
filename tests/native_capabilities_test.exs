@@ -11,7 +11,9 @@ defmodule Riff.Native.CapabilitiesTest do
     "format.yue2.prefix" => "riff.yue2.prefix.v1",
     "feature.yue2.acoustic_checkpoint" => "1",
     "feature.yue2.acoustic_decode" => "1",
-    "format.yue2.acoustic" => "riff.yue2.acoustic.v1"
+    "format.yue2.acoustic" => "riff.yue2.acoustic.v1",
+    "feature.yue2.lora" => "1",
+    "format.yue2.lora" => "riff.yue2.lora.v1"
   }
   @valid Enum.map_join(@expected, "\n", fn {key, value} -> "#{key}=#{value}" end)
 
@@ -25,6 +27,7 @@ defmodule Riff.Native.CapabilitiesTest do
           String.replace(@valid, "feature.yue2.score_tokens", "feature.yue2.score_tokens_extra"),
           String.replace(@valid, "riff.yue2.prefix.v1", "riff.yue2.prefix.v2"),
           String.replace(@valid, "riff.yue2.acoustic.v1", "riff.yue2.acoustic.v2"),
+          String.replace(@valid, "riff.yue2.lora.v1", "riff.yue2.lora.v2"),
           String.replace(
             @valid,
             "feature.yue2.acoustic_decode=1",

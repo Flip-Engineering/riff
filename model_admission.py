@@ -346,6 +346,7 @@ def resource_inputs(recipe, kind, observer, writer_settings=None):
     observation = observer.snapshot()
     backend = "metal" if writer and platform_support.platform.system() == "Darwin" else "cpu" if writer else configured["backend"]
     return {"kind": kind, "config": config, "model_bytes": model_file.stat().st_size if model_file.is_file() else 0,
+            "adapter_bytes": 0 if writer else recipe.get("lora_memory_bytes", 0),
             "vae_bytes": vae_file.stat().st_size if not writer and vae_file.is_file() else 0,
             "backend": backend, "device": observation.get("device_identity") or f"cuda:{configured['device']}",
             "text_bytes": len(text.encode()), "seconds": recipe.get("max_seconds", 0),

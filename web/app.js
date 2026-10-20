@@ -208,7 +208,8 @@ function formRecipe() {
     hold_words: $("#hold-words").getAttribute("aria-pressed") === "true",
     hold_sound: $("#hold-sound").getAttribute("aria-pressed") === "true",
   };
-  return window.RiffAcoustics?.recipe(recipe) || recipe;
+  const withAdapters = window.RiffLoRAs?.recipe(recipe) || recipe;
+  return window.RiffAcoustics?.recipe(withAdapters) || withAdapters;
 }
 function updateForm() {
   updateExploration();
@@ -366,6 +367,7 @@ function fillRecipe(recipe, variation = false) {
   draftScoreText = $("#abc").value;
   draftRefinement = { ...(recipe.refinement || {}) };
   window.RiffControls?.fill(draftRefinement);
+  window.RiffLoRAs?.fill(recipe);
   window.RiffAcoustics?.fill(recipe, formRecipe());
 
   updateForm();
@@ -788,6 +790,11 @@ async function openDetails(id) {
         : "Open lyrics");
     $("#detail-settings").textContent =
       `Seed ${detailTrack.recipe.seed} / ${detailTrack.recipe.steps} steps / ${detailTrack.recipe.cot === "off" ? "Direct" : detailTrack.recipe.cot === "melody" ? "Melody" : "Melody & chords"}`;
+    for (const adapter of detailTrack.recipe.lora_provenance || []) {
+      $("#detail-settings").textContent += ` / ${adapter.name || adapter.source?.repo || "LoRA " + adapter.id.slice(0, 8)}: ` +
+        adapter.stages.map(stage => `${stage === "ar" ? "composition" : "sound"} ${adapter[stage + "_scale"]}`).join(", ") +
+        (adapter.license ? ` (${adapter.license})` : "");
+    }
     const peak =
       detailTrack.metrics.peak_process_memory_bytes || detailTrack.metrics.macos_lifetime_peak_footprint_bytes_observed;
     $("#track-facts").innerHTML =
@@ -1117,6 +1124,7 @@ async function refresh() {
   renderWriting();
   window.RiffControls?.render(next);
   window.RiffAcoustics?.render(next);
+  window.RiffLoRAs?.render(next);
   window.RiffScore?.update(next);
   window.RiffCompare?.render();
   $("#library-count").textContent = state.tracks.filter(

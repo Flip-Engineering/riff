@@ -3,12 +3,12 @@
   "use strict";
   const el = selector => document.querySelector(selector);
   const upstream = ["lyrics", "style", "abc", "score_source", "mode", "cot", "max_seconds", "steps",
-    "solver", "cfg_scale", "temperature", "seed", "refinement", "performance_source"];
+    "solver", "cfg_scale", "temperature", "seed", "refinement", "performance_source", "loras"];
   const copy = value => JSON.parse(JSON.stringify(value));
   const ordered = value => value && typeof value === "object" && !Array.isArray(value)
     ? Object.fromEntries(Object.keys(value).sort().map(key => [key, ordered(value[key])])) : value;
   const music = recipe => JSON.stringify(ordered(Object.fromEntries(upstream.map(key =>
-    [key, recipe[key] ?? (key.endsWith("_source") ? "" : key === "refinement" ? {} : null)]))));
+    [key, recipe[key] ?? (key === "loras" ? [] : key.endsWith("_source") ? "" : key === "refinement" ? {} : null)]))));
   const precision = ["Original model", "32-bit float", "16-bit float", "Brain float 16", "8-bit", "4-bit", "4-bit K"];
   let draft = null, draftSerial = 0, detailSerial = 0, detail = null;
   const pending = new Set();

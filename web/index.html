@@ -20,6 +20,7 @@
     <script src="/visualizer.js" defer></script>
     <script src="/updates.js" defer></script>
     <script src="/acoustics.js" defer></script>
+    <script src="/loras.js" defer></script>
     <script src="/app.js" defer></script>
     <script src="/lineage.js" defer></script>
     <script src="/compare.js" defer></script>
@@ -294,6 +295,18 @@
                   rows="3"
                   placeholder="Describe a sound, or let the music find its own direction."
                 ></textarea>
+                <details class="lora-composer" id="lora-composer">
+                  <summary>Style adapters <span class="quiet-text">LoRAs</span></summary>
+                  <div class="field-heading"><p class="control-hint">Shape the composition and the sound of the next take.</p><button type="button" id="lora-open" class="text-button">Browse LoRAs</button></div>
+                  <div class="lora-stage-grid">
+                    <div><label for="lora-ar">Composition adapter</label><select id="lora-ar"><option value="">Original composition</option></select></div>
+                    <div><label for="lora-ar-scale">Composition strength</label><input id="lora-ar-scale" type="number" step="any" value="1" required /></div>
+                    <div><label for="lora-nar">Sound adapter</label><select id="lora-nar"><option value="">Original sound</option></select></div>
+                    <div><label for="lora-nar-scale">Sound strength</label><input id="lora-nar-scale" type="number" step="any" value="1" required /></div>
+                  </div>
+                  <p id="lora-composer-hint" class="control-hint" role="status">Browse or import an adapter to get started. Zero strength turns a stage off.</p>
+                  <button type="button" id="lora-trigger" class="text-button" hidden>Add trigger words to the sound</button>
+                </details>
                 <details class="compass-disclosure" open>
                   <summary>
                     Sound compass<span id="compass-reading" class="quiet-text"
@@ -1200,6 +1213,26 @@
         <div id="update-task-slot"></div>
         <p id="managed-hint" class="control-hint">This copy runs from source. <a href="https://github.com/Flip-Engineering/riff/releases" target="_blank" rel="noreferrer">Install a release</a> to enable app updates.</p>
       </section>
+    </dialog>
+    <dialog id="lora-dialog" class="lora-dialog" aria-labelledby="lora-heading">
+      <div class="dialog-top"><div><p class="eyebrow">YuE2 collection</p><h2 id="lora-heading">Find a new sound.</h2></div><button type="button" class="icon-button" data-close="lora-dialog" aria-label="Close LoRA library">×</button></div>
+      <p class="dialog-description">Explore community styles, listen to examples, and keep adapters for your next take.</p>
+      <div class="lora-tabs" aria-label="LoRA collections"><button type="button" class="secondary-button" id="lora-browse-tab" aria-pressed="true">Browse Hugging Face</button><button type="button" class="secondary-button" id="lora-installed-tab" aria-pressed="false">Installed</button><button type="button" class="text-button" id="lora-import-open">Import a file</button></div>
+      <input id="lora-import-file" type="file" accept=".safetensors" hidden />
+      <div id="lora-import-options" hidden><label for="lora-import-config">PEFT adapter_config.json <span class="quiet-text">optional</span></label><input id="lora-import-config" type="file" accept=".json" /><p class="control-hint">Choose the trainer's configuration before importing PEFT weights. Paired files may be imported individually, then selected together.</p><button type="button" class="secondary-button" id="lora-import-choose">Choose safetensors</button></div>
+      <form id="lora-search-form" class="lora-search"><label class="sr-only" for="lora-query">Find YuE2 LoRAs</label><input id="lora-query" type="search" placeholder="A genre, an instrument, a feeling…" /><label class="sr-only" for="lora-sort">Sort LoRAs</label><select id="lora-sort"><option value="downloads">Most downloaded</option><option value="likes">Most liked</option><option value="lastModified">Recently updated</option><option value="trendingScore">Trending</option></select><button type="submit" class="secondary-button">Search</button></form>
+      <details id="lora-filters" class="lora-filters"><summary>Filter styles</summary><div class="lora-filter-grid">
+        <div><label for="lora-stage-filter">Stage</label><select id="lora-stage-filter"><option value="">Any stage</option><option value="ar">Composition (AR)</option><option value="nar">Sound (NAR)</option><option value="ar+nar">Both stages</option></select></div>
+        <div><label for="lora-compatibility-filter">Compatibility</label><select id="lora-compatibility-filter"><option value="">Any compatibility</option><option value="compatible">Supported headers</option><option value="unsupported">Unsupported files</option></select></div>
+        <div><label for="lora-license">License</label><input id="lora-license" list="lora-licenses" placeholder="Any license" /><datalist id="lora-licenses"><option value="cc-by-nc-4.0"></option><option value="apache-2.0"></option><option value="mit"></option><option value="cc0-1.0"></option></datalist></div>
+        <div><label for="lora-genre">Genre or style tag</label><input id="lora-genre" placeholder="Any genre" /></div>
+      </div><p class="control-hint">Stage and compatibility filters inspect file headers and can take longer.</p></details>
+      <p id="lora-network-hint" class="control-hint">Browsing sends your search to Hugging Face. Files and previews are fetched by this studio.</p>
+      <p id="lora-status" class="control-hint" role="status" aria-live="polite"></p>
+      <div id="lora-install-progress" hidden><progress id="lora-progress" aria-label="LoRA installation progress"></progress><span id="lora-progress-text"></span><button type="button" id="lora-cancel" class="text-button">Cancel installation</button></div>
+      <div id="lora-results" class="lora-grid" aria-label="LoRA results"></div>
+      <div id="lora-pages" class="lora-pagination"><button type="button" id="lora-previous" class="text-button" disabled>Previous</button><span id="lora-page" class="quiet-text"></span><button type="button" id="lora-next" class="text-button">Next</button></div>
+      <section id="lora-detail" class="lora-detail" aria-label="Selected adapter" hidden></section>
     </dialog>
     <dialog id="about-dialog" class="small-dialog">
       <div class="dialog-top">

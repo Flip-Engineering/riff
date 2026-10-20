@@ -25,6 +25,7 @@ from test_studio import fixture_audio, recipe
 from maintenance import Maintenance
 from paths import MODELS
 import platform_support
+import run
 
 
 with tempfile.TemporaryDirectory(prefix="riff-review-browser-") as folder:
@@ -49,6 +50,40 @@ with tempfile.TemporaryDirectory(prefix="riff-review-browser-") as folder:
     track_id = store.add_track(audio, recipe(title="Reedlight", steps=19, max_seconds=420, seed="15961",
         style=next(p[2] for p in PRESETS if p[0] == "reed-room"),
         lyrics="[Verse]\nReeds lean low where the silver runs.\nWe carry the quiet into the sun.\nA little light, a little room.\nA song takes shape in the afternoon."), {})
+    lora_fixture = {}
+    if os.environ.get("RIFF_LORA_FIXTURE"):
+        from test_loras import FakeHub, REPO, COMMIT, adapter_bytes
+        class BrowserHub(FakeHub):
+            main_reads = 0
+            def model(self, repo, ref="main"):
+                if ref == "main":
+                    self.main_reads += 1
+                    if self.main_reads > 1: self.commit = "b" * 40
+                return super().model(repo, ref)
+            def search(self, query="", limit=20, sort="downloads", genre="", page=0):
+                if query == "offline": raise ValueError("Fixture Hub is offline")
+                rows = [] if query and query not in "folk musician yue2" else [{
+                    "repo": REPO, "name": "Folk study", "tags": ["lora", "folk"],
+                    "license": "apache-2.0", "likes": 12, "downloads": 245,
+                    "updated_at": "2026-10-18T12:00:00Z"}]
+                return {"models": rows if page == 0 else [], "page": page, "limit": limit,
+                        "has_more": False, "query": query, "genre": genre, "sort": sort}
+        store.loras.hub = BrowserHub({
+            "folk_pair.safetensors": adapter_bytes(style="comfyui", combined=True),
+            "unrelated.safetensors": b"not a safetensors header",
+            "unsafe.pt": b"this fixture is never fetched",
+            "demos/folk.wav": audio.read_bytes(),
+            "prompts/folk.txt": b"Fingerpicked folk, warm room, gentle reeds.",
+            "README.md": b"# Folk study\nA public fixture, not a trained model.\n<script>window.loraXSS=true</script>\n[unsafe](javascript:alert(1))\n![tracking](https://example.invalid/tracker.png)\n[Source](https://huggingface.co/musician/yue2-test-lora)\n[Pinned prompt](prompts/folk.txt)\n",
+        })
+        seed = root / "room.safetensors"
+        seed.write_bytes(adapter_bytes(stage="nar", value=.2))
+        item = store.loras.import_local([seed], metadata={"name": "Room study", "trigger_words": ["warm room"]})
+        upload = root / "local-study.safetensors"
+        upload.write_bytes(adapter_bytes(stage="ar", value=.3))
+        lora_fixture = {"upload": str(upload), "nar_id": item["id"], "hub_repo": REPO, "revision": COMMIT}
+        run.engine_capabilities = lambda *args, **kwargs: {"lora": True, "warm_engine": False,
+            "exact_score_replay": False, "acoustic_checkpoint": False}
     if os.environ.get("RIFF_PERFORMANCE_FIXTURE"):
         codes = audio.with_suffix(".codes.i32"); codes.write_bytes(bytes([7, 0, 0, 0]) * 300)
         saved = store.track(track_id)["recipe"]
@@ -77,7 +112,11 @@ with tempfile.TemporaryDirectory(prefix="riff-review-browser-") as folder:
         return [sys.executable, "-c", "import shutil,sys;shutil.copyfile(sys.argv[1],sys.argv[2])", str(audio), str(output)]
     original_readiness = platform_support.readiness
     platform_support.readiness = lambda: {**original_readiness(), "ready": True, "binary_ready": True, "missing_models": []}
-    generator = Generator(store, command)
+    if os.environ.get("RIFF_LORA_FIXTURE"):
+        from admission_fixture import FixtureAdmission
+        generator = Generator(store, command, admission=FixtureAdmission())
+    else:
+        generator = Generator(store, command)
     original_inspiration = generator.inspiration
     generator.inspiration = lambda payload: {"abc": score.replace("D2 F2", "E2 G2"), "summary": "A lifted opening phrase", "writer_model": "fixture/composer"} if payload.get("task") == "score" else original_inspiration(payload)
     keys = FakeKeychain()
@@ -101,7 +140,7 @@ with tempfile.TemporaryDirectory(prefix="riff-review-browser-") as folder:
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
     print(json.dumps({"url": f"http://127.0.0.1:{server.server_port}", "track_id": track_id,
-                      "history": history}), flush=True)
+                      "history": history, "loras": lora_fixture}), flush=True)
     try:
         server.serve_forever()
     finally:

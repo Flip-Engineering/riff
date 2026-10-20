@@ -97,6 +97,7 @@ jobs:
             }
       - run: elixir scripts/build_cached_native.exs --backend ${{ matrix.backend }} --build-only --jobs 2
       - run: python scripts/check_native_solver.py
+      - run: python scripts/check_native_lora.py --output data/native-lora-check
       - run: elixir scripts/check_native_score_replay.exs --download-tokenizer --output data/native-score-check
       - run: elixir scripts/check_native_acoustic.exs --tokenizer data/native-score-check/yue2-qwen.tiktoken
       - if: matrix.backend == 'metal'
@@ -106,6 +107,14 @@ jobs:
         with:
           name: native-cache-${{ matrix.backend }}
           path: native-cache-receipts/
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: native-lora-${{ matrix.backend }}
+          path: |
+            data/native-lora-check/receipt.json
+            data/native-lora-check/numerical.log
           if-no-files-found: ignore
   cuda:
     runs-on: ubuntu-24.04

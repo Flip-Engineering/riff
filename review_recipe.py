@@ -7,12 +7,23 @@ import run as engine
 from studio_core import validate_recipe
 
 FIELDS = ("title", "lyrics", "style", "abc", "score_source", "mode", "cot", "max_seconds",
-          "steps", "solver", "cfg_scale", "temperature", "seed", "refinement", "performance_source", "render_mode", "acoustic_source", "decoder")
+          "steps", "solver", "cfg_scale", "temperature", "seed", "refinement", "performance_source", "render_mode", "acoustic_source", "decoder", "loras")
+
+
+def lora_schema(allowed=None):
+    identity = {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+    if allowed:
+        identity["enum"] = sorted(allowed)
+    return {"type": "array", "maxItems": 2 if allowed is None else min(2, len(allowed)),
+            "description": "YuE2 LoRAs. Use the supplied draft adapters for a new performance, or copy the exact recorded adapters of an offered saved sound. Preserve the supplied adapters unless changing them is requested. At most one adapter per stage; strength zero disables a stage.",
+            "items": {"type": "object", "additionalProperties": False, "required": ["id"],
+                      "properties": {"id": identity, "strength": {"type": "number"},
+                                     "ar_scale": {"type": "number"}, "nar_scale": {"type": "number"}}}}
 
 
 def generation_context(source):
     keys = (*FIELDS, "brief", "idea_engine", "writer_tokens", "lyrics_source", "energy", "texture", "theme",
-            "performance", "performance_track_id", "writer_model", "writer_summary", "acoustic")
+            "performance", "performance_track_id", "writer_model", "writer_summary", "acoustic", "lora_provenance")
     return {key: source[key] for key in keys if key in source}
 
 
@@ -100,6 +111,10 @@ def source_seed(source):
 
 
 def response_schema(source, keep_lyrics, *, preserve_seed=False):
+    acoustics = available_acoustics(source)
+    lora_ids = {item["id"] for item in source.get("loras", [])}
+    for sound in acoustics:
+        lora_ids.update(item["id"] for item in sound["inputs"].get("loras", []))
     refinement = {}
     for option in model_options.schema():
         field = {"type": "integer" if option["integer"] else "number",
@@ -134,11 +149,12 @@ def response_schema(source, keep_lyrics, *, preserve_seed=False):
                                "description": "Empty for a fresh performance. Use the supplied track ID to re-synthesize its saved performance codes with revised acoustic conditioning or solver steps. Retains phrasing and length; not suitable for new words or a new composition."},
         "render_mode": {"type": "string", "enum": ["music", "plan", "performance", "sound"],
                         "description": "music renders a take; performance saves music codes; sound saves completed sound synthesis for later decoding; plan composes a score and requires cot melody or full and empty performance_source. An acoustic_source needs music."},
-        "acoustic_source": {"type": "string", "enum": [""] + [item["id"] for item in available_acoustics(source)],
+        "acoustic_source": {"type": "string", "enum": [""] + [item["id"] for item in acoustics],
                             "description": "An offered completed sound to decode again. Copy its listed musical inputs exactly; only title and decoder controls change. Skips composition, performance and acoustic synthesis. Leave empty when changing any of those stages."},
         "decoder": engine.decoder_schema(),
+        "loras": lora_schema(lora_ids),
     }
-    for item in available_acoustics(source):
+    for item in acoustics:
         for key in ("score_source", "performance_source"):
             reference = item["inputs"].get(key)
             if reference and reference not in properties[key]["enum"]:
@@ -160,7 +176,7 @@ def response_schema(source, keep_lyrics, *, preserve_seed=False):
 def validate_generation(value, source, keep_lyrics=False):
     """Validate a complete composer or producer recipe at the common boundary."""
     if isinstance(value, dict):
-        value = {"acoustic_source": "", "decoder": {}, **value}
+        value = {"acoustic_source": "", "decoder": {}, "loras": source.get("loras", []), **value}
     if not isinstance(value, dict) or set(value) != set(FIELDS):
         raise ValueError("The model did not return a complete generation recipe. Your current draft is kept.")
     for key in ("title", "lyrics", "style", "abc", "score_source", "mode", "cot", "seed", "performance_source", "render_mode", "solver", "acoustic_source"):
@@ -178,7 +194,7 @@ def validate_generation(value, source, keep_lyrics=False):
             raise ValueError("The model selected sound synthesis that was not supplied for this request.")
         from acoustic_artifacts import UPSTREAM
         effective = {**value, "lyrics": lyrics}
-        if any(effective[key] != acoustic["inputs"].get(key, "" if key.endswith("_source") else None) for key in UPSTREAM):
+        if any(effective[key] != acoustic["inputs"].get(key, [] if key == "loras" else "" if key.endswith("_source") else None) for key in UPSTREAM):
             raise ValueError("The recommended decoder take changed its saved musical inputs. Use a new performance for those changes.")
     if not acoustic and value["performance_source"] and value["performance_source"] != source.get("performance_track_id"):
         raise ValueError("The model selected a performance that was not supplied for this request.")
@@ -186,9 +202,23 @@ def validate_generation(value, source, keep_lyrics=False):
         raise ValueError("The model selected a score that was not supplied for this request.")
     # These are the same validation and defaults used by POST /api/generations.
     # Origin links come from the studio, never from the model.
-    result = validate_recipe({**source, **value, "lyrics": lyrics, "title_auto": False,
+    context = dict(source)
+    if acoustic:
+        # Its completed sound already includes these weights. Preserve the
+        # captured receipt, even if the current draft uses other adapters or
+        # the original adapter has been removed from the installed library.
+        context.pop("lora_provenance", None)
+        if "lora_provenance" in acoustic["inputs"]:
+            context["lora_provenance"] = acoustic["inputs"]["lora_provenance"]
+    result = validate_recipe({**context, **value, "lyrics": lyrics, "title_auto": False,
                               "parent_track_id": "", "review_id": "",
                               "lyrics_source": "review" if lyrics else "none"})
+    if not acoustic:
+        offered = {item["id"] for item in source.get("loras", [])}
+        if any(item["id"] not in offered for item in result["loras"]):
+            raise ValueError("The model selected a LoRA that was not supplied for this request.")
+        if {item["id"] for item in result["loras"]} != offered:
+            result.pop("lora_provenance", None)
     for key in ("parent_track_id", "review_id"):
         result.pop(key, None)
     return result

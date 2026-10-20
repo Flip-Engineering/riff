@@ -13,7 +13,7 @@ from score_artifacts import _directory, _write_once
 
 
 UPSTREAM = ("lyrics", "style", "abc", "score_source", "mode", "cot", "max_seconds",
-            "steps", "solver", "cfg_scale", "temperature", "seed", "refinement", "performance_source")
+            "steps", "solver", "cfg_scale", "temperature", "seed", "refinement", "performance_source", "loras")
 
 
 class AcousticArtifacts:
@@ -58,7 +58,7 @@ class AcousticArtifacts:
         provenance = result["descriptor"]["provenance"]
         original = provenance["launch"]["recipe"]
         for key in UPSTREAM:
-            if key in payload and payload[key] != original.get(key, "" if key.endswith("_source") else None):
+            if key in payload and payload[key] != original.get(key, [] if key == "loras" else "" if key.endswith("_source") else None):
                 raise ValueError("Saved sound already contains its music. Choose a new performance to change the composition or synthesis.")
         if payload.get("render_mode", "music") != "music":
             raise ValueError("Choose audio to finish saved sound synthesis.")

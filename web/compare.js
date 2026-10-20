@@ -37,6 +37,8 @@
         if (left !== right) changes.push([label, `${display(left)} → ${display(right)}`]);
       }
       const refinementKeys = new Set([...Object.keys(a.recipe.refinement || {}), ...Object.keys(b.recipe.refinement || {})]);
+      if (JSON.stringify(a.recipe.loras || []) !== JSON.stringify(b.recipe.loras || []))
+        changes.push(["Style adapters", "LoRA selection or strength changed"]);
       if ([...refinementKeys].some(field => a.recipe.refinement?.[field] !== b.recipe.refinement?.[field]))
         changes.push(["Fine tuning", "Sampling controls changed"]);
       const precision = ["Model default", "32-bit float", "16-bit float", "Brain float 16", "8-bit", "4-bit", "4-bit K"];

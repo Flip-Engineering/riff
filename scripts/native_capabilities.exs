@@ -75,6 +75,13 @@ defmodule Riff.Native.Capabilities do
         end
       end
 
+      if expected["feature.yue2.lora"] == "1" and mode == "help" do
+        for option <- ~w(yue2.ar_lora yue2.ar_lora_scale yue2.nar_lora yue2.nar_lora_scale) do
+          unless String.contains?(text, option),
+            do: raise("Native help does not expose #{option}")
+        end
+      end
+
       if mode == "inspect" and not String.contains?(text, "\nweights=0\n"),
         do: raise("Capability inspection unexpectedly discovered model weights")
 

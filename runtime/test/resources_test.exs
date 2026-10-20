@@ -95,6 +95,70 @@ defmodule Riff.Runtime.ResourcesTest do
     assert Resources.estimate(Map.put(input, "context", 4096))["basis"]["tokens"] == 4096
   end
 
+  test "native adapter factors and merge scratch reserve additional bytes before the margin" do
+    # The Python bridge supplies verified F32 factors, fused-factor copies and
+    # peak merge scratch as one total. This charge applies to every native mode,
+    # including planning, because session creation selects both adapter sources.
+    adapter_bytes = 128 * 1024 * 1024
+
+    for mode <- ["music", "plan", "performance"], backend <- ["metal", "cpu", "cuda"] do
+      input = %{
+        "kind" => "native",
+        "render_mode" => mode,
+        "backend" => backend,
+        "device" => "GPU-fixture",
+        "model_bytes" => 2_600_000_000,
+        "vae_bytes" => 260_000_000,
+        "seconds" => 2,
+        "text_bytes" => 80,
+        "margin" => 0.25
+      }
+
+      baseline = Resources.estimate(input)
+      adapted = Resources.estimate(Map.put(input, "adapter_bytes", adapter_bytes))
+
+      assert baseline["basis"]["adapters"] == 0
+      assert adapted["basis"]["adapters"] == adapter_bytes
+
+      assert Map.delete(adapted["basis"], "adapters") ==
+               Map.delete(baseline["basis"], "adapters")
+
+      assert adapted["host_peak"] - baseline["host_peak"] == div(adapter_bytes * 5, 4)
+
+      if backend == "cuda" do
+        assert adapted["device_peak"] == adapted["host_peak"]
+        assert adapted["device_peak"] - baseline["device_peak"] == div(adapter_bytes * 5, 4)
+      else
+        assert adapted["device_peak"] == 0
+      end
+
+      assert Resources.estimate(Map.put(input, "adapter_bytes", 0)) == baseline
+    end
+  end
+
+  test "writer and VAE-only replay do not reserve unrelated main-model adapters" do
+    writer = %{
+      "kind" => "writer",
+      "backend" => "metal",
+      "model_bytes" => 300_000_000,
+      "text_bytes" => 100,
+      "writer_tokens" => 64
+    }
+
+    for input <- [writer, acoustic()] do
+      assert Resources.estimate(Map.put(input, "adapter_bytes", 2_000_000_000)) ==
+               Resources.estimate(input)
+    end
+  end
+
+  test "invalid native adapter reservations cannot subtract memory or silently coerce input" do
+    for bytes <- [-1, 0.5, "1024", true, false, nil] do
+      assert_raise ArgumentError, fn ->
+        Resources.estimate(%{"kind" => "native", "adapter_bytes" => bytes})
+      end
+    end
+  end
+
   test "verified acoustic replay needs no main model and accounts for the observed short decode" do
     result = Resources.estimate(acoustic())
     basis = result["basis"]

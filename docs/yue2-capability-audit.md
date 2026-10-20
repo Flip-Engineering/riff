@@ -1,5 +1,12 @@
 # YuE2 capability audit
 
+**October 19, 2026 addendum:** the adapter findings below describe the
+September runtime snapshot. Riff now backports native AR/NAR LoRA support,
+with validated import, library controls and pinned per-take provenance.
+See [current adapter research](yue2-lora-research.md) and
+[validation](lora-validation.md). Reference-audio, stem and voice-cloning
+limitations remain as documented.
+
 Audited September 12, 2026 against upstream
 [88da114a](https://github.com/multimodal-art-projection/YuE/tree/88da114a67df892af0329472073b96a5ef700b93)
 and initially Riff v0.5.3 (`5919837`); Riff coverage updated September 13 for exact

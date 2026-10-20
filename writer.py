@@ -109,13 +109,14 @@ def written_generation(value, payload, partial=False):
     if scope == "sound":
         proposal["title"] = source["title"]
     if keep_sound:
-        proposal["style"] = source["style"]
+        proposal.update(style=source["style"], loras=source["loras"])
     if source["mode"] in ("instrumental", "free"):
         proposal.update(mode=source["mode"], lyrics="")
     if payload.get("queued_generation"):
-        # The user already queued a particular output and duration. Writing
-        # fills that request; standalone writing can propose a different scope.
-        proposal.update(max_seconds=source["max_seconds"], render_mode=source["render_mode"])
+        # Output, duration and adapter identity were fixed when this take was
+        # queued. Writing fills that request without invalidating its receipt.
+        proposal.update(max_seconds=source["max_seconds"], render_mode=source["render_mode"],
+                        loras=source["loras"])
         if not source.get("title_auto"):
             proposal["title"] = source["title"]
     generation = validate_generation(proposal, source)

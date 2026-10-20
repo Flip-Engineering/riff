@@ -179,8 +179,12 @@ defmodule Riff.Runtime.Resources do
     decoder_frames = if vae > 0, do: min(generated, input["vae_chunk"] || generated), else: 0
     decode = decoder_frames * (input["sample_stride"] || 1920) * 2 * 4 * 4
     weights = input["model_bytes"] || 0
+    # Verified adapter factors expand to F32 on the host; merging needs bounded
+    # per-weight scratch. The bridge supplies their conservative total. This is
+    # an admission estimate, not a measured GPU allocation or throughput claim.
+    adapters = if writer, do: 0, else: dimension!(Map.get(input, "adapter_bytes", 0), 0)
     margin = max(0, input["margin"] || 0.2)
-    peak = ceil((weights + vae + kv + tensors + decode) * (1 + margin))
+    peak = ceil((weights + vae + kv + tensors + decode + adapters) * (1 + margin))
     cuda = input["backend"] == "cuda"
 
     %{
@@ -189,6 +193,7 @@ defmodule Riff.Runtime.Resources do
       "device" => if(cuda, do: input["device"], else: nil),
       "basis" => %{
         "weights" => weights + vae,
+        "adapters" => adapters,
         "kv" => kv,
         "working_tensors" => tensors + decode,
         "tokens" => tokens,

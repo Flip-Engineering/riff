@@ -181,10 +181,12 @@ defmodule Riff.Native.ScoreReplayCheck do
     # still require this explicit review. The warm-engine patch adds an opt-in
     # yue2.keep_resident session option and the CLI job loop; with the option
     # unset (as in this oracle comparison) the pipeline releases AR/NAR exactly
-    # as before.
+    # as before. The weight-adapter patch returns the original TensorSource
+    # when no adapter is selected; this oracle keeps adapter selection empty.
     unless downstream ==
              Enum.map(
-               [@patch, "patches/yue2-vae-checkpoint.patch", "patches/yue2-warm-engine.patch"],
+               [@patch, "patches/yue2-vae-checkpoint.patch", "patches/yue2-warm-engine.patch",
+                "patches/yue2-weight-adapters.patch"],
                &Path.join(@app, &1)
              ),
            do: raise("Review the original-pipeline oracle after changing downstream patches")

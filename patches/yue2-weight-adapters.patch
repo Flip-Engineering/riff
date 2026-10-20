@@ -1,0 +1,942 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index ba6031c..b5edbfc 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -389,6 +389,8 @@ add_library(engine_core OBJECT
+     src/framework/model_spec/options.cpp
+     src/framework/model_spec/schema.cpp
+     src/framework/assets/tensor_source.cpp
++    src/framework/assets/weight_adapter.cpp
++    src/framework/assets/weight_adapter_source.cpp
+     src/framework/assets/weight_norm_folding.cpp
+     src/framework/assets/torch_bin.cpp
+     src/framework/core/module.cpp
+@@ -1353,6 +1355,7 @@ audiocpp_add_model(yue2
+         src/models/yue2/acoustic_checkpoint.cpp
+         src/models/yue2/ar_runtime.cpp
+         src/models/yue2/assets.cpp
++        src/models/yue2/lora.cpp
+         src/models/yue2/nar_runtime.cpp
+         src/models/yue2/pipeline.cpp
+         src/models/yue2/request.cpp
+diff --git a/include/engine/framework/assets/weight_adapter.h b/include/engine/framework/assets/weight_adapter.h
+new file mode 100644
+index 0000000..deef485
+--- /dev/null
++++ b/include/engine/framework/assets/weight_adapter.h
+@@ -0,0 +1,89 @@
++// Backported from audio.cpp 548e5afc (Apache-2.0; Copyright 2026 ShugoAI LLC).
++// Riff changes: bounded validation, finite tensors, dense projection deltas,
++// exact zero-strength pass-through, and bounded transient merge storage.
++#pragma once
++
++#include "engine/framework/assets/tensor_source.h"
++
++#include <map>
++#include <unordered_map>
++#include <variant>
++
++namespace engine::assets {
++
++enum class WeightMergeMode {
++    RankWiseF32,
++    DeltaF32,
++    RoundedBF16Delta,
++};
++
++struct LowRankWeightUpdate {
++    std::vector<float> a;
++    std::vector<float> b;
++    int64_t r = 0;
++    int64_t in = 0;
++    int64_t out = 0;
++};
++
++struct DenseWeightUpdate {
++    std::vector<int64_t> shape;
++    std::vector<float> values;
++};
++
++struct WeightUpdate {
++    std::variant<LowRankWeightUpdate, DenseWeightUpdate> factors;
++    float scale = 1.0F;
++    WeightMergeMode merge_mode = WeightMergeMode::DeltaF32;
++};
++
++struct WeightReplacement {
++    std::vector<int64_t> shape;
++    std::vector<float> values;
++};
++
++struct WeightAdapter {
++    std::map<std::string, WeightUpdate> updates;
++    std::map<std::string, WeightReplacement> replacements;
++};
++
++struct WeightAdapterReadOptions {
++    float strength = 1.0F;
++    // Overrides the effective alpha/r coefficient, not the user strength.
++    std::optional<float> scale_override;
++    bool require_scaling_metadata = false;
++};
++
++// Reads native A/B, PEFT A/B, ComfyUI up/down, and dense projection deltas.
++// Target names remain external until bound to a model. No model names here.
++WeightAdapter read_weight_adapter(
++    const std::filesystem::path & path, const WeightAdapterReadOptions & options = {});
++
++struct WeightAdapterTarget {
++    std::string tensor;
++    // Slice of the adapter's output rows, for fused external projections.
++    int64_t first_row = 0;
++    int64_t rows = 0;
++};
++
++class WeightAdapterBindings {
++public:
++    // Also registers the underscore spelling used by ComfyUI/LyCORIS.
++    void add(std::string name, std::vector<WeightAdapterTarget> targets);
++    void add(std::string name, std::string tensor);
++    const std::vector<WeightAdapterTarget> & resolve(const std::string & name) const;
++private:
++    std::unordered_map<std::string, std::vector<WeightAdapterTarget>> targets_;
++};
++
++WeightAdapter bind_weight_adapter(
++    const TensorSource & base, WeightAdapter adapter,
++    const WeightAdapterBindings & bindings, WeightMergeMode merge_mode);
++
++// Merges on host during weight loading, then uses the existing dtype/upload API.
++// Inference graphs and base storage stay untouched. Replacements win over updates.
++// No merged model copy is retained on the host; the warm pipeline owns resident weights.
++std::shared_ptr<const TensorSource> make_weight_adapter_source(
++    std::shared_ptr<const TensorSource> base, WeightAdapter adapter,
++    std::string log_prefix = "adapter");
++
++}  // namespace engine::assets
+diff --git a/include/engine/models/yue2/assets.h b/include/engine/models/yue2/assets.h
+index bd260b0..52ca15d 100644
+--- a/include/engine/models/yue2/assets.h
++++ b/include/engine/models/yue2/assets.h
+@@ -21,6 +21,12 @@ struct Yue2Assets {
+     Yue2Config config;
+ };
+ 
++// Adapter selection is immutable for a session. Changes require a new session.
++std::shared_ptr<const assets::TensorSource> make_yue2_lora_source(
++    std::shared_ptr<const assets::TensorSource> base,
++    const std::filesystem::path & adapter_path, float scale, int64_t layer_count,
++    const std::filesystem::path & nar_adapter_path = {}, float nar_scale = 1.0F);
++
+ std::shared_ptr<const Yue2Assets> load_yue2_assets(const std::filesystem::path & model_path);
+ 
+ }  // namespace engine::models::yue2
+diff --git a/model_specs/yue2.json b/model_specs/yue2.json
+index 03bd4db..60a912b 100644
+--- a/model_specs/yue2.json
++++ b/model_specs/yue2.json
+@@ -249,6 +249,32 @@
+       }
+     ],
+     "session": [
++      {
++        "name": "ar_lora",
++        "type": "string",
++        "description": "AR safetensors adapter path; relative paths use the model root.",
++        "required": false
++      },
++      {
++        "name": "ar_lora_scale",
++        "type": "float",
++        "description": "AR delta strength multiplied by alpha/r; zero disables the adapter.",
++        "required": false,
++        "default": 1.0
++      },
++      {
++        "name": "nar_lora",
++        "type": "string",
++        "description": "NAR safetensors adapter path; supports full or delta VAE input/output projections.",
++        "required": false
++      },
++      {
++        "name": "nar_lora_scale",
++        "type": "float",
++        "description": "NAR delta strength. Full replacements are unscaled at nonzero strength. Zero disables all updates.",
++        "required": false,
++        "default": 1.0
++      },
+       {
+         "name": "weight_type",
+         "type": "enum",
+diff --git a/src/framework/assets/weight_adapter.cpp b/src/framework/assets/weight_adapter.cpp
+new file mode 100644
+index 0000000..a950b94
+--- /dev/null
++++ b/src/framework/assets/weight_adapter.cpp
+@@ -0,0 +1,385 @@
++// Backported from audio.cpp 548e5afc (Apache-2.0; Copyright 2026 ShugoAI LLC).
++// Riff changes: bounded validation, finite tensors, dense projection deltas,
++// exact zero-strength pass-through, and bounded transient merge storage.
++#include "engine/framework/assets/weight_adapter.h"
++
++#include "engine/framework/io/filesystem.h"
++#include "engine/framework/io/json.h"
++
++#include <algorithm>
++#include <cmath>
++#include <fstream>
++#include <limits>
++#include <regex>
++#include <stdexcept>
++
++namespace engine::assets {
++namespace {
++namespace json = engine::io::json;
++
++uint64_t bounded_integer(const json::Value & value, uint64_t maximum, const std::string & name) {
++    const double number = value.as_number();
++    if (!std::isfinite(number) || std::floor(number) != number || number < 0 || number > maximum) {
++        throw std::runtime_error("invalid or oversized adapter integer: " + name);
++    }
++    return static_cast<uint64_t>(number);
++}
++
++// The older pinned safetensors reader predates bounded header/duplicate checks.
++// Validate the container before asking it to map or allocate any adapter data.
++void validate_adapter_file(const std::filesystem::path & file) {
++    constexpr uint64_t max_header = 16 * 1024 * 1024;
++    constexpr uint64_t max_f32_bytes = 2ULL * 1024 * 1024 * 1024;
++    if (file.extension() != ".safetensors" || !std::filesystem::is_regular_file(file)) {
++        throw std::runtime_error("adapter must be an existing safetensors file: " + file.string());
++    }
++    const uint64_t size = std::filesystem::file_size(file);
++    std::ifstream input(file, std::ios::binary);
++    unsigned char length_bytes[8]{};
++    input.read(reinterpret_cast<char *>(length_bytes), 8);
++    uint64_t length = 0;
++    for (int i = 0; i < 8; ++i) length |= static_cast<uint64_t>(length_bytes[i]) << (i * 8);
++    if (!input || size < 8 || length < 2 || length > max_header || length > size - 8) {
++        throw std::runtime_error("invalid or oversized adapter header");
++    }
++    std::string header(static_cast<size_t>(length), '\0');
++    input.read(header.data(), static_cast<std::streamsize>(header.size()));
++    if (!input) throw std::runtime_error("truncated adapter header");
++    const auto root = json::parse(header); // rejects duplicate JSON keys
++    std::vector<std::pair<uint64_t, uint64_t>> ranges;
++    uint64_t expanded = 0;
++    for (const auto & [name, value] : root.as_object()) {
++        if (name == "__metadata__") continue;
++        if (value.as_object().size() != 3) throw std::runtime_error("invalid adapter tensor header: " + name);
++        const auto dtype = value.require("dtype").as_string();
++        const uint64_t item_bytes = dtype == "F32" ? 4 : (dtype == "F16" || dtype == "BF16" ? 2 : 0);
++        if (item_bytes == 0) throw std::runtime_error("adapter requires F32, F16 or BF16 tensors: " + name);
++        const auto & shape = value.require("shape").as_array();
++        if (shape.size() > 2) throw std::runtime_error("adapter tensor rank exceeds two: " + name);
++        uint64_t count = 1;
++        for (const auto & dimension : shape) {
++            const auto dim = bounded_integer(dimension, (max_f32_bytes / 4) / count, name);
++            if (dim == 0) {
++                throw std::runtime_error("invalid or oversized adapter shape: " + name);
++            }
++            count *= static_cast<uint64_t>(dim);
++        }
++        if (count * 4 > max_f32_bytes - expanded) throw std::runtime_error("adapter exceeds 2 GiB of F32 values");
++        expanded += count * 4;
++        const auto & offsets = value.require("data_offsets").as_array();
++        if (offsets.size() != 2) throw std::runtime_error("invalid adapter offsets: " + name);
++        const auto begin = bounded_integer(offsets[0], max_f32_bytes, name);
++        const auto end = bounded_integer(offsets[1], max_f32_bytes, name);
++        if (end < begin || end > size - 8 - length || end - begin != count * item_bytes) {
++            throw std::runtime_error("adapter byte size or offsets mismatch: " + name);
++        }
++        ranges.emplace_back(static_cast<uint64_t>(begin), static_cast<uint64_t>(end));
++    }
++    std::sort(ranges.begin(), ranges.end());
++    uint64_t next = 0;
++    for (const auto & range : ranges) {
++        if (range.first != next) throw std::runtime_error("adapter data ranges overlap or leave a gap");
++        next = range.second;
++    }
++    if (next != size - 8 - length) throw std::runtime_error("adapter has unreferenced or missing data");
++}
++
++std::vector<float> finite_values(const TensorSource & source, const std::string & name) {
++    auto values = source.require_f32(name);
++    if (std::any_of(values.begin(), values.end(), [](float value) { return !std::isfinite(value); })) {
++        throw std::runtime_error("adapter tensor contains a nonfinite value: " + name);
++    }
++    return values;
++}
++
++bool ends_with(const std::string & name, std::string_view suffix) {
++    return name.size() >= suffix.size() &&
++        name.compare(name.size() - suffix.size(), suffix.size(), suffix) == 0;
++}
++
++std::string target_name(std::string name) {
++    for (const auto prefix : {"base_model.model.", "text_encoders.", "lora_unet_", "lora_transformer_", "lycoris_"}) {
++        if (name.rfind(prefix, 0) == 0) {
++            name.erase(0, std::char_traits<char>::length(prefix));
++            break;
++        }
++    }
++    return name;
++}
++
++enum class FactorFormat { Native, Peft, Comfy };
++
++struct FactorNames {
++    std::map<std::string, std::string> tensors;
++    std::optional<FactorFormat> format;
++};
++
++float scalar(const TensorSource & source, const std::string & name) {
++    const auto values = source.require_f32(name);
++    if (values.size() != 1 || !std::isfinite(values.front())) {
++        throw std::runtime_error("adapter scalar must have one finite value: " + name);
++    }
++    return values.front();
++}
++
++float pattern_value(const json::Value & config, const std::string & field,
++                    const std::string & target, float fallback) {
++    const auto * pattern = config.find(field);
++    if (pattern == nullptr) return fallback;
++    std::optional<float> matched;
++    for (const auto & [key, value] : pattern->as_object()) {
++        if (!std::regex_match(target, std::regex("(.*\\.)?(" + key + ")"))) continue;
++        if (matched && *matched != value.as_f32()) {
++            throw std::runtime_error("ambiguous adapter " + field + " for " + target);
++        }
++        matched = value.as_f32();
++    }
++    return matched.value_or(fallback);
++}
++
++struct Matrix {
++    std::vector<float> values;
++    int64_t rows;
++    int64_t cols;
++};
++
++Matrix read_matrix(const TensorSource & source, const std::string & name) {
++    const auto shape = source.require_metadata(name).shape;
++    if (shape.size() != 2 || shape[0] <= 0 || shape[1] <= 0) {
++        throw std::runtime_error("adapter factor must be a non-empty matrix: " + name);
++    }
++    return {finite_values(source, name), shape[0], shape[1]};
++}
++
++float update_scale(const TensorSource & source, const FactorNames & names,
++                   const json::Value & config, const std::string & target,
++                   int64_t rank, const WeightAdapterReadOptions & options) {
++    if (options.scale_override) return options.strength * *options.scale_override;
++    const float configured_rank = pattern_value(config, "rank_pattern", target,
++        json::optional_f32(config, "r", static_cast<float>(rank)));
++    if (configured_rank != static_cast<float>(rank)) {
++        throw std::runtime_error("adapter configured rank differs from factors: " + target);
++    }
++    float alpha = pattern_value(config, "alpha_pattern", target,
++        json::optional_f32(config, "lora_alpha", static_cast<float>(rank)));
++    if (const auto it = names.tensors.find("alpha"); it != names.tensors.end()) alpha = scalar(source, it->second);
++    const bool rs = json::optional_bool(config, "use_rslora", false);
++    const float coefficient = alpha / (rs ? std::sqrt(static_cast<float>(rank)) : static_cast<float>(rank));
++    const float scale = options.strength * coefficient;
++    if (!std::isfinite(scale)) throw std::runtime_error("adapter scale is not finite: " + target);
++    return scale;
++}
++}  // namespace
++
++WeightAdapter read_weight_adapter(const std::filesystem::path & path, const WeightAdapterReadOptions & options) {
++    if (!std::isfinite(options.strength) || (options.scale_override && !std::isfinite(*options.scale_override))) {
++        throw std::runtime_error("adapter strength and scale must be finite");
++    }
++    const auto file = io::is_existing_directory(path) ? path / "adapter_model.safetensors" : path;
++    validate_adapter_file(file);
++    const auto config_path = file.parent_path() / "adapter_config.json";
++    const bool has_config = io::is_existing_file(config_path);
++    if (has_config && std::filesystem::file_size(config_path) > 16 * 1024 * 1024) {
++        throw std::runtime_error("adapter_config.json exceeds 16 MiB");
++    }
++    const auto source = open_tensor_source(file);
++    std::map<std::string, FactorNames> groups;
++    WeightAdapter result;
++    struct Suffix {
++        std::string_view suffix;
++        std::string_view part;
++        std::optional<FactorFormat> format;
++    };
++    const Suffix suffixes[] = {
++        {".lora_A.weight", "a", FactorFormat::Peft}, {".lora_B.weight", "b", FactorFormat::Peft},
++        {".lora_A.default.weight", "a", FactorFormat::Peft}, {".lora_B.default.weight", "b", FactorFormat::Peft},
++        {".lora_A", "a", FactorFormat::Native}, {".lora_B", "b", FactorFormat::Native},
++        {".lora_down.weight", "a", FactorFormat::Comfy}, {".lora_up.weight", "b", FactorFormat::Comfy},
++        {".alpha", "alpha", std::nullopt},
++    };
++    for (const auto & tensor : source->tensors()) {
++        bool factor = false;
++        for (const auto & [suffix, part, format] : suffixes) {
++            if (!ends_with(tensor.name, suffix)) continue;
++            const auto target = target_name(tensor.name.substr(0, tensor.name.size() - suffix.size()));
++            auto & group = groups[target];
++            if (format && group.format && format != group.format) {
++                throw std::runtime_error("mixed adapter formats for " + target);
++            }
++            if (format) group.format = format;
++            if (!group.tensors.emplace(std::string(part), tensor.name).second) {
++                throw std::runtime_error("duplicate adapter factor: " + tensor.name);
++            }
++            factor = true;
++            break;
++        }
++        if (factor) continue;
++        // ComfyUI exports dense VAE input/output projection differences, not
++        // full replacement weights. Keep their strength-sensitive semantics.
++        if (ends_with(tensor.name, ".diff") || ends_with(tensor.name, ".diff_b")) {
++            const bool bias = ends_with(tensor.name, ".diff_b");
++            const auto name = target_name(tensor.name.substr(0, tensor.name.size() - (bias ? 7 : 5))) +
++                (bias ? ".bias" : ".weight");
++            if (!result.updates.emplace(name, WeightUpdate{
++                DenseWeightUpdate{tensor.shape, finite_values(*source, tensor.name)}, options.strength}).second) {
++                throw std::runtime_error("duplicate adapter dense update: " + name);
++            }
++            continue;
++        }
++        if (!ends_with(tensor.name, ".weight") && !ends_with(tensor.name, ".bias")) {
++            throw std::runtime_error("unsupported adapter tensor: " + tensor.name);
++        }
++        const auto name = target_name(tensor.name);
++        if (!result.replacements.emplace(name, WeightReplacement{tensor.shape, finite_values(*source, tensor.name)}).second) {
++            throw std::runtime_error("duplicate adapter replacement: " + name);
++        }
++    }
++    const bool needs_config = std::any_of(groups.begin(), groups.end(), [](const auto & entry) {
++        return entry.second.format == FactorFormat::Peft;
++    });
++    const auto empty_config = json::Value::make_object({});
++    const auto peft_config = needs_config && has_config ? json::parse_file(config_path) : empty_config;
++    if (json::optional_bool(peft_config, "use_dora", false)) {
++        throw std::runtime_error("DoRA adapters are not supported");
++    }
++    if (json::optional_bool(peft_config, "fan_in_fan_out", false) ||
++        json::optional_bool(peft_config, "use_qalora", false) ||
++        json::optional_bool(peft_config, "lora_bias", false)) {
++        throw std::runtime_error("adapter requires unsupported transposed, QALoRA, or bias updates");
++    }
++    for (const auto & [target, names] : groups) {
++        const bool uses_config = names.format == FactorFormat::Peft && has_config;
++        const auto & config = uses_config ? peft_config : empty_config;
++        if (options.require_scaling_metadata && !uses_config && !options.scale_override &&
++            names.tensors.count("alpha") == 0) {
++            throw std::runtime_error("adapter has no scaling metadata for " + target + "; specify its effective scale explicitly");
++        }
++        WeightUpdate update;
++        const auto a = names.tensors.find("a");
++        const auto b = names.tensors.find("b");
++        if (a != names.tensors.end() || b != names.tensors.end()) {
++            if (a == names.tensors.end() || b == names.tensors.end()) {
++                throw std::runtime_error("adapter is missing an A/B pair: " + target);
++            }
++            if (names.tensors.size() != 2 + names.tensors.count("alpha")) {
++                throw std::runtime_error("mixed adapter algorithms for " + target);
++            }
++            auto down = read_matrix(*source, a->second);
++            auto up = read_matrix(*source, b->second);
++            if (up.cols != down.rows) throw std::runtime_error("adapter A/B rank mismatch: " + target);
++            update.scale = update_scale(*source, names, config, target, down.rows, options);
++            update.factors = LowRankWeightUpdate{std::move(down.values), std::move(up.values), down.rows, down.cols, up.rows};
++        } else {
++            throw std::runtime_error("adapter is missing an A/B pair: " + target);
++        }
++        if (!result.updates.emplace(target, std::move(update)).second) {
++            throw std::runtime_error("duplicate adapter update: " + target);
++        }
++    }
++    if (result.updates.empty() && result.replacements.empty()) throw std::runtime_error("adapter has no supported tensors");
++    return result;
++}
++
++void WeightAdapterBindings::add(std::string name, std::vector<WeightAdapterTarget> targets) {
++    if (ends_with(name, ".weight")) name.resize(name.size() - 7);
++    const auto insert = [&](const std::string & key) {
++        const auto it = targets_.find(key);
++        if (it != targets_.end()) {
++            const auto & old = it->second;
++            bool same = old.size() == targets.size();
++            for (size_t i = 0; same && i < old.size(); ++i) {
++                same = old[i].tensor == targets[i].tensor && old[i].first_row == targets[i].first_row && old[i].rows == targets[i].rows;
++            }
++            if (!same) throw std::runtime_error("ambiguous adapter target binding: " + key);
++        } else {
++            targets_.emplace(key, targets);
++        }
++    };
++    insert(name);
++    std::replace(name.begin(), name.end(), '.', '_');
++    insert(name);
++}
++
++void WeightAdapterBindings::add(std::string name, std::string tensor) {
++    add(std::move(name), std::vector<WeightAdapterTarget>{{std::move(tensor), 0, 0}});
++}
++
++const std::vector<WeightAdapterTarget> & WeightAdapterBindings::resolve(const std::string & name) const {
++    auto key = name;
++    if (ends_with(key, ".weight")) key.resize(key.size() - 7);
++    const auto it = targets_.find(key);
++    if (it == targets_.end()) throw std::runtime_error("adapter target has no model binding: " + name);
++    return it->second;
++}
++
++WeightAdapter bind_weight_adapter(const TensorSource & base, WeightAdapter adapter,
++                                 const WeightAdapterBindings & bindings, WeightMergeMode merge_mode) {
++    WeightAdapter result;
++    for (auto & [name, update] : adapter.updates) {
++        const auto & targets = bindings.resolve(name);
++        if (const auto * dense = std::get_if<DenseWeightUpdate>(&update.factors)) {
++            if (targets.size() != 1 || targets[0].first_row != 0 || targets[0].rows != 0) {
++                throw std::runtime_error("sliced dense updates are not supported: " + name);
++            }
++            require_tensor_shape(base, targets[0].tensor, dense->shape);
++            update.merge_mode = merge_mode;
++            if (!result.updates.emplace(targets[0].tensor, std::move(update)).second) {
++                throw std::runtime_error("multiple adapter updates target " + targets[0].tensor);
++            }
++            continue;
++        }
++        if (const auto * low = std::get_if<LowRankWeightUpdate>(&update.factors)) {
++            if (targets.size() == 1 && targets[0].first_row == 0 && targets[0].rows == 0) {
++                require_tensor_shape(base, targets[0].tensor, {low->out, low->in});
++                update.merge_mode = merge_mode;
++                if (!result.updates.emplace(targets[0].tensor, std::move(update)).second) {
++                    throw std::runtime_error("multiple adapter updates target " + targets[0].tensor);
++                }
++                continue;
++            }
++            std::vector<std::pair<int64_t, int64_t>> ranges;
++            for (const auto & target : targets) {
++                const int64_t rows = target.rows == 0 ? low->out : target.rows;
++                if (target.first_row < 0 || rows <= 0 || target.first_row > low->out - rows) {
++                    throw std::runtime_error("adapter output slice is invalid: " + name);
++                }
++                require_tensor_shape(base, target.tensor, {rows, low->in});
++                LowRankWeightUpdate sliced{low->a,
++                    std::vector<float>(low->b.begin() + target.first_row * low->r,
++                                       low->b.begin() + (target.first_row + rows) * low->r),
++                    low->r, low->in, rows};
++                WeightUpdate bound{std::move(sliced), update.scale, merge_mode};
++                if (!result.updates.emplace(target.tensor, std::move(bound)).second) {
++                    throw std::runtime_error("multiple adapter updates target " + target.tensor);
++                }
++                ranges.emplace_back(target.first_row, target.first_row + rows);
++            }
++            std::sort(ranges.begin(), ranges.end());
++            int64_t next = 0;
++            for (const auto & range : ranges) {
++                if (range.first != next) throw std::runtime_error("adapter output slices overlap or leave a gap: " + name);
++                next = range.second;
++            }
++            if (next != low->out) throw std::runtime_error("adapter output rows were not fully bound: " + name);
++        }
++    }
++    for (auto & [name, replacement] : adapter.replacements) {
++        const auto & targets = bindings.resolve(name);
++        if (targets.size() != 1 || targets[0].first_row != 0 || targets[0].rows != 0) {
++            throw std::runtime_error("sliced full replacements are not supported: " + name);
++        }
++        require_tensor_shape(base, targets[0].tensor, replacement.shape);
++        if (result.updates.count(targets[0].tensor)) {
++            throw std::runtime_error("adapter supplies an update and replacement for " + targets[0].tensor);
++        }
++        if (merge_mode == WeightMergeMode::RoundedBF16Delta) {
++            for (auto & value : replacement.values) value = ggml_bf16_to_fp32(ggml_fp32_to_bf16(value));
++        }
++        if (!result.replacements.emplace(targets[0].tensor, std::move(replacement)).second) {
++            throw std::runtime_error("multiple adapter replacements target " + targets[0].tensor);
++        }
++    }
++    return result;
++}
++
++}  // namespace engine::assets
+diff --git a/src/framework/assets/weight_adapter_source.cpp b/src/framework/assets/weight_adapter_source.cpp
+new file mode 100644
+index 0000000..7ba224d
+--- /dev/null
++++ b/src/framework/assets/weight_adapter_source.cpp
+@@ -0,0 +1,188 @@
++// Backported from audio.cpp 548e5afc (Apache-2.0; Copyright 2026 ShugoAI LLC).
++// Riff changes: finite tensors, dense projection deltas, exact zero-strength
++// pass-through, and one row of product scratch without a merged model cache.
++#include "engine/framework/assets/weight_adapter.h"
++
++#include <algorithm>
++#include <cmath>
++#include <cstring>
++#include <limits>
++#include <stdexcept>
++#include <utility>
++
++namespace engine::assets {
++namespace {
++
++std::vector<int64_t> update_shape(const WeightUpdate & update) {
++    if (const auto * low = std::get_if<LowRankWeightUpdate>(&update.factors)) return {low->out, low->in};
++    if (const auto * dense = std::get_if<DenseWeightUpdate>(&update.factors)) return dense->shape;
++    throw std::runtime_error("unsupported adapter update");
++}
++
++void require_finite(const std::vector<float> & values, const std::string & name) {
++    if (std::any_of(values.begin(), values.end(), [](float value) { return !std::isfinite(value); })) {
++        throw std::runtime_error("adapter tensor or merged weight is nonfinite: " + name);
++    }
++}
++
++size_t element_count(const std::vector<int64_t> & shape, const std::string & name) {
++    size_t count = 1;
++    if (shape.empty() || shape.size() > 2) throw std::runtime_error("invalid adapter shape for " + name);
++    for (const auto dim : shape) {
++        if (dim <= 0 || count > std::numeric_limits<size_t>::max() / static_cast<size_t>(dim)) {
++            throw std::runtime_error("invalid adapter shape for " + name);
++        }
++        count *= static_cast<size_t>(dim);
++    }
++    return count;
++}
++
++float add_delta(float base, float delta, WeightMergeMode mode) {
++    if (mode == WeightMergeMode::RoundedBF16Delta) {
++        delta = ggml_bf16_to_fp32(ggml_fp32_to_bf16(delta));
++        return ggml_bf16_to_fp32(ggml_fp32_to_bf16(base + delta));
++    }
++    return base + delta;
++}
++
++std::vector<float> merged_f32_values(const TensorSource & base, const std::string & name,
++                                     const WeightUpdate & update) {
++    auto values = base.require_f32(name, update_shape(update));
++    // Zero is a bit-exact bypass, including a quantized base's decoded values.
++    // Do not round or requantize merely because a disabled adapter was present.
++    if (update.scale == 0.0F) return values;
++    if (const auto * dense = std::get_if<DenseWeightUpdate>(&update.factors)) {
++        for (size_t i = 0; i < values.size(); ++i) {
++            values[i] = add_delta(values[i], update.scale * dense->values[i], update.merge_mode);
++        }
++    } else if (const auto * low = std::get_if<LowRankWeightUpdate>(&update.factors)) {
++        // F32 accumulation in the pinned upstream row/rank order;
++        // retaining a row rather than the entire product bounds host scratch.
++        std::vector<float> product(static_cast<size_t>(low->in));
++        for (int64_t o = 0; o < low->out; ++o) {
++            std::fill(product.begin(), product.end(), 0.0F);
++            const int64_t row = o * low->in;
++            for (int64_t k = 0; k < low->r; ++k) {
++                const float b = low->b[static_cast<size_t>(o * low->r + k)];
++                const float * a = low->a.data() + static_cast<size_t>(k * low->in);
++                for (int64_t i = 0; i < low->in; ++i) {
++                    if (update.merge_mode == WeightMergeMode::RankWiseF32) {
++                        values[static_cast<size_t>(row + i)] += (update.scale * b) * a[i];
++                    } else {
++                        product[static_cast<size_t>(i)] += b * a[i];
++                    }
++                }
++            }
++            if (update.merge_mode != WeightMergeMode::RankWiseF32) {
++                for (int64_t i = 0; i < low->in; ++i) {
++                    values[static_cast<size_t>(row + i)] = add_delta(
++                        values[static_cast<size_t>(row + i)], update.scale * product[static_cast<size_t>(i)], update.merge_mode);
++                }
++            }
++        }
++    }
++    require_finite(values, name);
++    return values;
++}
++
++class WeightAdapterSource final : public TensorSource {
++public:
++    WeightAdapterSource(std::shared_ptr<const TensorSource> base, WeightAdapter adapter)
++        : base_(std::move(base)), adapter_(std::move(adapter)) {}
++    const std::filesystem::path & source_path() const noexcept override { return base_->source_path(); }
++    bool has_tensor(std::string_view name) const noexcept override { return base_->has_tensor(name); }
++    TensorMetadata require_metadata(std::string_view name) const override { return base_->require_metadata(name); }
++    std::vector<TensorMetadata> tensors() const override { return base_->tensors(); }
++    // Factors remain available for cold stage reloads; the immutable base can
++    // unmap storage. A warm pipeline retains the uploaded weights itself.
++    void release_storage() const override { base_->release_storage(); }
++
++    RawTensorData require_tensor_data(std::string_view name) const override {
++        const std::string key(name);
++        if (!adapted(key)) return base_->require_tensor_data(name);
++        const auto shape = require_metadata(name).shape;
++        const auto values = require_f32(name, shape);
++        RawTensorData raw{TensorMetadata{key, "F32", shape}, {}};
++        raw.bytes.resize(values.size() * sizeof(float));
++        std::memcpy(raw.bytes.data(), values.data(), raw.bytes.size());
++        return raw;
++    }
++
++    void set_backend_tensor(ggml_tensor * tensor, std::string_view name,
++                            TensorStorageType storage_type, const std::vector<int64_t> & expected_shape) const override {
++        const std::string key(name);
++        if (!adapted(key)) {
++            base_->set_backend_tensor(tensor, name, storage_type, expected_shape);
++            return;
++        }
++        require_tensor_shape(*base_, name, expected_shape);
++        engine::core::TensorShape shape;
++        if (expected_shape.size() == 1) shape = engine::core::TensorShape::from_dims({expected_shape[0]});
++        else if (expected_shape.size() == 2) shape = engine::core::TensorShape::from_dims({expected_shape[0], expected_shape[1]});
++        else throw std::runtime_error("adapted tensor must have rank one or two: " + key);
++        const auto type = ggml_type_for_tensor_storage(resolve_tensor_storage_type(*base_, name, storage_type));
++        const auto values = require_f32(name, expected_shape);
++        set_backend_tensor_from_f32_parallel(tensor, name, values, shape, type);
++    }
++
++    std::vector<float> require_f32(std::string_view name,
++        const std::optional<std::vector<int64_t>> & expected_shape) const override {
++        if (expected_shape) require_tensor_shape(*base_, name, *expected_shape);
++        const std::string key(name);
++        if (const auto it = adapter_.replacements.find(key); it != adapter_.replacements.end()) return it->second.values;
++        if (const auto it = adapter_.updates.find(key); it != adapter_.updates.end()) {
++            return merged_f32_values(*base_, key, it->second);
++        }
++        return base_->require_f32(name, expected_shape);
++    }
++    std::optional<std::vector<float>> optional_f32(std::string_view name,
++        const std::optional<std::vector<int64_t>> & expected_shape) const override {
++        if (!has_tensor(name)) return std::nullopt;
++        return require_f32(name, expected_shape);
++    }
++    int64_t require_i64_scalar(std::string_view name) const override { return base_->require_i64_scalar(name); }
++private:
++    bool adapted(const std::string & name) const {
++        return adapter_.updates.count(name) || adapter_.replacements.count(name);
++    }
++    std::shared_ptr<const TensorSource> base_;
++    WeightAdapter adapter_;
++};
++} // namespace
++
++std::shared_ptr<const TensorSource> make_weight_adapter_source(
++    std::shared_ptr<const TensorSource> base, WeightAdapter adapter, std::string /* log_prefix */) {
++    if (!base) throw std::runtime_error("weight adapter requires a base tensor source");
++    for (auto it = adapter.updates.begin(); it != adapter.updates.end();) {
++        const auto & name = it->first;
++        const auto & update = it->second;
++        if (!std::isfinite(update.scale)) throw std::runtime_error("adapter scale is not finite: " + name);
++        if (const auto * low = std::get_if<LowRankWeightUpdate>(&update.factors)) {
++            if (low->r <= 0 || low->in <= 0 || low->out <= 0 ||
++                low->a.size() % low->r || low->a.size() / low->r != static_cast<size_t>(low->in) ||
++                low->b.size() % low->r || low->b.size() / low->r != static_cast<size_t>(low->out)) {
++                throw std::runtime_error("adapter A/B dimensions or values mismatch for " + name);
++            }
++            require_finite(low->a, name); require_finite(low->b, name);
++        } else if (const auto * dense = std::get_if<DenseWeightUpdate>(&update.factors)) {
++            if (element_count(dense->shape, name) != dense->values.size()) {
++                throw std::runtime_error("adapter dense value count mismatch for " + name);
++            }
++            require_finite(dense->values, name);
++        }
++        require_tensor_shape(*base, name, update_shape(update));
++        if (adapter.replacements.count(name)) throw std::runtime_error("adapter update and replacement conflict for " + name);
++        if (update.scale == 0.0F) it = adapter.updates.erase(it);
++        else ++it;
++    }
++    for (const auto & [name, tensor] : adapter.replacements) {
++        require_tensor_shape(*base, name, tensor.shape);
++        if (element_count(tensor.shape, name) != tensor.values.size()) {
++            throw std::runtime_error("override value count mismatch for " + name);
++        }
++        require_finite(tensor.values, name);
++    }
++    if (adapter.updates.empty() && adapter.replacements.empty()) return base;
++    return std::make_shared<WeightAdapterSource>(std::move(base), std::move(adapter));
++}
++} // namespace engine::assets
+diff --git a/src/models/yue2/lora.cpp b/src/models/yue2/lora.cpp
+new file mode 100644
+index 0000000..4bdb729
+--- /dev/null
++++ b/src/models/yue2/lora.cpp
+@@ -0,0 +1,99 @@
++// Backported from audio.cpp 548e5afc (Apache-2.0; Copyright 2026 ShugoAI LLC).
++// Riff changes: bounded validation, finite tensors, dense projection deltas,
++// exact zero-strength pass-through, and bounded transient merge storage.
++#include "engine/models/yue2/assets.h"
++
++#include "engine/framework/assets/weight_adapter.h"
++#include "engine/framework/debug/trace.h"
++
++#include <cmath>
++#include <utility>
++
++namespace engine::models::yue2 {
++
++std::shared_ptr<const assets::TensorSource> make_yue2_lora_source(
++    std::shared_ptr<const assets::TensorSource> base,
++    const std::filesystem::path & adapter_path, float scale, int64_t layer_count,
++    const std::filesystem::path & nar_adapter_path, float nar_scale) {
++    if (!base) throw std::runtime_error("Yue2 LoRA requires main model weights");
++    if (!std::isfinite(scale) || !std::isfinite(nar_scale)) throw std::runtime_error("Yue2 LoRA strengths must be finite");
++    if (layer_count <= 0) throw std::runtime_error("Yue2 LoRA requires a positive layer count");
++    assets::WeightAdapter merged;
++    for (const bool nar : {false, true}) {
++        const auto & path = nar ? nar_adapter_path : adapter_path;
++        if (path.empty()) continue;
++        const float strength = nar ? nar_scale : scale;
++        const std::string option = nar ? "yue2.nar_lora" : "yue2.ar_lora";
++        // A disabled adapter is never opened or rounded into the base. This
++        // includes its full replacement projections and unavailable files.
++        if (strength == 0.0F) continue;
++        assets::WeightAdapterBindings bindings;
++        for (int64_t layer = 0; layer < layer_count; ++layer) {
++            for (const auto * projection : {"self_attn.q_proj", "self_attn.k_proj", "self_attn.v_proj",
++                                            "self_attn.o_proj", "mlp.gate_proj", "mlp.up_proj", "mlp.down_proj"}) {
++                const auto prefix = "layers." + std::to_string(layer) + "." + (nar ? "nar_" : "") + projection;
++                const auto name = "model." + prefix + ".weight";
++                bindings.add(prefix, name);
++                bindings.add("model." + prefix, name);
++                if (nar) {
++                    bindings.add("diffusion_model.model.layers." + std::to_string(layer) + "." + projection, name);
++                }
++            }
++            const auto root = "layers." + std::to_string(layer) + "." + (nar ? "nar_" : "");
++            for (const auto & fused : {
++                     std::make_pair(std::string("self_attn.qkv_proj"), std::vector<std::string>{"self_attn.q_proj", "self_attn.k_proj", "self_attn.v_proj"}),
++                     std::make_pair(std::string("mlp.gate_up_proj"), std::vector<std::string>{"mlp.gate_proj", "mlp.up_proj"})}) {
++                std::vector<assets::WeightAdapterTarget> targets;
++                int64_t offset = 0;
++                for (const auto & projection : fused.second) {
++                    const auto name = "model." + root + projection + ".weight";
++                    const auto rows = base->require_metadata(name).shape.at(0);
++                    targets.push_back({name, offset, rows});
++                    offset += rows;
++                }
++                bindings.add(root + fused.first, targets);
++                if (nar) {
++                    bindings.add("diffusion_model.model.layers." + std::to_string(layer) + "." + fused.first, targets);
++                }
++                bindings.add("model." + root + fused.first, std::move(targets));
++            }
++        }
++        if (nar) {
++            for (const auto * name : {"vae2llm.weight", "vae2llm.bias", "llm2vae.weight", "llm2vae.bias"}) {
++                bindings.add(name, name);
++                bindings.add("diffusion_model." + std::string(name), name);
++            }
++        }
++        assets::WeightAdapterReadOptions read_options;
++        read_options.strength = strength;
++        auto adapter = assets::bind_weight_adapter(*base, assets::read_weight_adapter(path, read_options),
++            bindings, assets::WeightMergeMode::RoundedBF16Delta);
++        const auto projection = [](const std::string & name) {
++            return name == "vae2llm.weight" || name == "vae2llm.bias" ||
++                name == "llm2vae.weight" || name == "llm2vae.bias";
++        };
++        for (const auto & [name, replacement] : adapter.replacements) {
++            if (!nar || !projection(name)) throw std::runtime_error("unsupported full adapter replacement: " + name);
++        }
++        for (const auto & [name, update] : adapter.updates) {
++            if (std::holds_alternative<assets::DenseWeightUpdate>(update.factors) && (!nar || !projection(name))) {
++                throw std::runtime_error("unsupported dense adapter projection: " + name);
++            }
++        }
++        const auto projections = adapter.updates.size() + adapter.replacements.size();
++        if (projections == 0) throw std::runtime_error(option + " contains no matching weight updates");
++        if (strength != 0.0F) {
++            merged.updates.merge(adapter.updates);
++            merged.replacements.merge(adapter.replacements);
++            if (!adapter.updates.empty() || !adapter.replacements.empty()) {
++                throw std::runtime_error("AR/NAR adapters overlap the same model tensors");
++            }
++        }
++        engine::debug::log_message(engine::debug::LogLevel::Info, "yue2",
++            option + ": " + path.string() + ", projections=" + std::to_string(projections) +
++            ", scale=" + std::to_string(strength));
++    }
++    return assets::make_weight_adapter_source(std::move(base), std::move(merged), "yue2.lora");
++}
++
++}  // namespace engine::models::yue2
+diff --git a/src/models/yue2/session.cpp b/src/models/yue2/session.cpp
+index 71eba7b..cefc736 100644
+--- a/src/models/yue2/session.cpp
++++ b/src/models/yue2/session.cpp
+@@ -123,6 +123,17 @@ std::shared_ptr<const Yue2Assets> select_component_assets(
+         "vae_weights");
+     checkpoint::require_unchanged(vae_path, selected->vae_identity);
+     validate_component_anchors(*selected);
++    // These are session options: warm jobs cannot silently reuse another adapter.
++    const float ar_scale = runtime::parse_finite_float_option(options, {"yue2.ar_lora_scale"}).value_or(1.0F);
++    const float nar_scale = runtime::parse_finite_float_option(options, {"yue2.nar_lora_scale"}).value_or(1.0F);
++    if (!decode_only) {
++        auto ar_path = std::filesystem::u8path(runtime::find_option(options, {"yue2.ar_lora"}).value_or(""));
++        auto nar_path = std::filesystem::u8path(runtime::find_option(options, {"yue2.nar_lora"}).value_or(""));
++        if (!ar_path.empty() && ar_path.is_relative()) ar_path = selected->model_root / ar_path;
++        if (!nar_path.empty() && nar_path.is_relative()) nar_path = selected->model_root / nar_path;
++        selected->model_weights = make_yue2_lora_source(
++            selected->model_weights, ar_path, ar_scale, selected->config.model.layers, nar_path, nar_scale);
++    }
+     return selected;
+ }
+ 
+@@ -131,6 +142,14 @@ bool keep_resident_option(const std::unordered_map<std::string, std::string> & o
+     return value.has_value() && runtime::parse_bool_option(*value, "yue2.keep_resident");
+ }
+ 
++void require_session_lora_scope(const std::unordered_map<std::string, std::string> & options) {
++    for (const auto * key : {"ar_lora", "ar_lora_scale", "nar_lora", "nar_lora_scale"}) {
++        if (options.count(key) || options.count(std::string("yue2.") + key)) {
++            throw std::runtime_error("LoRA paths and strengths are session options; create a new session to change them");
++        }
++    }
++}
++
+ std::unique_ptr<runtime::IVoiceTaskSession> create_yue2_session(
+     const runtime::TaskSpec & task,
+     const runtime::SessionOptions & options,
+@@ -187,6 +206,8 @@ runtime::ModelCliInterface yue2_cli_interface() {
+         {"format.yue2.acoustic", checkpoint::kFormat},
+         {"feature.yue2.keep_resident", "1"},
+         {"format.yue2.jobs", "riff.jobs.v1"},
++        {"feature.yue2.lora", "1"},
++        {"format.yue2.lora", "riff.yue2.lora.v1"},
+     };
+     out.request_options = {
+         {"style", "string", "Optional music style prompt.", false},
+@@ -208,6 +229,10 @@ runtime::ModelCliInterface yue2_cli_interface() {
+         {"num_inference_steps", "int", "NAR ODE steps.", false, "10", "1"},
+     };
+     out.session_options = {
++        {"yue2.ar_lora", "path", "AR safetensors adapter; native/PEFT/ComfyUI matrices. Relative paths use the model root."},
++        {"yue2.ar_lora_scale", "float", "AR strength, multiplied by alpha/r; zero disables the adapter.", false, "1.0"},
++        {"yue2.nar_lora", "path", "NAR safetensors adapter; native matrices and VAE input/output replacements or dense deltas."},
++        {"yue2.nar_lora_scale", "float", "NAR delta strength; nonzero full replacements are unscaled. Zero disables everything.", false, "1.0"},
+         {"yue2.model_gguf", "string", "Yue2 main AR/NAR component GGUF file relative to the model root.", false, "yue2-3b-q8_0.gguf"},
+         {"yue2.vae_gguf", "string", "Yue2 VAE component GGUF file relative to the model root.", false, "yue2-vae-f16.gguf"},
+         {"yue2.model_weight_type", "native|f32|f16|bf16|q8_0|q4_0|q4_k", "Yue2 main model weight storage type.", false, "native"},
+@@ -236,6 +261,8 @@ Yue2Session::Yue2Session(
+     if (task_.task != runtime::VoiceTaskKind::AudioGeneration || task_.mode != runtime::RunMode::Offline) {
+         throw std::runtime_error("Yue2 supports only offline gen/music");
+     }
++    (void)runtime::parse_finite_float_option(this->options().options, {"yue2.ar_lora_scale"});
++    (void)runtime::parse_finite_float_option(this->options().options, {"yue2.nar_lora_scale"});
+ }
+ 
+ void Yue2Session::ensure_pipeline(bool decode_only) {
+@@ -275,6 +302,7 @@ runtime::RunMode Yue2Session::run_mode() const {
+ }
+ 
+ void Yue2Session::prepare(const runtime::SessionPreparationRequest & request) {
++    require_session_lora_scope(request.options);
+     if (request.text.has_value() || !request.options.empty()) {
+         (void) parse_yue2_preparation_request(request, assets_->config.generation);
+     }
+@@ -282,6 +310,7 @@ void Yue2Session::prepare(const runtime::SessionPreparationRequest & request) {
+ }
+ 
+ runtime::TaskResult Yue2Session::run(const runtime::TaskRequest & request) {
++    require_session_lora_scope(request.options);
+     require_prepared("Yue2 run");
+     const auto wall_start = Clock::now();
+     const auto parsed = parse_yue2_request(request, assets_->config.generation);

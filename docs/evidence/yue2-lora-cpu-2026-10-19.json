@@ -1,0 +1,478 @@
+{
+  "schema": "riff.yue2.lora.cpu-evidence.v1",
+  "date": "2026-10-19",
+  "status": "passed",
+  "scope": "Actual public AR/NAR adapter import, quantized base-model loading, short CPU generation and acoustic checkpoint verification.",
+  "not_evaluated": [
+    "Listening or musical quality",
+    "Full-song equivalence or style effectiveness",
+    "Metal, CUDA or other GPU inference",
+    "General memory upper bound or throughput benchmark"
+  ],
+  "native": {
+    "runtime_repo": "https://github.com/0xShug0/audio.cpp",
+    "runtime_commit": "fbe3eedbf6c504e45189e2cdcf1b257740a28863",
+    "local_riff_implementation_commit": "ddf7c470e7ffc8ab12e9d3efd3edbcd1cc930495",
+    "lora_backport_upstream_commit": "548e5afc26a8a21300412cebb8528f3329fd3e0a",
+    "source_verification": "scripts/check_native_lora.py reconstructed the pinned runtime plus all 14 lexicographically ordered patches and verified the compiled source tree.",
+    "patch_sha256_in_application_order": {
+      "patches/cache-upload-memory.patch": "6959d777b1907adfd02f439f69dd9ad7749dfce3dfea0e4cd19bb5a58b721cb9",
+      "patches/metal-acoustic-attention.patch": "9622d39c9980d379a6e714212fd49d7a84d7e38f296d93bdc2f9615cdf0a0de4",
+      "patches/metal-kv-cache.patch": "c7f938f8c3c101d550a653b4b06d4d46b858a9d8dd06de7143e1a39e59e6e4b7",
+      "patches/optional-conditioning.patch": "9818eee8fc877c3b7d7a980cb084895931905fcd9b7ac48728446ff2e5b1e15e",
+      "patches/prefix-memory.patch": "bf2394ca538f9d84c69e73dbb7b40f078f86aa97a5b1d37ace6bd22c5a8bb00c",
+      "patches/render-progress.patch": "1f907d88ed608ef30f2a44d240de1556c966941ace706f45dcf6175558e288db",
+      "patches/symbolic-plan.patch": "8d0b3599df4d4d4b8af9e51ad16a571a100e256013d0117887605828d203d46a",
+      "patches/synthesis-artifacts.patch": "96e7420c6ab77f5df977c041f12810cb958a6f8669633c42351ede9db23d8e4f",
+      "patches/synthesis-cache-release.patch": "929a969b8c42790e951c92c5e3c306b00052cf1575825531290c5ceade971c50",
+      "patches/yue2-acoustic-solver.patch": "13d9ebd60d5f5f310849ed666366942deb7ad7c0abf80a72e13cbb03149e643c",
+      "patches/yue2-score-replay.patch": "451fe770247e2f425d8c9a0293f4922d283dfb5246584af8c37c8c688e03558b",
+      "patches/yue2-vae-checkpoint.patch": "8c727009f25999d222b106951a672fd2be77be82deb1e9e45ab71cc878c0da90",
+      "patches/yue2-warm-engine.patch": "d3e3236c058e26a7b1cf067f6b2dfb0db549b0fa4df1dc04607fb71898158b47",
+      "patches/yue2-weight-adapters.patch": "49bcda5084a9de945a5317845455487e11760ce34b44605ccc8b2410ca849f35"
+    },
+    "compiled_adapter_source_sha256": {
+      "src/framework/assets/weight_adapter.cpp": "79d090b018a4acf1c9a0ad83e58c63a73dcc3e2a29ef6a09e1411c2733442b4e",
+      "src/framework/assets/weight_adapter_source.cpp": "55b6dd869e3e60219d5b7d236c09cea9cc435831b9ceffddae9fc375bf389089",
+      "src/models/yue2/lora.cpp": "cbe569514414fd979b8b2eb0473f86f97d5c909b11a478b06fcea6a4745145ad",
+      "include/engine/framework/assets/weight_adapter.h": "a04432fe5c77568485fc27ed9934fd8cb150f998853f68b2fe86b9c9914deda5",
+      "include/engine/models/yue2/assets.h": "622acd81e98e5cc8343977a513cebc485e161e2dcab8461cb0f14d5f374cfbae"
+    },
+    "binary_sha256": "a73b1605147a55f108348832e994fb15d7be7f28b4c7762b17ca9b0fe77a3889",
+    "build": {
+      "type": "Release",
+      "compiler": "gcc 13.3.0",
+      "cmake": "4.4.3",
+      "target": "yue2",
+      "backend": "cpu",
+      "ggml_native": false,
+      "avx": true,
+      "avx2": true,
+      "fma": true,
+      "avx512": false,
+      "reported_git_revision": "1b64834",
+      "reported_revision_note": "Local fixture commit of the pinned runtime plus the 13 preexisting Riff patches. The final source identity is the pinned revision plus the 14 patch hashes above."
+    },
+    "capabilities": {
+      "feature.yue2.lora": "1",
+      "format.yue2.lora": "riff.yue2.lora.v1",
+      "format.yue2.acoustic": "riff.yue2.acoustic.v1"
+    },
+    "synthetic_suite": {
+      "passed": 44,
+      "failed": 0,
+      "backend": "cpu",
+      "zero_strength": "Bit-exact Q4 zero-strength upload, full-replacement bypass and source identity checks passed; zero strength was not rerun with the full public adapter."
+    }
+  },
+  "environment": {
+    "platform": "Linux x86_64",
+    "kernel": "6.18.55",
+    "cpu_model": "AMD EPYC 9V74 80-Core Processor",
+    "native_threads": 2,
+    "thread_variables": {
+      "OMP_NUM_THREADS": "2",
+      "OPENBLAS_NUM_THREADS": "2"
+    }
+  },
+  "model": {
+    "repo": "audio-cpp/Yue2-3B-GGUF",
+    "revision": "9c31f1c64f73d36799693aa89295b410c76928c3",
+    "files": {
+      "yue2-3b-q4_0.gguf": {
+        "bytes": 2665632320,
+        "sha256": "97af67d7f800b362faee6e6bec806bddfcccb93f25fd3f9a1012724d95af6f4a"
+      },
+      "yue2-vae-f16.gguf": {
+        "bytes": 265218656,
+        "sha256": "d4f4a05d8f291ae820cd1e43609da3fa91b56465810091a2b08c3350b751719d"
+      },
+      "sidecars/yue2-model-config.json": {
+        "bytes": 959,
+        "sha256": "ad3477bbef890bf98ae196c1e4b44779494a6231c4ab66f32708eabadf265329"
+      },
+      "sidecars/yue2-generation-config.json": {
+        "bytes": 466,
+        "sha256": "203830cebde6e3644eb291925362990d198e66c3b6006cd11f1aaa21904bcc61"
+      },
+      "sidecars/yue2-qwen.tiktoken": {
+        "bytes": 2561218,
+        "sha256": "b2b1b8dfb5cc5f024bafc373121c6aba3f66f9a5a0269e243470a1de16a33186"
+      },
+      "sidecars/yue2-vae-config.json": {
+        "bytes": 1378,
+        "sha256": "f0191bb9694009956de44e0c361a6f1334760be4c8f848e599bde242a54a0970"
+      }
+    }
+  },
+  "adapter": {
+    "repo": "becausereasons/yue2-trbdr-folk-troubadour",
+    "revision": "078b19e52baebaa71463ea94afac5ce13abfe29a",
+    "file": "trbdr_broadside.safetensors",
+    "original_bytes": 117500816,
+    "original_sha256": "68e3aca03e7aa7ddf8a2ee5cf46ce68c2c18fc9fe432cc60b838b9f0e9b8171f",
+    "base_model": "m-a-p/YuE2-3B",
+    "format": "Combined AI Toolkit PEFT-style AR/NAR safetensors, normalized into separate native stage files with explicit alpha.",
+    "verified_import": [
+      "Pinned revision and SHA256",
+      "Complete finite-value scan",
+      "Stage split and shape validation",
+      "Saved-receipt re-verification"
+    ],
+    "stages": [
+      {
+        "stage": "ar",
+        "engine_bytes": 58755120,
+        "engine_sha256": "2e505269c924acb57fc2d43349d5699365398e86c42ac4f9bcb45673f9e84e75",
+        "rank": [
+          32
+        ],
+        "tensor_count": 336,
+        "target_count": 112,
+        "adapter_bytes": 139460608,
+        "merge_scratch_bytes": 201326592,
+        "engine_path": "fixtures/yue2/adapters/trbdr/ar.safetensors",
+        "native_bound_projections": 196
+      },
+      {
+        "stage": "nar",
+        "engine_bytes": 58756464,
+        "engine_sha256": "5149299f325cd50bc4f996a2c611e39cae96eddc5bbdcb4da020af927ab40b41",
+        "rank": [
+          32
+        ],
+        "tensor_count": 336,
+        "target_count": 112,
+        "adapter_bytes": 139460608,
+        "merge_scratch_bytes": 201326592,
+        "engine_path": "fixtures/yue2/adapters/trbdr/nar.safetensors",
+        "native_bound_projections": 196
+      }
+    ],
+    "estimated_additional_memory_bytes": 480247808
+  },
+  "conditions": {
+    "lyrics": "[Instrumental]",
+    "style": "acoustic folk, guitar, instrumental",
+    "seed": 1234,
+    "cot": "off",
+    "cfg_scale": 1,
+    "semantic_temperature": 1,
+    "semantic_min_tokens": 25,
+    "semantic_max_tokens": 25,
+    "num_inference_steps": 2,
+    "ode_method": "midpoint",
+    "model_context": 24576,
+    "observed_ar_prefix_tokens": 33,
+    "observed_ar_decode_cache_steps": 58,
+    "context_note": "The pinned runtime enforces model context 24576. AR allocated prefix plus the requested semantic token budget; no sidecars were changed.",
+    "metadata_arenas_mib": {
+      "model_weight": 32,
+      "vae_weight": 32,
+      "ar_prefill_graph": 64,
+      "ar_decode_graph": 32,
+      "nar_graph": 64,
+      "vae_graph": 64
+    }
+  },
+  "limits": {
+    "cgroup_memory_bytes": 8589934592,
+    "per_run_timeout_seconds": 480,
+    "rss_abort_limit_bytes": 6979321856,
+    "cgroup_non_file_abort_limit_bytes": 7516192768,
+    "poll_interval_seconds": 0.5,
+    "observed_oom_events": 0,
+    "observed_oom_kill_events": 0,
+    "aborted_runs": 0
+  },
+  "measurement": {
+    "wall_time": "Python monotonic clock around native subprocess, including initialization, pinned-source hashing, generation and exit.",
+    "peak_rss": "Linux wait4/rusage RUSAGE_CHILDREN for one native child; host /proc sampling supplied the live memory guard.",
+    "scope": "Two standalone cold sessions. Source-file page-cache state was not controlled. No inference-speed or memory guarantee is inferred from these observations."
+  },
+  "reproduction": {
+    "working_directory": "Repository root",
+    "paths_normalized": true,
+    "path_note": "Commands below preserve original arguments with session-specific absolute paths replaced by this relative fixture layout. Native adapter paths resolve beneath the model root; all other relative paths resolve beneath the working directory.",
+    "layout": {
+      "native_binary": "native-build/bin/audiocpp_cli",
+      "model_directory": "fixtures/yue2",
+      "ar_adapter": "fixtures/yue2/adapters/trbdr/ar.safetensors",
+      "nar_adapter": "fixtures/yue2/adapters/trbdr/nar.safetensors",
+      "output_directory": "smoke-output"
+    },
+    "model_preparation_command": [
+      "python3",
+      "fetch-models.py",
+      "--directory",
+      "fixtures/yue2"
+    ],
+    "adapter_preparation": "Import the pinned combined file above through Riff, then copy its normalized AR/NAR stage files to the listed fixture paths and verify engine_sha256 before running. Raw combined files cannot substitute for normalized stage files.",
+    "binary_preparation": "Build the pinned runtime with all Riff patches for CPU; place or link the executable at the listed path. A different build can change binary, checkpoint and generated-output hashes."
+  },
+  "runs": [
+    {
+      "variant": "baseline",
+      "status": "passed",
+      "returncode": 0,
+      "command": [
+        "./native-build/bin/audiocpp_cli",
+        "--task",
+        "gen",
+        "--family",
+        "yue2",
+        "--model",
+        "./fixtures/yue2",
+        "--backend",
+        "cpu",
+        "--threads",
+        "2",
+        "--lyrics",
+        "[Instrumental]",
+        "--seed",
+        "1234",
+        "--out",
+        "./smoke-output/baseline-monitored.wav",
+        "--log",
+        "--metrics",
+        "--session-option",
+        "yue2.model_gguf=yue2-3b-q4_0.gguf",
+        "--session-option",
+        "yue2.vae_gguf=yue2-vae-f16.gguf",
+        "--session-option",
+        "yue2.model_weight_context_mb=32",
+        "--session-option",
+        "yue2.vae_weight_context_mb=32",
+        "--session-option",
+        "yue2.ar_prefill_graph_arena_mb=64",
+        "--session-option",
+        "yue2.ar_decode_graph_arena_mb=32",
+        "--session-option",
+        "yue2.nar_graph_arena_mb=64",
+        "--session-option",
+        "yue2.vae_graph_arena_mb=64",
+        "--request-option",
+        "cot=off",
+        "--request-option",
+        "cfg_scale=1",
+        "--request-option",
+        "semantic_temperature=1",
+        "--request-option",
+        "semantic_max_tokens=25",
+        "--request-option",
+        "semantic_min_tokens=25",
+        "--request-option",
+        "num_inference_steps=2",
+        "--request-option",
+        "ode_method=midpoint",
+        "--request-option",
+        "semantic_codes_out=./smoke-output/baseline-monitored.codes.i32",
+        "--request-option",
+        "acoustic_latents_out=./smoke-output/baseline-monitored.acoustic",
+        "--request-option",
+        "style=acoustic folk, guitar, instrumental"
+      ],
+      "active_adapters": [],
+      "wall_seconds": 23.036,
+      "peak_rss_bytes": 2902138880,
+      "sampled_peak_rss_bytes": 2902544384,
+      "termination_reason": null,
+      "audio": {
+        "path": "./smoke-output/baseline-monitored.wav",
+        "sha256": "f564e4e76dc1dd3cf0491b7db7da414109780db86339e95f38b7ab4770209264",
+        "frames": 47936,
+        "channels": 2,
+        "sample_rate": 48000,
+        "seconds": 0.9986666666666667,
+        "encoding": "PCM16LE",
+        "sample_count": 95872,
+        "peak": 0.05096435546875,
+        "rms": 0.006847877145019887,
+        "full_scale_samples": 0,
+        "nonzero_samples": 87269,
+        "zero_samples": 8603,
+        "all_zero": false,
+        "sample_width_bytes": 2,
+        "normalization_divisor": 32768,
+        "full_scale_threshold_absolute_int16": 32767,
+        "finite_note": "PCM16 cannot encode NaN or infinity; F32 acoustic finiteness is checked independently below."
+      },
+      "acoustic": {
+        "path": "./smoke-output/baseline-monitored.acoustic",
+        "sha256": "4e66ffd94926b7d00db25505762718fb5176f6470bae344aa5bd25a0abc777d0",
+        "frames": 25,
+        "latent_dim": 64,
+        "payload_bytes": 6400,
+        "nonfinite_values": 0,
+        "peak": 5.311371803283691,
+        "base_sha256": "97af67d7f800b362faee6e6bec806bddfcccb93f25fd3f9a1012724d95af6f4a",
+        "vae_sha256": "d4f4a05d8f291ae820cd1e43609da3fa91b56465810091a2b08c3350b751719d",
+        "producer_sha256": "a73b1605147a55f108348832e994fb15d7be7f28b4c7762b17ca9b0fe77a3889",
+        "context": 24576,
+        "dtype": "F32LE",
+        "value_count": 1600,
+        "header_sha256_valid": true,
+        "payload_sha256_valid": true,
+        "exact_file_length_valid": true
+      },
+      "semantic": {
+        "bytes": 100,
+        "tokens": 25,
+        "sha256": "40e48aa3e71349b8cf0aff01b8c7e4e06d1e2d2b157229765ed25956952c8ddb"
+      },
+      "log_excerpt": [
+        "[TIMING ts=20261019-122456] yue2.ar.prefix_weights_upload_ms 551.960076",
+        "[TRACE ts=20261019-122457] yue2.ar.decode.cache_steps 58",
+        "[TIMING ts=20261019-122459] yue2.nar.weights_upload_ms 347.847676",
+        "[TIMING ts=20261019-122459] yue2.nar.synthesize.ode_steps 2",
+        "[TIMING ts=20261019-122505] yue2.vae_decode.output_frames 47936",
+        "[TIMING ts=20261019-122505] session.wall_ms 22623.01056"
+      ]
+    },
+    {
+      "variant": "adapted",
+      "status": "passed",
+      "returncode": 0,
+      "command": [
+        "./native-build/bin/audiocpp_cli",
+        "--task",
+        "gen",
+        "--family",
+        "yue2",
+        "--model",
+        "./fixtures/yue2",
+        "--backend",
+        "cpu",
+        "--threads",
+        "2",
+        "--lyrics",
+        "[Instrumental]",
+        "--seed",
+        "1234",
+        "--out",
+        "./smoke-output/adapted.wav",
+        "--log",
+        "--metrics",
+        "--session-option",
+        "yue2.model_gguf=yue2-3b-q4_0.gguf",
+        "--session-option",
+        "yue2.vae_gguf=yue2-vae-f16.gguf",
+        "--session-option",
+        "yue2.model_weight_context_mb=32",
+        "--session-option",
+        "yue2.vae_weight_context_mb=32",
+        "--session-option",
+        "yue2.ar_prefill_graph_arena_mb=64",
+        "--session-option",
+        "yue2.ar_decode_graph_arena_mb=32",
+        "--session-option",
+        "yue2.nar_graph_arena_mb=64",
+        "--session-option",
+        "yue2.vae_graph_arena_mb=64",
+        "--session-option",
+        "yue2.ar_lora=adapters/trbdr/ar.safetensors",
+        "--session-option",
+        "yue2.ar_lora_scale=0.75",
+        "--session-option",
+        "yue2.nar_lora=adapters/trbdr/nar.safetensors",
+        "--session-option",
+        "yue2.nar_lora_scale=0.5",
+        "--request-option",
+        "cot=off",
+        "--request-option",
+        "cfg_scale=1",
+        "--request-option",
+        "semantic_temperature=1",
+        "--request-option",
+        "semantic_max_tokens=25",
+        "--request-option",
+        "semantic_min_tokens=25",
+        "--request-option",
+        "num_inference_steps=2",
+        "--request-option",
+        "ode_method=midpoint",
+        "--request-option",
+        "semantic_codes_out=./smoke-output/adapted.codes.i32",
+        "--request-option",
+        "acoustic_latents_out=./smoke-output/adapted.acoustic",
+        "--request-option",
+        "style=acoustic folk, guitar, instrumental"
+      ],
+      "active_adapters": [
+        {
+          "stage": "ar",
+          "sha256": "2e505269c924acb57fc2d43349d5699365398e86c42ac4f9bcb45673f9e84e75",
+          "strength": 0.75
+        },
+        {
+          "stage": "nar",
+          "sha256": "5149299f325cd50bc4f996a2c611e39cae96eddc5bbdcb4da020af927ab40b41",
+          "strength": 0.5
+        }
+      ],
+      "wall_seconds": 64.594,
+      "peak_rss_bytes": 3292590080,
+      "sampled_peak_rss_bytes": 3292590080,
+      "termination_reason": null,
+      "audio": {
+        "path": "./smoke-output/adapted.wav",
+        "sha256": "774ee98a0b813c2a1f3dd1ec3de304d4fc4d5f7fdaf1ca523fc6596783cde020",
+        "frames": 47936,
+        "channels": 2,
+        "sample_rate": 48000,
+        "seconds": 0.9986666666666667,
+        "encoding": "PCM16LE",
+        "sample_count": 95872,
+        "peak": 0.035400390625,
+        "rms": 0.0051514751604281655,
+        "full_scale_samples": 0,
+        "nonzero_samples": 88365,
+        "zero_samples": 7507,
+        "all_zero": false,
+        "sample_width_bytes": 2,
+        "normalization_divisor": 32768,
+        "full_scale_threshold_absolute_int16": 32767,
+        "finite_note": "PCM16 cannot encode NaN or infinity; F32 acoustic finiteness is checked independently below."
+      },
+      "acoustic": {
+        "path": "./smoke-output/adapted.acoustic",
+        "sha256": "2a671e1eb8a6651765e04b201f373b2dcbdb6981dd1fab87de9688c4e59ef488",
+        "frames": 25,
+        "latent_dim": 64,
+        "payload_bytes": 6400,
+        "nonfinite_values": 0,
+        "peak": 5.018680572509766,
+        "base_sha256": "97af67d7f800b362faee6e6bec806bddfcccb93f25fd3f9a1012724d95af6f4a",
+        "vae_sha256": "d4f4a05d8f291ae820cd1e43609da3fa91b56465810091a2b08c3350b751719d",
+        "producer_sha256": "a73b1605147a55f108348832e994fb15d7be7f28b4c7762b17ca9b0fe77a3889",
+        "context": 24576,
+        "dtype": "F32LE",
+        "value_count": 1600,
+        "header_sha256_valid": true,
+        "payload_sha256_valid": true,
+        "exact_file_length_valid": true
+      },
+      "semantic": {
+        "bytes": 100,
+        "tokens": 25,
+        "sha256": "e40a0889691ab71c0be261495773022650c7440aeae07d69e32a5b519885a9d9"
+      },
+      "log_excerpt": [
+        "[info][yue2] yue2.ar_lora: adapters/trbdr/ar.safetensors, projections=196, scale=0.750000",
+        "[info][yue2] yue2.nar_lora: adapters/trbdr/nar.safetensors, projections=196, scale=0.500000",
+        "[TIMING ts=20261019-122355] yue2.ar.prefix_weights_upload_ms 19248.22007",
+        "[TRACE ts=20261019-122356] yue2.ar.decode.cache_steps 58",
+        "[TIMING ts=20261019-122418] yue2.nar.weights_upload_ms 19464.406724",
+        "[TIMING ts=20261019-122418] yue2.nar.synthesize.ode_steps 2",
+        "[TIMING ts=20261019-122426] yue2.vae_decode.output_frames 47936",
+        "[TIMING ts=20261019-122426] session.wall_ms 63949.312325"
+      ]
+    }
+  ],
+  "comparisons": {
+    "initial_and_monitored_baseline_audio_identical": true,
+    "initial_and_monitored_baseline_semantics_identical": true,
+    "adapted_audio_differs": true,
+    "adapted_semantics_differ": true
+  }
+}

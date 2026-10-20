@@ -16,7 +16,8 @@ import socket
 import sqlite3
 import sys
 import threading
-from urllib.parse import quote, unquote, urlsplit
+import tempfile
+from urllib.parse import parse_qs, quote, unquote, urlsplit
 import webbrowser
 
 import run as engine
@@ -36,6 +37,8 @@ JOB_ROUTE = re.compile(r"/api/jobs/([a-f0-9]{32})(?:/(cancel|retry|move))?")
 PRESET_ROUTE = re.compile(r"/api/presets/([a-z0-9-]+)")
 TRACK_REVIEWS_ROUTE = re.compile(r"/api/tracks/([a-f0-9]{32})/reviews")
 REVIEW_ROUTE = re.compile(r"/api/reviews/([a-f0-9]{32})(?:/(cancel))?")
+LORA_ROUTE = re.compile(r"/api/loras/([a-f0-9]{64})(?:/(updates))?")
+LORA_TASK_ROUTE = re.compile(r"/api/loras/tasks/([a-f0-9]{32})(?:/(cancel))?")
 
 
 def studio_identity(web, version):
@@ -94,6 +97,8 @@ class StudioServer(ThreadingHTTPServer):
     def server_close(self):
         if hasattr(self, "video_exports"):
             self.video_exports.close()
+        if hasattr(self.store.loras, "close"):
+            self.store.loras.close()
         super().server_close()
 
 
@@ -164,10 +169,38 @@ class Handler(BaseHTTPRequestHandler):
                 state["reviews"] = self.server.reviews.snapshot() if self.server.reviews else []
                 state["review_settings"] = self.server.reviews.settings() if self.server.reviews else {"enabled": False}
                 state["engine"] = {**platform_support.readiness(), "writer_ready": self.server.generator.writer_ready(),
-                                   "model": "YuE2", "precision": "Q4", "local": True, "refinement_controls": schema()}
+                                   "model": "YuE2", "precision": "Q4", "local": True, "refinement_controls": schema(),
+                                   "lora": engine.engine_capabilities().get("lora", False)}
                 if self.server.maintenance:
                     state["maintenance"] = self.server.maintenance.snapshot()
                 self.json_response(200, state)
+            elif path == "/api/loras":
+                self.json_response(200, {"loras": self.server.store.loras.list(),
+                                        "enabled": engine.engine_capabilities().get("lora", False)})
+            elif path == "/api/loras/hub":
+                query = parse_qs(parsed.query)
+                one = lambda key, default="": query.get(key, [default])[0]
+                self.json_response(200, self.server.store.loras.hub_search(
+                    query=one("q"), sort=one("sort", "downloads"), genre=one("genre"),
+                    page=int(one("page", "0")), limit=int(one("limit", "20")),
+                    license=one("license"), stage=one("stage"), compatibility=one("compatibility")))
+            elif path in ("/api/loras/hub/detail", "/api/loras/hub/media"):
+                query = parse_qs(parsed.query)
+                repo = query.get("repo", [""])[0]
+                revision = query.get("revision", ["main"])[0]
+                if path.endswith("/media"):
+                    file, mime = self.server.store.loras.media(repo, revision, query.get("file", [""])[0])
+                    self.send_file(file, mime, ranged=True)
+                else:
+                    self.json_response(200, self.server.store.loras.hub_detail(repo, revision))
+            elif (match := LORA_TASK_ROUTE.fullmatch(path)) and not match[2]:
+                self.json_response(200, self.server.store.loras.task(match[1]))
+            elif (match := LORA_ROUTE.fullmatch(path)):
+                if match[2] == "updates":
+                    self.json_response(200, self.server.store.loras.check_updates(match[1]))
+                else:
+                    self.json_response(200, {**self.server.store.loras.get(match[1]),
+                                             "references": self.server.store.lora_references(match[1])})
             elif path.startswith("/api/scores/"):
                 reference = path[len("/api/scores/"):]
                 if not self.server.store.artifacts:
@@ -234,6 +267,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.json_response(200, self.server.store.job(match[1]))
             else:
                 files = {"/": "index.html", "/app.js": "app.js", "/explore.js": "explore.js", "/review.js": "review.js",
+                         "/loras.js": "loras.js",
                          "/artwork.js": "artwork.js", "/visualizer.js": "visualizer.js", "/video.js": "video.js", "/video-encoder.js": "video-encoder.js", "/lineage.js": "lineage.js", "/style.css": "style.css",
                          "/theme.js": "theme.js", "/suite.css": "suite.css", "/controls.js": "controls.js", "/updates.js": "updates.js", "/acoustics.js": "acoustics.js",
                          "/flip-face.svg": "flip-face.svg", "/score.js": "score.js", "/compare.js": "compare.js",
@@ -298,11 +332,51 @@ class Handler(BaseHTTPRequestHandler):
                 remaining -= len(block)
 
     def do_POST(self):
+        if unquote(urlsplit(self.path).path) == "/api/loras/import":
+            self.receive_lora()
+            return
         match = VIDEO_ROUTE.fullmatch(unquote(urlsplit(self.path).path))
         if match and match[2] == "frames":
             self.receive_video_frame(match[1])
             return
         self.mutate("POST")
+
+    def receive_lora(self):
+        """Stream a browser-selected safetensors file; never accept host paths."""
+        if not self.safe_request(mutation=True, content_type="application/octet-stream"):
+            return
+        try:
+            query = parse_qs(urlsplit(self.path).query)
+            name = query.get("name", [""])[0]
+            if not name.endswith(".safetensors") or Path(name).name != name or "/" in name or "\\" in name or "\x00" in name:
+                raise ValueError("Choose a .safetensors LoRA file.")
+            size = int(self.headers.get("Content-Length", "0"))
+            limit = int(os.environ.get("RIFF_LORA_UPLOAD_MAX_BYTES", str(2 * 1024 ** 3)))
+            if size <= 0 or size > limit:
+                raise ValueError("The file is empty or exceeds the configured LoRA upload limit.")
+            metadata = json.loads(self.headers.get("X-Riff-LoRA-Metadata", "{}"))
+            if not isinstance(metadata, dict):
+                raise ValueError("LoRA metadata must be an object.")
+            with tempfile.TemporaryDirectory(prefix="lora-upload-", dir=self.server.store.data_root) as temporary:
+                path = Path(temporary) / name
+                with path.open("xb") as target:
+                    remaining = size
+                    while remaining:
+                        block = self.rfile.read(min(1024 * 1024, remaining))
+                        if not block:
+                            raise ValueError("The LoRA upload was interrupted.")
+                        target.write(block)
+                        remaining -= len(block)
+                config = metadata.pop("adapter_config", None)
+                if config is not None:
+                    if not isinstance(config, dict):
+                        raise ValueError("The PEFT adapter configuration must be an object.")
+                    (Path(temporary) / "adapter_config.json").write_text(json.dumps(config), encoding="utf-8")
+                self.json_response(201, self.server.store.loras.import_local([path], metadata=metadata))
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+        except (ValueError, OSError) as exc:
+            self.json_response(400, {"error": str(exc)})
 
     def receive_video_frame(self, export_id):
         content_type = self.headers.get("Content-Type", "").split(";")[0]
@@ -348,7 +422,18 @@ class Handler(BaseHTTPRequestHandler):
         path = unquote(urlsplit(self.path).path)
         try:
             payload = self.read_json()
-            if path in ("/api/generations", "/api/plans") and method == "POST":
+            if path == "/api/loras" and method == "POST":
+                self.json_response(202, self.server.store.loras.hub_install(payload))
+            elif (match := LORA_TASK_ROUTE.fullmatch(path)) and match[2] == "cancel" and method == "POST":
+                self.json_response(200, self.server.store.loras.cancel(match[1]))
+            elif (match := LORA_ROUTE.fullmatch(path)) and not match[2] and method in ("PATCH", "DELETE"):
+                if method == "PATCH":
+                    result = self.server.store.loras.update(match[1], payload)
+                else:
+                    with self.server.generator.lock:
+                        result = self.server.store.loras.delete(match[1], confirm=payload.get("confirm") is True)
+                self.json_response(200, result or {"status": "removed"})
+            elif path in ("/api/generations", "/api/plans") and method == "POST":
                 with self.server.maintenance.lock if self.server.maintenance else nullcontext():
                     if self.server.restart_requested:
                         raise ValueError("Riff is restarting. Your draft is saved.")

@@ -108,7 +108,7 @@ def engine_key(session):
     files = [Path(session["binary"])] + [root / name for name in SIDECARS]
     for option in session["session_options"]:
         key, _, value = option.partition("=")
-        if key in ("yue2.model_gguf", "yue2.vae_gguf"):
+        if key in ("yue2.model_gguf", "yue2.vae_gguf", "yue2.ar_lora", "yue2.nar_lora"):
             files.append(root / value)
     return tuple(engine_command(session)), tuple(_identity(path) for path in files)
 

@@ -15,6 +15,63 @@
   font-synthesis: none;
 }
 
+/* Community styles sit beside the musical direction and keep its quiet scale. */
+.lora-composer { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); margin: 16px 0 22px; padding: 13px 0; }
+.lora-composer > summary { cursor: pointer; font-size: 13px; }
+.lora-composer > summary .quiet-text { margin-left: 8px; }
+.lora-composer .field-heading { align-items: center; gap: 12px; margin-top: 12px; }
+.lora-composer .field-heading p { flex: 1; margin: 0; }
+.lora-stage-grid { display: grid; grid-template-columns: minmax(0, 1fr) 90px; gap: 10px 14px; }
+.lora-stage-grid input, .lora-stage-grid select { width: 100%; min-width: 0; }
+.lora-dialog { width: min(940px, calc(100vw - 32px)); max-width: none; max-height: 90dvh; padding: 30px; overflow-y: auto; }
+.lora-dialog h2 { font-family: Georgia, serif; font-size: clamp(26px, 4vw, 40px); font-weight: 400; margin: 4px 0; }
+.lora-dialog .eyebrow { color: var(--quiet); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; margin: 0; }
+.lora-tabs, .lora-card-actions, .lora-pagination { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.lora-tabs { margin: 22px 0 18px; }
+.lora-tabs button[aria-pressed="true"] { border-color: var(--blue); color: var(--blue); }
+.lora-search { display: grid; grid-template-columns: minmax(0, 1fr) 180px auto; gap: 10px; margin: 18px 0 12px; }
+.lora-search input, .lora-search select { width: 100%; min-width: 0; }
+.lora-filters { font-size: 12px; margin: 12px 0; }
+.lora-filters > summary { cursor: pointer; }
+.lora-filter-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 14px; }
+.lora-filter-grid input, .lora-filter-grid select { width: 100%; min-width: 0; }
+.lora-filter-grid label { display: block; margin-bottom: 6px; }
+.lora-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 20px; }
+.lora-card { border: 1px solid var(--line); background: var(--paper); border-radius: 12px; padding: 20px; display: flex; flex-direction: column; min-width: 0; }
+.lora-card h3 { font-family: Georgia, serif; font-size: 23px; font-weight: 400; margin: 8px 0 16px; overflow-wrap: anywhere; }
+.lora-card > .quiet-text { margin: 0; overflow-wrap: anywhere; }
+.lora-card-actions { margin-top: auto; padding-top: 14px; }
+.lora-badges { display: flex; flex-wrap: wrap; gap: 6px; }
+.lora-badge { padding: 4px 8px; font-size: 10px; border: 1px solid var(--line); border-radius: 999px; overflow-wrap: anywhere; }
+.lora-pagination { justify-content: center; margin: 24px 0 4px; }
+.lora-detail { border-top: 1px solid var(--line); margin-top: 24px; padding-top: 20px; overflow-wrap: anywhere; }
+.lora-detail h3 { font-family: Georgia, serif; font-weight: 400; font-size: 25px; }
+.lora-demos { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin: 20px 0; }
+.lora-demos p { font-size: 12px; }
+.lora-demos audio, .lora-demos video { width: 100%; }
+.lora-demos video { max-height: 280px; }
+.lora-files { border: 0; padding: 0; margin: 20px 0; min-width: 0; }
+.lora-files legend { margin-bottom: 10px; font-weight: 600; font-size: 13px; }
+.lora-files label { display: flex; align-items: flex-start; gap: 10px; font-size: 12px; margin: 12px 0; }
+.lora-files input { width: auto; flex: 0 0 auto; margin-top: 3px; }
+.lora-files small { display: block; margin-top: 4px; color: var(--quiet); font-size: 11px; }
+.lora-readme { margin-top: 22px; font-size: 13px; line-height: 1.6; }
+.lora-readme pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11px; }
+.lora-edit-form { display: grid; gap: 10px; max-width: 600px; }
+.lora-edit-form label { margin: 6px 0 0; }
+.lora-edit-form button { justify-self: start; margin-top: 10px; }
+#lora-import-options { border: 1px solid var(--line); border-radius: 8px; padding: 16px; }
+#lora-install-progress { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; font-size: 12px; }
+#lora-install-progress progress { flex: 1; min-width: 100px; accent-color: var(--blue); }
+.lora-search[hidden], .lora-pagination[hidden], #lora-install-progress[hidden] { display: none; }
+@media (max-width: 600px) {
+  .lora-dialog { padding: 20px 16px; width: calc(100vw - 16px); }
+  .lora-grid, .lora-demos, .lora-filter-grid { grid-template-columns: minmax(0, 1fr); }
+  .lora-search { grid-template-columns: minmax(0, 1fr) auto; }
+  .lora-search input { grid-column: 1 / -1; }
+  .lora-tabs { gap: 8px; }
+}
+
 /* Producer notes share the listening room, with the next take one step away. */
 .producer-panel {
   margin-top: 18px;

@@ -1,5 +1,5 @@
 """Discover the same musical operations used by the studio and producer."""
-from review_recipe import response_schema
+from review_recipe import response_schema, lora_schema
 from model_options import CONTEXT, TOKEN_RATE
 from video import VIDEO_ENCODING
 
@@ -7,6 +7,7 @@ from video import VIDEO_ENCODING
 def describe():
     recipe = response_schema({}, False)["properties"]["generation"]
     recipe["required"] = []
+    recipe["properties"]["loras"] = lora_schema()
     recipe["properties"]["performance_source"] = {
         "type": "string", "pattern": "^(?:[a-f0-9]{32})?$",
         "description": "Empty for new music, or a library track or completed-stage job ID with performance_available=true. Reuses that take's saved performance codes and duration."}
@@ -27,6 +28,17 @@ def describe():
         "video_encoding": VIDEO_ENCODING,
         "request_header": {"X-Riff-Request": "1"},
         "operations": {
+            "loras": {"method": "GET", "path": "/api/loras", "description": "Installed adapters and native activation availability."},
+            "lora_search": {"method": "GET", "path": "/api/loras/hub?q=&sort=downloads&page=0&limit=20"},
+            "lora_detail": {"method": "GET", "path": "/api/loras/hub/detail?repo={owner/name}&revision=main"},
+            "lora_install": {"method": "POST", "path": "/api/loras", "body": "repo, revision (resolved commit), files (safetensors paths); optional local name. Returns a cancellable install task."},
+            "lora_import": {"method": "POST", "path": "/api/loras/import?name={file.safetensors}",
+                            "body": "Raw safetensors bytes, Content-Type application/octet-stream. Optional X-Riff-LoRA-Metadata JSON includes name, license, trigger_words and adapter_config for PEFT. No host filesystem paths."},
+            "lora_task": {"method": "GET", "path": "/api/loras/tasks/{task_id}"},
+            "lora_cancel": {"method": "POST", "path": "/api/loras/tasks/{task_id}/cancel", "body": "Empty object."},
+            "lora_edit": {"method": "PATCH", "path": "/api/loras/{adapter_id}", "body": "name, notes, tags, default_strength or trigger_words."},
+            "lora_updates": {"method": "GET", "path": "/api/loras/{adapter_id}/updates"},
+            "lora_delete": {"method": "DELETE", "path": "/api/loras/{adapter_id}", "body": "Empty object; confirm:true acknowledges recorded references. Queued/active take references always prevent deletion."},
             "library": {"method": "GET", "path": "/api/state"},
             "lineage": {"method": "GET", "path": "/api/tracks/{track_id}/lineage",
                         "version": 1, "body": "Read-only connected graph of recorded parent/performance references, including archived takes and unavailable source placeholders. Edges expose recorded-input differences and distinguish missing values from explicit values. No ancestry is inferred from seed, title or musical similarity; cycles are reported without rewriting recipes."},
@@ -58,7 +70,7 @@ def describe():
             "export_download": {"method": "GET", "path": "/api/video-exports/{export_id}/download"},
         },
         "performance": {
-            "inputs": ["performance_source", "style", "abc", "score_source", "cot", "lyrics", "steps", "solver", "seed"],
+            "inputs": ["performance_source", "style", "abc", "score_source", "cot", "lyrics", "steps", "solver", "seed", "loras"],
             "behavior": "Retains saved music codes, phrasing and duration. Acoustic conditioning, solver steps and seed may be revised. Music sampling settings are skipped. Use a fresh performance to change words or composition.",
         },
         "score": {
