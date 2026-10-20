@@ -30,9 +30,18 @@ quantizer where supported, variable bitrate in quality latency mode otherwise, w
 a requested keyframe every two seconds. Quality mode must not drop frames to meet
 a bitrate ([WebCodecs latency modes](https://www.w3.org/TR/webcodecs/#latency-mode)).
 Frames are not flushed one by one: drawing, encoding and upload overlap while
-uploads stay in frame order. An encoder may hold frames until more arrive, so the
+uploads stay in frame order. The browser groups consecutive frames into batches
+of at most 16 frames and 32 MiB, rather than waiting for an HTTP acknowledgement
+for every frame. Both PNG and H.264 use the same bounded batch protocol. A frame
+larger than the batch byte limit keeps the existing single-frame path. Servers
+without the advertised batching capability retain compatibility with the older
+upload protocol. After a lost response the browser checks the received frame
+index and resumes only the unaccepted suffix, including a partly accepted batch.
+An encoder may hold frames until more arrive, so the
 export drains it whenever its upload queue is full (one second of H.264 frames;
-one PNG uploads while the next encodes) and at the end. A drain is bounded to 60
+up to one batch of PNG frames, also limited by the batch byte budget) and at the
+end. PNG encoding can prepare the next batch while the previous one uploads,
+instead of blocking behind a two-frame queue. A drain is bounded to 60
 seconds and remains cancellable. Every output passes the dimension, frame-count
 and frame-rate validation before it can be downloaded.
 
@@ -41,8 +50,14 @@ Receipts record the final encoder, CRF, preset, tune, colour, frame source
 the same settings, including the quantizer and fallback bitrate targets, to
 browser and agent clients. An agent may send H.264 at any quality; the final
 encode is the same. No new temporary
-audio copy or raw-frame directory is created; the existing single-frame
-backpressure and failed/cancelled-part cleanup remain in force.
+audio copy or raw-frame directory is created; frame queues and batches remain
+bounded, and failed/cancelled-part cleanup remains in force.
+
+Each batched frame is preceded by its unsigned 32-bit big-endian byte length.
+The server validates the entire request's framing, image headers and sequence
+before admitting its frames. Frames then enter the same FFmpeg pipe in order,
+under the export's existing backpressure and cancellation rules. Batch framing
+bytes are excluded from the accepted frame-byte total.
 
 The server records accepted frame bytes, final MP4 bytes, frame count, transport,
 elapsed time from job creation, time writing to FFmpeg's stdin, and time finishing
@@ -65,7 +80,7 @@ The browser submits `client_reported` durations in seconds:
 | `encode_seconds` | Waiting for the browser H.264 encoder to accept a frame, or for PNG output |
 | `upload_seconds` | Frame uploads and acknowledgements, including retry waits; overlaps drawing |
 | `preview_seconds` | Progress preview drawing and UI updates |
-| `yield_seconds` | Yielding browser tasks between frames |
+| `yield_seconds` | Yielding browser tasks between acknowledged uploads |
 | `before_finish_seconds` | Total browser time before requesting final assembly |
 
 These are client-reported elapsed durations, not trusted billing or CPU/GPU
@@ -103,6 +118,22 @@ ffprobe installed:
 RIFF_DEMO_WAV=/absolute/reference.wav RIFF_BENCH_DURATIONS=2,30 \
   node scripts/benchmark_video.mjs /absolute/fresh-results-directory
 ```
+
+For a matched single-frame versus batched comparison, run serially into different
+fresh directories with `RIFF_BENCH_UPLOAD=single` and `RIFF_BENCH_UPLOAD=batch`.
+Alternatively, `RIFF_BENCH_UPLOAD=compare RIFF_BENCH_REPEATS=2` runs each pair
+adjacently in alternating order within one fixture and asserts that their decoded
+frame hashes match. Prefer this mode when load varies between separate runs.
+`RIFF_BENCH_DIMENSIONS=2160x2160x60` restricts the tested formats;
+`RIFF_BENCH_LATENCY_MS=30` adds a disclosed 30 ms delay per frame-upload request.
+This is simulated request latency, not a measurement of any deployed network.
+Results include the actual frame-upload request count. Keep duration, dimensions,
+frame rate, transport, source audio and final encoding settings identical when
+comparing modes, and compare their retained decoded frame hashes as well as time.
+`RIFF_BENCH_SAMPLE_RESOURCES=0` explicitly disables resource sampling; missing
+RSS and CPU measurements are recorded as null. Resource-sampled runs bound each
+process-table query to two seconds so a blocked sampler fails the run instead of
+silently measuring a stalled benchmark as export latency.
 
 The script creates an isolated test library with fake provider credentials. It
 does not connect to the running studio or generate music. The selected source

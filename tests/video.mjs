@@ -152,6 +152,13 @@ try {
   await page.emulateMedia({ reducedMotion: "reduce" });
   const recovered = new Set();
   const frameRoute = /\/api\/video-exports\/[a-f0-9]+\/frames$/;
+  // Exercise compatibility with servers that only support individual frames.
+  const capabilitiesRoute = `${base}/api/capabilities`;
+  await page.route(capabilitiesRoute, async route => {
+    const response = await route.fetch(), capabilities = await response.json();
+    delete capabilities.video_frame_batch;
+    await route.fulfill({ response, json: capabilities });
+  });
   await page.route(frameRoute, async route => {
     const index = Number(route.request().headers()["x-riff-frame"]);
     if ([3, 5, 7].includes(index) && !recovered.has(index)) {
@@ -183,6 +190,7 @@ try {
   assert(completed.receipt.client_reported.encode_seconds > 0);
   assert(completed.receipt.client_reported.before_finish_seconds >= completed.receipt.client_reported.upload_seconds);
   await page.unroute(frameRoute);
+  await page.unroute(capabilitiesRoute);
   console.log("PASS Interrupted frame uploads, lost acknowledgements and temporary server errors recover without duplicate frames");
   const probe = JSON.parse(execFileSync("ffprobe", ["-v", "error", "-show_streams", "-of", "json", "test-results/seed-visualization.mp4"]));
   const video = probe.streams.find(stream => stream.codec_type === "video");

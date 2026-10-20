@@ -13,6 +13,8 @@ import wave
 
 MOTION_VERSION = 4
 WAVEFORM_POINTS = 64  # Half the contour's 128 vertices; detail remains legible at cover size.
+VIDEO_FRAME_BATCH = {"max_frames": 16, "max_bytes": 32 * 1024 * 1024,
+                     "content_type": "application/x-riff-video-frames"}
 # One final encoding for both frame paths. On real 4K60 artwork, x264
 # slow/animation at CRF 19 from lossless frames measured VMAF 94.3 and RGB
 # PSNR 47.8 dB at 7.6 Mbit/s, against 92.2 and 46.8 dB at 11.7 Mbit/s for the
@@ -241,34 +243,57 @@ class VideoExports:
         return self.get(export_id)
 
     def frame(self, export_id, index, data):
+        return self.frames(export_id, index, [data])
+
+    def frame_batch(self, export_id, index, data):
+        if not 0 < len(data) <= VIDEO_FRAME_BATCH["max_bytes"]:
+            raise ValueError("Send a bounded video frame batch.")
+        data, offset, frames = memoryview(data), 0, []
+        while offset < len(data):
+            if len(frames) >= VIDEO_FRAME_BATCH["max_frames"] or len(data) - offset < 4:
+                raise ValueError("The video frame batch is incomplete or too large.")
+            size, = struct.unpack_from(">I", data, offset)
+            offset += 4
+            if not size or size > len(data) - offset:
+                raise ValueError("The video frame batch is incomplete.")
+            frames.append(data[offset:offset + size])
+            offset += size
+        return self.frames(export_id, index, frames)
+
+    def frames(self, export_id, index, frames):
         with self.lock: active = self.active.get(export_id)
         if not active:
             self.get(export_id)
             raise ValueError("This export is no longer accepting frames.")
         job = active["job"]
         if job["status"] != "rendering": raise ValueError("This export is no longer accepting frames.")
-        if job.get("transport", "png") == "png":
-            if len(data) < 24 or data[:8] != b"\x89PNG\r\n\x1a\n" or data[12:16] != b"IHDR":
-                raise ValueError("Send a PNG visualization frame.")
-            if struct.unpack(">II", data[16:24]) != (job["width"], job["height"]):
-                raise ValueError("The frame size differs from this export.")
-        elif job["transport"] == "h264":
-            if len(data) < 5 or not (data.startswith(b"\x00\x00\x00\x01") or data.startswith(b"\x00\x00\x01")):
-                raise ValueError("Send one encoded H.264 frame.")
-        else:
-            raise ValueError("This video export has an unsupported frame path.")
+        # Validate every frame before admitting any part of a batch.
+        for data in frames:
+            if len(data) > job["width"] * job["height"] * 4 + 1024 * 1024:
+                raise ValueError("Send one complete visualization frame.")
+            if job.get("transport", "png") == "png":
+                if len(data) < 24 or data[:8] != b"\x89PNG\r\n\x1a\n" or data[12:16] != b"IHDR":
+                    raise ValueError("Send a PNG visualization frame.")
+                if struct.unpack(">II", data[16:24]) != (job["width"], job["height"]):
+                    raise ValueError("The frame size differs from this export.")
+            elif job["transport"] == "h264":
+                if len(data) < 5 or not (data[:4] == b"\x00\x00\x00\x01" or data[:3] == b"\x00\x00\x01"):
+                    raise ValueError("Send one encoded H.264 frame.")
+            else:
+                raise ValueError("This video export has an unsupported frame path.")
         try:
             with active["lock"]:
-                if index != job["received"] or index >= job["frames"]:
+                if index != job["received"] or not frames or index + len(frames) > job["frames"]:
                     raise ValueError("The video frame sequence is incomplete or out of order.")
                 if job["status"] != "rendering": raise ValueError("This video export has stopped.")
-                sending = time.monotonic()
-                active["process"].stdin.write(data)
-                active["process"].stdin.flush()
-                active["stdin_seconds"] += time.monotonic() - sending
-                active["received_bytes"] += len(data)
-                active["updated"] = time.monotonic()
-                job["received"] += 1
+                for data in frames:
+                    sending = time.monotonic()
+                    active["process"].stdin.write(data)
+                    active["process"].stdin.flush()
+                    active["stdin_seconds"] += time.monotonic() - sending
+                    active["received_bytes"] += len(data)
+                    active["updated"] = time.monotonic()
+                    job["received"] += 1
         except (BrokenPipeError, OSError):
             self.cancel(export_id, "failed", "Video encoding stopped. Check that FFmpeg includes H.264 encoding.")
             raise ValueError("Video encoding stopped. Check that FFmpeg includes H.264 encoding.") from None

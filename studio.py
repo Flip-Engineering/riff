@@ -26,7 +26,7 @@ from reviews import Reviews
 from paths import DATA, OUTPUTS
 from model_options import schema
 from maintenance import Maintenance
-from video import VideoExports
+from video import VideoExports, VIDEO_FRAME_BATCH
 from network_access import read_access, request_origin
 import platform_support
 
@@ -380,7 +380,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def receive_video_frame(self, export_id):
         content_type = self.headers.get("Content-Type", "").split(";")[0]
-        if content_type not in ("image/png", "video/h264"):
+        batch = content_type == VIDEO_FRAME_BATCH["content_type"]
+        if content_type not in ("image/png", "video/h264") and not batch:
             if not self.safe_request(mutation=True, content_type="image/png"):
                 return
             self.json_response(400, {"error": "Send a PNG or encoded H.264 video frame."})
@@ -390,17 +391,19 @@ class Handler(BaseHTTPRequestHandler):
         try:
             job = self.server.video_exports.get(export_id)
             expected = "video/h264" if job.get("transport", "png") == "h264" else "image/png"
-            if content_type != expected:
+            if content_type != expected and not batch:
                 raise ValueError("This export expects a different frame path.")
             size = int(self.headers.get("Content-Length", "0"))
             index = int(self.headers.get("X-Riff-Frame", "-1"))
             # A single RGBA frame plus PNG overhead, independent of the music text budget.
-            if size <= 0 or size > job["width"] * job["height"] * 4 + 1024 * 1024:
+            limit = VIDEO_FRAME_BATCH["max_bytes"] if batch else job["width"] * job["height"] * 4 + 1024 * 1024
+            if size <= 0 or size > limit:
                 raise ValueError("Send one complete visualization frame.")
             frame = self.rfile.read(size)
             if len(frame) != size:
                 raise ValueError("The visualization frame was interrupted.")
-            self.json_response(200, self.server.video_exports.frame(export_id, index, frame))
+            receive = self.server.video_exports.frame_batch if batch else self.server.video_exports.frame
+            self.json_response(200, receive(export_id, index, frame))
         except sqlite3.OperationalError:
             self.json_response(503, {"error": "Riff could not access its library. Check available disk space and try again."})
         except KeyError as exc:

@@ -1,9 +1,11 @@
-Riff 0.6.25 makes the sound visualization respond immediately during playback.
+Riff 0.6.26 replaces per-frame video uploads with bounded batches.
 
-Live playback now reads energy, frequency bands, stereo image, transients and waveform samples directly from the playing audio through Web Audio. It no longer waits for the server to analyze the entire recording before reacting to the music. Frames follow the audio clock, and short motion history is reset after seeks and recording changes. The audio graph is reused across playback, preserving normal pause/resume and navigation.
+Video exports group up to 16 consecutive PNG or H.264 frames into each request, capped at 32 MiB. Drawing, encoding and uploading continue to overlap. The browser resumes from the server's received frame index after a lost response, including a partly accepted batch, without duplicating frames. Cancellation stops the owned encoder. Older clients and servers retain the single-frame protocol.
 
-Full-recording analysis remains available for deterministic video export, paused snapshots and browsers without live audio analysis. Existing motion appearance controls and reduced-motion behavior are retained. No music engine, adapter or recording data is changed.
+Export quality is unchanged: requested dimensions, frame rate and passage, browser H.264 quantizer 14, final libx264 slow/animation at CRF 19 with BT.709 colour, and AAC 320 kbps. The original full-recording WAV remains available unchanged beside each MP4. Matched benchmarks retain frame hashes and request counts rather than inferring speed from the transport alone; see docs/export-performance.md.
 
-Validation includes a browser regression that holds the full-recording analysis response while verifying nonzero live audio motion and advancing playback frames, plus playback, seeking, reduced-motion and actual WebGL checks.
+Artwork rendering also retries temporary graphics initialization failures and rebuilds resources on the restored context without reloading the page. This recovery fix is separate from the cross-device export throughput improvement.
+
+Validation covers malformed and oversized batches, sequence enforcement, partial acceptance, lost acknowledgements, byte budgets, cancellation, backward compatibility, and real 4K/60 MP4 dimensions, frame count, timing, artwork and audio.
 
 The graphical macOS download remains an ad-hoc signed preview with no Developer ID signature or notarization. NVIDIA desktop packaging remains in development. The ChatGPT plugin is a separate downstream delivery.

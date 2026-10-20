@@ -39,11 +39,17 @@ rejected; rejected experiments remain documented in the private ledger.
   removing the newly saved sound from the UI. Refresh application is now
   monotonic by request order; a deterministic regression holds and releases the
   older response. Version 0.6.17 release acceptance is tracked separately.
-- #20: encode/upload overlap is an isolated, unshipped experiment. Matched
-  measurements were stopped under severe disk pressure and high host load;
-  no throughput claim or long-PNG reliability fix is accepted from that run.
-  Receipts: `data/export-fixed-baseline-20260920` and
-  `data/export-fixed-overlap-20260920`. The lower-quality profiles remain removed.
+- #20 (0.6.26): both PNG and H.264 exports batch up to 16 frames and 32 MiB per
+  request. The next batch encodes while its predecessor uploads; the PNG queue
+  is also bounded by bytes. Interrupted requests resume at the accepted frame
+  index without replaying a prefix. Regression checks cover malformed batches,
+  bounds, ordering, retries, cancellation, old-server compatibility and 4K/60
+  media correctness. The benchmark can compare adjacent single/batch exports
+  in alternating order and asserts identical decoded frames. This does not
+  close the broader rendering/encoding work or establish device-wide throughput.
+  The inconclusive September receipts (`data/export-fixed-baseline-20260920`
+  and `data/export-fixed-overlap-20260920`) remain historical evidence only;
+  no throughput claim is accepted from those disk-pressure runs.
 - Updater recovery shipped in 0.6.16: normal update checks succeed while the
   anonymous GitHub API returns 403, using public version-bound payload receipts.
   Standard Riff Setup installed it; all 300 tracks and 2344 protected files

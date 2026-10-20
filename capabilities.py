@@ -1,7 +1,7 @@
 """Discover the same musical operations used by the studio and producer."""
 from review_recipe import response_schema, lora_schema
 from model_options import CONTEXT, TOKEN_RATE
-from video import VIDEO_ENCODING
+from video import VIDEO_ENCODING, VIDEO_FRAME_BATCH
 
 
 def describe():
@@ -26,6 +26,7 @@ def describe():
         "model": "YuE2", "context_tokens": CONTEXT, "music_tokens_per_second": TOKEN_RATE,
         "recipe_schema": recipe,
         "video_encoding": VIDEO_ENCODING,
+        "video_frame_batch": VIDEO_FRAME_BATCH,
         "request_header": {"X-Riff-Request": "1"},
         "operations": {
             "loras": {"method": "GET", "path": "/api/loras", "description": "Installed adapters and native activation availability."},
@@ -64,7 +65,7 @@ def describe():
                              "body": "Optional width, height, fps, start_seconds, end_seconds, transport=png|h264 (default png). One fixed high-quality encoding configuration, advertised in video_encoding. Both paths end in libx264 at the advertised preset, tune and CRF with BT.709 colour. H.264 clients send frames at the advertised fixed quantizer, or where a browser cannot, at the min/max bitrate and bits_per_pixel target. MP4 audio is lossy AAC; completed results also link the untouched full original WAV, including for passage exports."},
             "export_status": {"method": "GET", "path": "/api/video-exports/{export_id}"},
             "export_frame": {"method": "POST", "path": "/api/video-exports/{export_id}/frames",
-                             "body": "PNG bytes (image/png), or one Annex-B H.264 frame (video/h264) when transport=h264; X-Riff-Frame: zero-based frame index. Draw shared artwork at source_start + index / fps using the recording's motion data. H.264 chunks use the advertised encoding target; server-side stream validation does not prove perceptual quality or enforce an uploaded bitrate."},
+                             "body": "PNG bytes (image/png), or one Annex-B H.264 frame (video/h264) when transport=h264. Batch either path using video_frame_batch.content_type: each frame is preceded by its unsigned 32-bit big-endian byte length, within the advertised frame and byte limits. X-Riff-Frame is the zero-based index of the first frame. Frames must remain in order. After a lost response, GET export_status and resume at received, sending only any unaccepted suffix. Draw shared artwork at source_start + index / fps using the recording's motion data. H.264 chunks use the advertised encoding target; server-side stream validation does not prove perceptual quality or enforce an uploaded bitrate."},
             "export_finish": {"method": "POST", "path": "/api/video-exports/{export_id}/finish"},
             "export_cancel": {"method": "POST", "path": "/api/video-exports/{export_id}/cancel"},
             "export_download": {"method": "GET", "path": "/api/video-exports/{export_id}/download"},

@@ -12,7 +12,7 @@ import zlib
 
 from studio import StudioServer
 from test_studio import StudioFixture, recipe
-from video import MOTION_VERSION, WAVEFORM_POINTS, VideoExports, motion_envelope
+from video import MOTION_VERSION, WAVEFORM_POINTS, VIDEO_FRAME_BATCH, VideoExports, motion_envelope
 
 
 def png(width, height, color):
@@ -153,6 +153,41 @@ class VideoTests(StudioFixture):
         status, job = self.request("POST", f"/api/tracks/{self.track}/video-exports", {"width": 32, "height": 24, "fps": 24})
         self.assertEqual(status, 201, job)
         return job
+
+    def test_batches_validate_completely_before_admission_and_preserve_frame_count(self):
+        packet = lambda frames: b"".join(struct.pack(">I", len(frame)) + frame for frame in frames)
+        headers = {"Content-Type": VIDEO_FRAME_BATCH["content_type"], "X-Riff-Frame": "0"}
+        for transport in ("png", "h264"):
+            with self.subTest(transport=transport):
+                status, job = self.request("POST", f"/api/tracks/{self.track}/video-exports",
+                    {"width": 32, "height": 24, "fps": 24, "transport": transport})
+                self.assertEqual(status, 201)
+                base = f"/api/video-exports/{job['id']}"
+                frame = png(32, 24, (180, 40, 80)) if transport == "png" else h264_frame(32, 24, (180, 40, 80))
+                for invalid in (b"", b"\0", struct.pack(">I", 0), struct.pack(">I", len(frame) + 1) + frame,
+                                packet([frame, b"invalid"]), packet([frame]) + b"\0",
+                                packet([frame] * (VIDEO_FRAME_BATCH["max_frames"] + 1)),
+                                packet([frame] * (job["frames"] + 1))):
+                    self.assertEqual(self.request("POST", base + "/frames", invalid, headers)[0], 400)
+                    self.assertEqual(self.server.video_exports.get(job["id"])["received"], 0)
+                body = packet([frame] * job["frames"])
+                self.assertEqual(self.request("POST", base + "/frames", body,
+                    {**headers, "X-Riff-Frame": "1"})[0], 400)
+                self.assertEqual(self.request("POST", base + "/frames", body,
+                    {**headers, "Origin": "https://unrelated.invalid"})[0], 403)
+                self.assertEqual(self.request("POST", base + "/frames", b"x",
+                    {**headers, "Content-Length": str(VIDEO_FRAME_BATCH["max_bytes"] + 1)})[0], 400)
+                status, accepted = self.request("POST", base + "/frames", body, headers)
+                self.assertEqual((status, accepted["received"]), (200, job["frames"]))
+                self.assertEqual(self.request("POST", base + "/frames", body, headers)[0], 400)
+                status, result = self.request("POST", base + "/finish", {})
+                self.assertEqual((status, result["status"]), (200, "done"))
+                self.assertEqual(result["receipt"]["received_bytes"], len(frame) * job["frames"])
+                self.assertEqual(self.request("POST", base + "/frames", body, headers)[0], 400)
+                path, _ = self.server.video_exports.download(job["id"])
+                stream = json.loads(subprocess.check_output(["ffprobe", "-v", "error", "-select_streams", "v:0",
+                    "-show_entries", "stream=nb_frames", "-of", "json", str(path)]))["streams"][0]
+                self.assertEqual(int(stream["nb_frames"]), job["frames"])
 
     def test_real_mp4_preserves_audio_duration_and_frame_sequence(self):
         job = self.start()

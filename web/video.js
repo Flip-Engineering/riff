@@ -331,7 +331,9 @@ async function checkVideoResponse(response) {
   throw error;
 }
 
-async function sendVideoFrame(operation, job, index, frame) {
+async function sendVideoFrames(operation, job, index, frames) {
+  let first = index;
+  const end = index + frames.length;
   let confirm = false;
   for (let attempt = 0; ; attempt++) {
     try {
@@ -342,16 +344,26 @@ async function sendVideoFrame(operation, job, index, frame) {
         const saved = await response.json();
         if (saved.status !== "rendering") throw new Error("This video export has stopped.");
         // A lost response may follow a successful write. Never append that frame twice.
-        if (saved.received === index + 1) return;
-        if (saved.received !== index) throw new Error("The video frame sequence changed. Export again to restart.");
+        if (saved.received === end) return;
+        if (saved.received < first || saved.received >= end) throw new Error("The video frame sequence changed. Export again to restart.");
+        // A server can have accepted a prefix before a connection is lost.
+        // Resume at its acknowledged frame rather than replaying that prefix.
+        frames = frames.slice(saved.received - first);
+        first = saved.received;
         confirm = false;
       }
+      const batch = frames.length > 1;
+      const body = batch ? new Blob(frames.flatMap(bytes => {
+        const length = new ArrayBuffer(4);
+        new DataView(length).setUint32(0, bytes.byteLength);
+        return [length, bytes];
+      })) : frames[0];
       const response = await fetch(`/api/video-exports/${job.id}/frames`, {
         method: "POST", headers: {
-          "Content-Type": job.transport === "h264" ? "video/h264" : "image/png",
-          "X-Riff-Request": "1", "X-Riff-Frame": String(index),
+          "Content-Type": batch ? "application/x-riff-video-frames" : job.transport === "h264" ? "video/h264" : "image/png",
+          "X-Riff-Request": "1", "X-Riff-Frame": String(first),
         },
-        body: frame, signal: operation.controller.signal,
+        body, signal: operation.controller.signal,
       });
       await checkVideoResponse(response);
       await response.arrayBuffer();
@@ -396,6 +408,11 @@ async function createVideo(event) {
       fps = Number($("#video-fps").value);
     const capabilities = await api("/api/capabilities");
     const quality = capabilities.video_encoding;
+    const batching = capabilities.video_frame_batch;
+    const batchLimit = Number.isInteger(batching?.max_frames) && batching.max_frames > 1 &&
+      batching.content_type === "application/x-riff-video-frames" && batching.max_bytes > 4
+      ? Math.min(16, batching.max_frames) : 1;
+    const batchBytes = Math.min(32 * 1024 * 1024, batching?.max_bytes || 0);
     if (!quality) throw new Error("Export settings are unavailable. Reload Riff and try again.");
     const bitrate = videoBitrate(width, height, fps, quality);
     let transport = await preferredVideoTransport(width, height, fps, bitrate, quality.quantizer);
@@ -423,23 +440,37 @@ async function createVideo(event) {
     if (job.transport !== transport) throw new Error("The studio selected a different video path. Export again.");
     timings.prepare_seconds = (performance.now() - started) / 1000;
     const preview = $("#video-preview"), previewContext = preview.getContext("2d");
-    // Frames upload strictly in order while later frames are drawn and
-    // encoded. H.264 frames are small, so one second of them absorbs network
-    // jitter; a PNG frame is a whole image, so one uploads while the next encodes.
-    const capacity = transport === "h264" ? Math.max(2, Math.ceil(job.fps)) : 2;
+    // Batches upload strictly in order while later frames are drawn and
+    // encoded. Keep the queue bounded in addition to the batch byte limit.
+    const capacity = transport === "h264" ? Math.max(2, Math.ceil(job.fps)) : Math.max(2, batchLimit);
     const queued = [];
-    let uploaded = 0, wakeUploader = () => {}, wakeDrawer = () => {}, stopped = false;
+    let uploaded = 0, queuedBytes = 0, wakeUploader = () => {}, wakeDrawer = () => {}, stopped = false;
+    const queueFull = () => queued.length >= capacity ||
+      (transport === "png" && batchLimit > 1 && queuedBytes >= batchBytes);
     const upload = (async () => {
-      for (let index = 0; index < job.frames; index++) {
-        while (!queued.length) {
-          if (stopped) return;
-          await new Promise(resolve => wakeUploader = resolve);
+      for (let index = 0; index < job.frames;) {
+        const frames = [];
+        let bytes = 0;
+        while (frames.length < batchLimit && index + frames.length < job.frames) {
+          while (!queued.length) {
+            if (stopped) return;
+            await new Promise(resolve => wakeUploader = resolve);
+          }
+          const frame = await queued[0];
+          if (frames.length && bytes + 4 + frame.byteLength > batchBytes) break;
+          queued.shift();
+          if (transport === "png") queuedBytes -= frame.byteLength;
+          wakeDrawer();
+          frames.push(frame);
+          bytes += 4 + frame.byteLength;
+          // A frame larger than the batch budget retains the single-frame path.
+          if (bytes >= batchBytes) break;
         }
-        const frame = await queued.shift();
         let stageStarted = performance.now();
-        await sendVideoFrame(operation, job, index, frame);
+        await sendVideoFrames(operation, job, index, frames);
         timings.upload_seconds += (performance.now() - stageStarted) / 1000;
-        uploaded = index + 1;
+        index += frames.length;
+        uploaded = index;
         wakeDrawer();
         stageStarted = performance.now();
         const progress = uploaded / job.frames;
@@ -455,9 +486,9 @@ async function createVideo(event) {
     failure.catch(() => {});
     try {
       for (let index = 0; index < job.frames; index++) {
-        if (queued.length >= capacity) {
+        if (queueFull()) {
           await Promise.race([encoder.drain(), failure]);
-          while (queued.length >= capacity) await Promise.race([new Promise(resolve => wakeDrawer = resolve), failure]);
+          while (queueFull()) await Promise.race([new Promise(resolve => wakeDrawer = resolve), failure]);
         }
         if (operation.cancelled) return;
         const seconds = job.source_start + index / job.fps;
@@ -466,6 +497,8 @@ async function createVideo(event) {
         timings.draw_seconds += (performance.now() - stageStarted) / 1000;
         const { frame } = await Promise.race([encoder.submit(index), failure]);
         frame.catch(() => {}); // The uploader reports it in frame order.
+        const frameBytes = transport === "png" ? (await frame).byteLength : 0;
+        queuedBytes += frameBytes;
         queued.push(frame);
         wakeUploader();
         stageStarted = performance.now();
