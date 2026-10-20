@@ -18,7 +18,10 @@ rejected; rejected experiments remain documented in the private ledger.
   [validation record](lora-validation.md) for completed checks and remaining
   hardware, training and listening acceptance. LoRA support shipped in 0.6.22;
   the 0.6.23 follow-up restricts discovery to YuE2 adapter weight repositories
-  and removes GGUF files from adapter details. No new Riff adapter has been trained.
+  and removes GGUF files from adapter details. The 0.6.24 follow-up makes
+  selection and installation explicit, opens the picker above results immediately,
+  and adds visible retry and bounded loading for file checks.
+  No new Riff adapter has been trained.
 
 - #22: reproduced a delayed pre-save poll replacing the post-save state and
   removing the newly saved sound from the UI. Refresh application is now

@@ -91,8 +91,41 @@ try {
   await shot("loras-browse-desktop");
   check("Browse, search, empty results, trending sort and stage/compatibility filters render usable cards");
 
+  assert.equal(await page.locator("[data-lora-hub]").innerText(), "Select & install");
+  let releaseCheck;
+  const delayedCheck = new Promise(resolve => releaseCheck = resolve);
+  await page.route("**/api/loras/hub/detail?*", async route => {
+    await delayedCheck; await route.continue();
+  });
   await page.locator("[data-lora-hub]").click();
+  await page.locator('#lora-detail[aria-busy="true"]').waitFor();
+  assert((await page.locator("#lora-detail").innerText()).includes("Loading adapter files"));
+  assert(await page.locator("#lora-detail").getByRole("button", {name: "Install selected files"}).isDisabled());
+  await page.waitForFunction(() => {
+    const box = document.querySelector("#lora-detail").getBoundingClientRect();
+    return box.top >= 0 && box.top < innerHeight;
+  });
+  check("Selecting a catalog card immediately shows a visible loading panel and installation action");
+  await shot("loras-install-loading-desktop");
+  releaseCheck();
   await page.locator("#lora-install").waitFor();
+  await page.unroute("**/api/loras/hub/detail?*");
+  await page.getByRole("button", {name: "Back to results"}).click();
+  await page.route("**/api/loras/hub/detail?*", route => route.fulfill({status: 503, contentType: "application/json", body: JSON.stringify({error: "Temporary Hub failure"})}));
+  await page.locator("[data-lora-hub]").click();
+  await page.getByRole("button", {name: "Retry file check"}).waitFor();
+  assert((await page.locator("#lora-detail").innerText()).includes("Temporary Hub failure"));
+  await page.unroute("**/api/loras/hub/detail?*");
+  await page.getByRole("button", {name: "Retry file check"}).click();
+  await page.locator("#lora-install").waitFor();
+  check("File-check errors stay visible and retry recovers the picker");
+  const selectable = page.locator("#lora-detail input[data-lora-file]:not(:disabled)");
+  assert.equal(await selectable.count(), 1);
+  await selectable.uncheck();
+  assert(await page.locator("#lora-install").isDisabled());
+  await selectable.check();
+  assert(await page.locator("#lora-install").isEnabled());
+  await shot("loras-install-picker-desktop");
   assert((await page.locator("#lora-detail").textContent()).includes("apache-2.0"));
   assert((await page.locator("#lora-detail").textContent()).includes("unsupported"));
   assert(await page.locator("#lora-detail input:disabled").count() >= 1);

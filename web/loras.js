@@ -10,6 +10,7 @@
   let installed = [], enabled = false, tab = "browse", page = 0, results = [];
   let listRequest = 0, searchRequest = 0, detailRequest = 0, activeTask = null, taskTimer = null, currentDetail = null;
   let saved = null, loaded = false, installing = false, taskView = null;
+  let detailController = null;
   let choices = {ar: {id: "", scale: 1}, nar: {id: "", scale: 1}};
   const status = message => { el("#lora-status").textContent = message; };
 
@@ -104,6 +105,7 @@
 
   async function search() {
     const serial = ++searchRequest;
+    ++detailRequest; detailController?.abort(); el("#lora-detail").hidden = true;
     status("Finding community styles…");
     const query = new URLSearchParams({q: el("#lora-query").value, sort: el("#lora-sort").value,
       genre: el("#lora-genre").value, license: el("#lora-license").value,
@@ -119,16 +121,17 @@
         <p class="control-hint">${escape((item.tags || []).filter(tag => !tag.includes(":") && !["safetensors", "lora"].includes(tag)).slice(0, 6).join(" · "))}</p>
         <p class="quiet-text">${Number(item.likes || 0).toLocaleString()} likes · ${Number(item.downloads || 0).toLocaleString()} downloads</p>
         ${item.updated_at ? `<p class="quiet-text">Updated ${escape(String(item.updated_at).slice(0, 10))}</p>` : ""}
-        <button type="button" class="text-button" data-lora-hub="${index}">Listen & details ↗</button></article>`).join("");
+        <button type="button" class="secondary-button" data-lora-hub="${index}">Select & install</button></article>`).join("");
       el("#lora-previous").disabled = page === 0;
       el("#lora-next").disabled = value.has_more === false || (value.has_more === undefined && results.length < 20);
       el("#lora-page").textContent = `Page ${page + 1}`;
-      status(results.length ? "Open a style to hear examples and check its files before installing." : "No styles match this search. Try another sound or genre.");
+      status(results.length ? "Choose Select & install to pick adapter files. You can preview examples before downloading." : "No styles match this search. Try another sound or genre.");
     } catch (error) { if (serial === searchRequest) status(`Hugging Face is unavailable: ${error.message} Your installed styles are still available.`); }
   }
 
   async function showTab(next) {
     tab = next; ++searchRequest; ++detailRequest;
+    detailController?.abort();
     el("#lora-browse-tab").setAttribute("aria-pressed", String(tab === "browse"));
     el("#lora-installed-tab").setAttribute("aria-pressed", String(tab === "installed"));
     el("#lora-search-form").hidden = tab !== "browse";
@@ -172,37 +175,60 @@
   }
 
   async function openHub(repo, revision = "main") {
-    const serial = ++detailRequest; status("Checking the style and its adapter headers…");
+    const serial = ++detailRequest;
+    detailController?.abort();
+    const controller = new AbortController(); detailController = controller;
+    currentDetail = null;
+    const panel = el("#lora-detail");
+    panel.dataset.repo = repo; panel.dataset.revision = revision;
+    const heading = `<div class="field-heading"><h3 tabindex="-1">${escape(repo.split("/").pop())}</h3><button type="button" class="text-button" data-lora-detail-close>Back to results</button></div>`;
+    panel.innerHTML = `${heading}<p class="control-hint" role="status">Loading adapter files and checking compatibility… No weights are downloaded until you choose Install.</p><button type="button" class="secondary-button" disabled>Install selected files</button>`;
+    panel.hidden = false; panel.setAttribute("aria-busy", "true");
+    panel.querySelector("h3").focus({preventScroll: true});
+    panel.scrollIntoView({block: "start", behavior: "smooth"});
+    status("Checking adapter files. The file picker is above the results.");
+    const timer = setTimeout(() => controller.abort(), 45000);
     try {
-      const detail = await api("/api/loras/hub/detail?" + new URLSearchParams({repo, revision}));
+      const detail = await api("/api/loras/hub/detail?" + new URLSearchParams({repo, revision}), "GET", undefined, {signal: controller.signal});
       if (serial !== detailRequest) return;
       currentDetail = detail;
       const files = detail.files || [];
       const demos = (detail.demos || []).filter(file => /\.(mp3|flac|wav|ogg|m4a|opus|mp4|webm)$/i.test(fileName(file)));
-      el("#lora-detail").innerHTML = `<div class="field-heading"><h3>${escape(detail.name || detail.repo)}</h3><button type="button" class="text-button" data-lora-detail-close>Close details</button></div>
+      el("#lora-detail").innerHTML = `<div class="field-heading"><h3 tabindex="-1">${escape(detail.name || detail.repo)}</h3><button type="button" class="text-button" data-lora-detail-close>Back to results</button></div>
         <div class="lora-badges">${badge(licenseOf(detail))}${badge("Revision " + detail.revision.slice(0, 8))}</div>
         <p class="control-hint">${escape(detail.license === "cc-by-nc-4.0" ? "This adapter is offered for noncommercial use with attribution." : "Check the model card for this adapter’s usage terms.")}</p>
-        <div class="lora-demos">${demos.map(file => {
-          const tag = /\.(mp4|webm)$/i.test(fileName(file)) ? "video" : "audio";
-          return `<div><p>${escape(fileName(file))}</p><${tag} controls preload="none" src="${escape(mediaURL(detail, fileName(file)))}" aria-label="Preview ${escape(fileName(file))}"></${tag}>${file.prompt ? `<p class="control-hint">${escape(typeof file.prompt === "object" ? file.prompt.text : file.prompt)}</p>` : ""}</div>`;
-        }).join("")}</div>
         <fieldset class="lora-files"><legend>Choose adapter files</legend>${files.map((file, index) => {
           const state = compatibility(file);
           const dimensions = [(file.stages || []).map(stageName).join(" + "), file.rank ? `Rank ${file.rank}` : "", file.format || ""].filter(Boolean).join(" · ");
           return `<label><input type="checkbox" data-lora-file="${index}" ${supported(file) ? "" : "disabled"} /><span>${escape(fileName(file))}<small>${escape(state.status)} · ${escape(bytes(file.bytes || file.size))}${state.reason ? " · " + escape(state.reason) : ""}</small>${dimensions ? `<small>${escape(dimensions)}</small>` : ""}${file.metadata?.pair_with ? `<small>Publisher’s companion: ${escape(file.metadata.pair_with)}. Check the model card for when it is required.</small>` : ""}</span></label>`;
         }).join("") || '<p class="control-hint">No adapter files were found in this revision.</p>'}</fieldset>
         <button type="button" class="secondary-button" id="lora-install" ${files.some(supported) ? "" : "disabled"}>Install selected files</button>
+        <div class="lora-demos">${demos.map(file => {
+          const tag = /\.(mp4|webm)$/i.test(fileName(file)) ? "video" : "audio";
+          return `<div><p>${escape(fileName(file))}</p><${tag} controls preload="none" src="${escape(mediaURL(detail, fileName(file)))}" aria-label="Preview ${escape(fileName(file))}"></${tag}>${file.prompt ? `<p class="control-hint">${escape(typeof file.prompt === "object" ? file.prompt.text : file.prompt)}</p>` : ""}</div>`;
+        }).join("")}</div>
         <details class="lora-readme"><summary>Model card</summary><div>${markdown(detail.readme, detail.repo, detail.revision)}</div></details>`;
       // Choose the sole supported export; multi-checkpoint repos need an explicit selection.
       if (files.filter(supported).length === 1) el("#lora-detail input[data-lora-file]:not(:disabled)").checked = true;
       currentDetail.selectableFiles = files;
-      el("#lora-detail").hidden = false; el("#lora-detail").scrollIntoView({block: "nearest", behavior: "smooth"});
+      el("#lora-install").disabled = !panel.querySelector("input[data-lora-file]:checked");
+      panel.querySelector("h3").focus({preventScroll: true});
+      panel.scrollIntoView({block: "start", behavior: "smooth"});
       status("Compatibility was checked from file headers. Installation also verifies every tensor and the download hash.");
-    } catch (error) { if (serial === detailRequest) status(error.message); }
+    } catch (error) {
+      if (serial !== detailRequest) return;
+      const message = controller.signal.aborted ? "Compatibility checks took too long. Try again, or choose another adapter." : error.message;
+      panel.innerHTML = `${heading}<p class="control-hint" role="alert">${escape(message)}</p><button type="button" class="secondary-button" data-lora-retry>Retry file check</button>`;
+      status(message);
+    } finally {
+      clearTimeout(timer);
+      if (serial === detailRequest) panel.setAttribute("aria-busy", "false");
+    }
   }
 
   async function edit(id) {
-    const serial = ++detailRequest;
+    const serial = ++detailRequest; detailController?.abort();
+    el("#lora-detail").setAttribute("aria-busy", "false");
     try {
       const item = await api(`/api/loras/${id}`);
       if (serial !== detailRequest) return;
@@ -307,7 +333,11 @@
     el("#lora-detail").addEventListener("click", async event => {
       const button = event.target.closest("button"); if (!button) return;
       try {
-        if (button.hasAttribute("data-lora-detail-close")) { el("#lora-detail").hidden = true; ++detailRequest; }
+        if (button.hasAttribute("data-lora-detail-close")) {
+          el("#lora-detail").hidden = true; ++detailRequest; detailController?.abort();
+          el("#lora-results").scrollIntoView({block: "start", behavior: "smooth"});
+        }
+        if (button.hasAttribute("data-lora-retry")) await openHub(el("#lora-detail").dataset.repo, el("#lora-detail").dataset.revision);
         if (button.id === "lora-install") {
           if (activeTask || installing) throw new Error("Finish or cancel the current installation first.");
           const files = [...el("#lora-detail").querySelectorAll("input[data-lora-file]:checked")].map(input => fileName(currentDetail.selectableFiles[Number(input.dataset.loraFile)]));
@@ -338,6 +368,10 @@
           el("#lora-detail").hidden = true; await refreshInstalled();
         }
       } catch (error) { status(error.message); }
+    });
+    el("#lora-detail").addEventListener("change", event => {
+      if (event.target.matches("input[data-lora-file]"))
+        el("#lora-install").disabled = !el("#lora-detail input[data-lora-file]:checked");
     });
     el("#lora-detail").addEventListener("submit", async event => {
       if (event.target.id !== "lora-edit-form") return;

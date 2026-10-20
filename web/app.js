@@ -108,8 +108,8 @@ function errorMessage(id, message = "") {
   $(id).textContent = message;
   $(id).hidden = !message;
 }
-async function api(path, method = "GET", data) {
-  const options = { method, headers: { "X-Riff-Request": "1" } };
+async function api(path, method = "GET", data, fetchOptions = {}) {
+  const options = { ...fetchOptions, method, headers: { "X-Riff-Request": "1" } };
   if (data !== undefined) {
     options.headers["Content-Type"] = "application/json";
     options.body = JSON.stringify(data);
