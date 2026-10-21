@@ -58,6 +58,9 @@ allowlist before dispatch because both change outside this repository.
   replaced with a hosted macOS run. Desktop packaging and Metal qualification
   are unverified until a remote Apple Silicon runner is provisioned and an
   actual run records its identity and toolchain.
+  The desktop preview also assumes `rustup` with Rust 1.89, `pkg-config`,
+  Xcode/Metal, CMake, FFmpeg/FFprobe, Python, Node and Elixir are in the runner
+  PATH; provision and verify them before the first desktop run.
 - **CUDA**: `ci.yml` CUDA is manual-dispatch only and requires `riff-cuda`. No
   such runner is registered; it is not part of normal Linux CI and has no hosted
   fallback.
