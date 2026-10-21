@@ -3,6 +3,7 @@ import array
 import http.client
 import json
 import sqlite3
+import shutil
 from contextlib import contextmanager
 from pathlib import Path
 import subprocess
@@ -14,7 +15,7 @@ import wave
 from unittest.mock import patch
 
 from studio import StudioServer, byte_range, studio_identity
-from studio_core import CONTEXT, Generator, Store, observe_generation, validate_recipe
+from studio_core import CONTEXT, Generator, Store, lyrics_record, observe_generation, validate_recipe
 from admission_fixture import FixtureAdmission
 
 
@@ -202,6 +203,70 @@ class StoreTests(StudioFixture):
         tracks = self.store.snapshot()["tracks"]
         self.assertEqual(len(tracks), 1)
         self.assertEqual(self.store.track(tracks[0]["id"])["recipe"]["lyrics"], "Original lyrics")
+
+
+EXACT_LYRICS = "\n[Caller]\nمَنْ شَادَ الْمَوَانِئَ؟\n\n[Choir]\n우리가 세웠다! — 我们一起建造。\n"
+
+
+class LyricsTests(StudioFixture):
+    def copy_audio(self, name):
+        path = self.store.outputs / name
+        shutil.copyfile(self.audio, path)
+        return path
+
+    def test_exact_text_survives_validation_store_and_restart(self):
+        value = validate_recipe(recipe(lyrics=EXACT_LYRICS))
+        self.assertEqual(value["lyrics"], EXACT_LYRICS)
+        track_id = self.store.add_track(self.audio, value, {})
+        track = Store(self.root / "data", self.root / "outputs").track(track_id)
+        self.assertEqual(track["recipe"]["lyrics"], EXACT_LYRICS)
+        self.assertEqual(lyrics_record(track["recipe"], track["metrics"]),
+                         {"state": "recorded", "text": EXACT_LYRICS})
+
+    def test_instrumental_free_and_missing_are_distinct(self):
+        cases = [
+            ("instrumental", recipe(mode="instrumental", lyrics=""), {}, "instrumental"),
+            ("free", recipe(mode="free", lyrics=""), {}, "instrumental"),
+            ("recorded-empty", recipe(lyrics="", lyrics_source="none"), {}, "instrumental"),
+            ("unknown-empty", recipe(lyrics=""), {}, "missing"),
+            ("explicit-empty", recipe(lyrics=""),
+             {"command": ["audiocpp_cli", "--lyrics", "", "--seed", "7"]}, "instrumental"),
+            ("legacy-import", recipe(lyrics=""),
+             {"command": ["audiocpp_cli", "--seed", "7"]}, "missing"),
+        ]
+        for name, value, metrics, state in cases:
+            with self.subTest(name=name):
+                track_id = self.store.add_track(self.copy_audio(name + ".wav"), value, metrics)
+                track = self.store.track(track_id)
+                self.assertEqual(lyrics_record(track["recipe"], track["metrics"]),
+                                 {"state": state, "text": ""})
+        absent = recipe()
+        absent.pop("lyrics")
+        track_id = self.store.add_track(self.copy_audio("absent.wav"), absent, {})
+        self.assertEqual(lyrics_record(self.store.track(track_id)["recipe"]),
+                         {"state": "missing", "text": ""})
+
+    def test_import_keeps_exact_lyrics_and_reports_unrecorded_history_missing(self):
+        exact = self.copy_audio("exact.wav")
+        exact.with_suffix(".metrics.json").write_text(json.dumps({"exit_code": 0, "command": [
+            "audiocpp_cli", "--lyrics", EXACT_LYRICS, "--seed", "77",
+            "--request-option", "style=Jazz", "--request-option", "semantic_max_tokens=500"]}))
+        historical = self.copy_audio("historical.wav")
+        historical.with_suffix(".metrics.json").write_text(json.dumps({"exit_code": 0, "command": [
+            "audiocpp_cli", "--seed", "7", "--request-option", "style=Tape"]}))
+        self.store.import_existing()
+        with self.store.db() as db:
+            ids = {row["file"]: row["id"] for row in db.execute("SELECT id,file FROM tracks")}
+        recorded = self.store.track(ids["exact.wav"])
+        self.assertEqual(recorded["recipe"]["lyrics"], EXACT_LYRICS)
+        self.assertEqual(lyrics_record(recorded["recipe"], recorded["metrics"]),
+                         {"state": "recorded", "text": EXACT_LYRICS})
+        missing = self.store.track(ids["historical.wav"])
+        self.assertNotIn("lyrics", missing["recipe"])
+        self.assertEqual(lyrics_record(missing["recipe"], missing["metrics"]),
+                         {"state": "missing", "text": ""})
+        # The catalog still renders imported history without inventing words.
+        self.assertEqual(len(self.store.snapshot()["tracks"]), 3)
 
 
 class GeneratorTests(StudioFixture):
@@ -502,6 +567,17 @@ marker.unlink()
         self.assertEqual(self.status("old"), "interrupted")
         self.assertEqual(self.store.snapshot()["tracks"], [])
 
+    def test_new_generation_does_not_replace_earlier_composition_lyrics(self):
+        self.generator = Generator(self.store, self.fake_command)
+        first = self.generator.submit(recipe(lyrics=EXACT_LYRICS))["id"]
+        wait_until(lambda: self.status(first) == "done")
+        second = self.generator.submit(recipe(lyrics="Changed prompt words"))["id"]
+        wait_until(lambda: self.status(second) == "done")
+        self.assertEqual(self.store.track(first)["recipe"]["lyrics"], EXACT_LYRICS)
+        self.assertEqual(self.store.track(second)["recipe"]["lyrics"], "Changed prompt words")
+        self.store.update_track(first, {"title": "First kept"})
+        self.assertEqual(self.store.track(first)["recipe"]["lyrics"], EXACT_LYRICS)
+
 
 class HttpTests(StudioFixture):
     def test_delete_requires_safe_request_and_removes_audio(self):
@@ -618,6 +694,31 @@ class HttpTests(StudioFixture):
         headers = {"Content-Type": "application/json", "X-Riff-Request": "1"}
         self.assertEqual(self.request("POST", "/api/generations", "[]", headers)[0], 400)
         self.assertEqual(self.request("POST", "/api/generations", '{"lyrics":', headers)[0], 400)
+
+    def test_recording_reports_exact_lyrics_and_truthful_empty_states(self):
+        payload = json.loads(self.request("GET", f"/api/tracks/{self.track_id}")[2])
+        self.assertEqual(payload["lyrics"], {"state": "recorded", "text": recipe()["lyrics"]})
+        self.assertEqual(payload["recipe"]["lyrics"], recipe()["lyrics"])
+        headers = {"Content-Type": "application/json", "X-Riff-Request": "1"}
+        self.request("PATCH", f"/api/tracks/{self.track_id}", json.dumps({"title": "Renamed"}), headers)
+        payload = json.loads(self.request("GET", f"/api/tracks/{self.track_id}")[2])
+        self.assertEqual(payload["lyrics"]["text"], recipe()["lyrics"])
+        exact_audio = self.store.outputs / "exact.wav"
+        fixture_audio(exact_audio)
+        exact = self.store.add_track(exact_audio, recipe(lyrics=EXACT_LYRICS), {})
+        self.assertEqual(json.loads(self.request("GET", f"/api/tracks/{exact}")[2])["lyrics"],
+                         {"state": "recorded", "text": EXACT_LYRICS})
+        instrumental_audio = self.store.outputs / "instrumental.wav"
+        fixture_audio(instrumental_audio)
+        instrumental = self.store.add_track(instrumental_audio, recipe(mode="instrumental", lyrics=""), {})
+        missing_audio = self.store.outputs / "historical.wav"
+        fixture_audio(missing_audio)
+        missing = self.store.add_track(missing_audio, recipe(lyrics=""),
+                                       {"command": ["audiocpp_cli", "--seed", "7"]})
+        for track_id, expected in ((instrumental, {"state": "instrumental", "text": ""}),
+                                   (missing, {"state": "missing", "text": ""})):
+            self.assertEqual(json.loads(self.request("GET", f"/api/tracks/{track_id}")[2])["lyrics"], expected)
+        self.assertEqual(self.request("GET", "/api/state")[0], 200)
 
 
 if __name__ == "__main__":
