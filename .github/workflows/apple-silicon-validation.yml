@@ -39,7 +39,8 @@ jobs:
           test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
           test "$(uname -m)" = arm64
           test "$(sw_vers -productVersion | cut -d. -f1)" -ge 15
-          for tool in python3 node npm elixir rustc cmake ffmpeg ffprobe; do
+          # Node and Elixir are installed by the setup actions below.
+          for tool in python3 cmake ffmpeg ffprobe; do
             command -v "$tool"
           done
           xcodebuild -version
@@ -95,7 +96,6 @@ jobs:
               "npm": output("npm", "--version"),
               "elixir": version,
               "otp": otp,
-              "rust": output("rustc", "--version"),
               "cmake": output("cmake", "--version").splitlines()[0],
               "ffmpeg": output("ffmpeg", "-version").splitlines()[0],
               "ffprobe": output("ffprobe", "-version").splitlines()[0],

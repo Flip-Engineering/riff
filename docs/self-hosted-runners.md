@@ -7,7 +7,7 @@ standard workflows no longer declare GitHub-hosted Ubuntu or macOS images.
 
 | Workflow / job | Required labels | Execution |
 | --- | --- | --- |
-| `ci.yml` control, application, browser, native Linux CPU | `self-hosted`, `Linux`, `X64`, `baton2-native-linux-x64` | push to `main`, same-repository pull requests, `workflow_call` |
+| `ci.yml` control, application, browser, native Linux CPU | `self-hosted`, `Linux`, `X64`, `baton2-native-linux-x64` | push to `main`, same-repository pull requests, `workflow_call`, `workflow_dispatch` (a dispatch runs every `ci.yml` job) |
 | `ci.yml` CUDA compile probe | `self-hosted`, `Linux`, `X64`, `riff-cuda` | manual `workflow_dispatch` only |
 | `homelab-linux-validation.yml` | `self-hosted`, `Linux`, `X64`, `baton2-native-linux-x64` | manual exact-source dispatch |
 | `apple-silicon-validation.yml` | `self-hosted`, `macOS`, `ARM64` | manual exact-source dispatch |
@@ -17,10 +17,11 @@ standard workflows no longer declare GitHub-hosted Ubuntu or macOS images.
 | `release.yml` validate/release | `self-hosted`, `Linux`, `X64`, `baton2-native-linux-x64` | release workflow |
 
 
-The native Linux CPU job retains the existing solver, LoRA, score-replay and
-acoustic checks, plus the `native-lora` receipt/numerical evidence upload. Metal
-LoRA and attention checks run separately in the manual Apple Silicon workflow;
-routing the standard jobs to self-hosted Linux does not remove Linux CPU coverage.
+The native Linux CPU job retains the existing solver, CPU-tensor LoRA,
+score-replay and acoustic checks, plus the `native-lora` receipt/numerical
+evidence upload. The Apple Silicon workflow runs the same CPU-tensor LoRA check
+plus the Metal attention check; only the attention check exercises Metal.
+Routing the standard jobs to self-hosted Linux does not remove Linux CPU coverage.
 
 The Linux workflows verify provisioned packages and tools rather than installing
 them with `apt` or Homebrew. The CUDA container installs its own build packages
@@ -29,12 +30,14 @@ inside the pinned image.
 ## Source trust
 
 Standard `pull_request` jobs run only when the pull request head belongs to
-`Flip-Engineering/riff`. Fork-origin pull requests skip the self-hosted jobs; a
-maintainer can use the manual exact-source validation workflow after reviewing
-the proposed source. Manual workflows record the runner name, OS, architecture
-and source SHA, and the Apple Silicon workflow records the active toolchain after
-setup. Keep the organization runner-group workflow allowlist restricted to
-reviewed workflow paths.
+`Flip-Engineering/riff`. That job-level guard is advisory, **not a security
+boundary**: a fork pull request can edit the workflow file. Before adding
+`ci.yml` to the runner-group allowlist, require GitHub approval for all outside
+collaborators and review workflow diffs; otherwise keep pull-request jobs off
+self-hosted and use the manual exact-source workflow. Manual workflows record the
+runner name, OS, architecture and source SHA, and the Apple Silicon workflow
+records the active toolchain after setup. Keep the organization runner-group
+workflow allowlist restricted to reviewed workflow paths.
 
 ## Current provisioning gaps
 
