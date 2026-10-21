@@ -644,16 +644,29 @@
                   <h2 id="playing-title">Room for a first take</h2>
                   <p id="playing-style">Generate a take to start listening.</p>
                 </div>
-                <button
-                  type="button"
-                  id="player-favorite"
-                  class="icon-button"
-                  aria-label="Favorite this recording"
-                  aria-pressed="false"
-                  disabled
-                >
-                  <span data-icon="heart"></span>
-                </button>
+                <div class="now-playing-actions">
+                  <button
+                    type="button"
+                    id="lyrics-toggle"
+                    class="text-button lyrics-toggle"
+                    aria-expanded="false"
+                    aria-controls="lyrics-panel"
+                    aria-label="Show lyrics"
+                    disabled
+                  >
+                    <span data-icon="document"></span>Lyrics
+                  </button>
+                  <button
+                    type="button"
+                    id="player-favorite"
+                    class="icon-button"
+                    aria-label="Favorite this recording"
+                    aria-pressed="false"
+                    disabled
+                  >
+                    <span data-icon="heart"></span>
+                  </button>
+                </div>
               </div>
               <div class="waveform-wrap" id="waveform-wrap">
                 <svg
@@ -718,6 +731,15 @@
                   </button>
                 </div>
               </div>
+              <section
+                id="lyrics-panel"
+                class="lyrics-panel"
+                aria-label="Lyrics for this recording"
+                hidden
+              >
+                <p id="lyrics-note" class="quiet-text" role="status" hidden></p>
+                <pre id="lyrics-text" dir="auto" hidden></pre>
+              </section>
               <details id="take-comparison" class="take-comparison">
                 <summary><span>Compare takes</span><span class="quiet-text" aria-hidden="true">A / B</span></summary>
                 <div class="comparison-body">

@@ -50,6 +50,23 @@ with tempfile.TemporaryDirectory(prefix="riff-review-browser-") as folder:
     track_id = store.add_track(audio, recipe(title="Reedlight", steps=19, max_seconds=420, seed="15961",
         style=next(p[2] for p in PRESETS if p[0] == "reed-room"),
         lyrics="[Verse]\nReeds lean low where the silver runs.\nWe carry the quiet into the sun.\nA little light, a little room.\nA song takes shape in the afternoon."), {})
+    lyrics_fixture = {}
+    if os.environ.get("RIFF_LYRICS_FIXTURE"):
+        unicode_lyrics = "[Caller]\nمَنْ شَادَ الْمَوَانِئَ؟\n\n[Choir]\n우리가 세웠다! — 我们一起建造。\n(softly)"
+        unicode_audio = store.outputs / "unicode.wav"
+        shutil.copyfile(audio, unicode_audio)
+        unicode_id = store.add_track(unicode_audio, recipe(title="Bilingual study", lyrics=unicode_lyrics,
+            style="Call and response, oud and brass"), {})
+        instrumental_audio = store.outputs / "instrumental.wav"
+        shutil.copyfile(audio, instrumental_audio)
+        instrumental_id = store.add_track(instrumental_audio, recipe(title="Wordless study",
+            mode="instrumental", lyrics="", style="Solo upright bass"), {})
+        missing_audio = store.outputs / "historical.wav"
+        shutil.copyfile(audio, missing_audio)
+        missing_id = store.add_track(missing_audio, recipe(title="Older recording", lyrics=""),
+            {"command": ["audiocpp_cli", "--seed", "7", "--request-option", "style=Old tape"]})
+        lyrics_fixture = {"unicode": unicode_id, "unicode_text": unicode_lyrics,
+                          "instrumental": instrumental_id, "missing": missing_id}
     lora_fixture = {}
     if os.environ.get("RIFF_LORA_FIXTURE"):
         from test_loras import FakeHub, REPO, COMMIT, adapter_bytes
@@ -140,7 +157,7 @@ with tempfile.TemporaryDirectory(prefix="riff-review-browser-") as folder:
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
     print(json.dumps({"url": f"http://127.0.0.1:{server.server_port}", "track_id": track_id,
-                      "history": history, "loras": lora_fixture}), flush=True)
+                      "history": history, "loras": lora_fixture, "lyrics": lyrics_fixture}), flush=True)
     try:
         server.serve_forever()
     finally:

@@ -1,9 +1,7 @@
-Riff 0.6.28 improves browsing large music libraries on mobile.
+Riff 0.6.30 saves the lyrics used for each composition and shows them alongside playback.
 
-The library starts with a small batch of recordings and adds more as you scroll. Search, genre tags, sorting, favorites and archived recordings continue to cover the entire collection. Take history also loads in batches, and cover artwork paints across idle turns so it does not block the whole screen at once.
+Open Lyrics in the player to read the saved words while listening. The panel preserves line breaks and Unicode text, supports right-to-left text, and remembers whether it is open. Track details also show the saved lyrics.
 
-State polling now sends only changing runtime information when the catalog is unchanged. Cached catalog snapshots, genre matching and compressed JSON reduce server work and transfer size. Database revision tracking catches changes made by other studio processes. Existing API clients can continue requesting complete snapshots.
+Instrumental compositions and older recordings without saved lyrics have distinct status messages. Changing a recording's title or prompt preserves its original composition lyrics.
 
-Validation includes a 1,200-recording mobile regression and controlled measurements against a 1,717-recording library. These are browser/server measurements, not a guarantee of speed on every phone. The first catalog load still scales with collection size.
-
-The graphical macOS download remains an ad-hoc signed preview with no Developer ID signature or notarization. NVIDIA desktop packaging remains in development. The ChatGPT plugin is a separate downstream delivery.
+The native music engine and model requirements are unchanged.
