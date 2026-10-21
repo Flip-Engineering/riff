@@ -16,6 +16,12 @@ standard workflows no longer declare GitHub-hosted Ubuntu or macOS images.
 | `pages.yml` deploy | `self-hosted`, `Linux`, `X64`, `baton2-native-linux-x64` | Pages workflow |
 | `release.yml` validate/release | `self-hosted`, `Linux`, `X64`, `baton2-native-linux-x64` | release workflow |
 
+
+The native Linux CPU job retains the existing solver, LoRA, score-replay and
+acoustic checks, plus the `native-lora` receipt/numerical evidence upload. Metal
+LoRA and attention checks run separately in the manual Apple Silicon workflow;
+routing the standard jobs to self-hosted Linux does not remove Linux CPU coverage.
+
 The Linux workflows verify provisioned packages and tools rather than installing
 them with `apt` or Homebrew. The CUDA container installs its own build packages
 inside the pinned image.
