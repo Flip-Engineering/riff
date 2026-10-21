@@ -1,7 +1,9 @@
-Riff 0.6.27 makes Live sound the default listening visualization.
+Riff 0.6.28 improves browsing large music libraries on mobile.
 
-The studio opens with Live sound selected and its canvas visible, so playback animates immediately without first switching away from Seed artwork. Seed artwork remains available in the visualization selector.
+The library starts with a small batch of recordings and adds more as you scroll. Search, genre tags, sorting, favorites and archived recordings continue to cover the entire collection. Take history also loads in batches, and cover artwork paints across idle turns so it does not block the whole screen at once.
 
-Validation checks the initial selected state and visible canvas, then plays audio with whole-recording analysis deliberately delayed to confirm that live motion starts from the playback clock.
+State polling now sends only changing runtime information when the catalog is unchanged. Cached catalog snapshots, genre matching and compressed JSON reduce server work and transfer size. Database revision tracking catches changes made by other studio processes. Existing API clients can continue requesting complete snapshots.
+
+Validation includes a 1,200-recording mobile regression and controlled measurements against a 1,717-recording library. These are browser/server measurements, not a guarantee of speed on every phone. The first catalog load still scales with collection size.
 
 The graphical macOS download remains an ad-hoc signed preview with no Developer ID signature or notarization. NVIDIA desktop packaging remains in development. The ChatGPT plugin is a separate downstream delivery.

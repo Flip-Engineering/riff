@@ -12,7 +12,7 @@ function desktop(system) {
     task: taskOverride || { action: "update", status: needsRepair ? "failed" : stopped ? "cancelled" : "running", message: needsRepair ? "Prepare this update again" : stopped ? "Update preparation stopped" : "Preparing the update" } };
 }
 try {
-  for (const path of ["state", "system"]) await page.route(`**/api/${path}`, async route => {
+  for (const path of ["state", "system"]) await page.route(`**/api/${path}${path === "state" ? "*" : ""}`, async route => {
     const response = await route.fetch(), data = await response.json();
     if (path === "state") data.maintenance = desktop(data.maintenance);
     await route.fulfill({ response, json: path === "state" ? data : desktop(data) });

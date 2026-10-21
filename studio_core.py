@@ -268,6 +268,8 @@ class Store:
         self.data_root.mkdir(parents=True, exist_ok=True)
         self.outputs.mkdir(parents=True, exist_ok=True)
         self.path = self.data_root / "library.sqlite3"
+        self._snapshot_lock = threading.Lock()
+        self._snapshot_cache = None
         self.artifacts = None
         self.acoustics = None
         with self.db() as db:
@@ -289,6 +291,14 @@ class Store:
                 CREATE INDEX IF NOT EXISTS jobs_status ON jobs(status, created);
             """)
             db.execute("BEGIN IMMEDIATE")
+            db.execute("INSERT OR IGNORE INTO library_meta VALUES ('catalog_revision','0')")
+            # Database triggers also catch imports and changes from other processes.
+            for table in ("tracks", "jobs", "presets"):
+                for operation in ("INSERT", "UPDATE", "DELETE"):
+                    db.execute(f"""CREATE TRIGGER IF NOT EXISTS catalog_{table}_{operation.lower()}
+                        AFTER {operation} ON {table} BEGIN
+                        UPDATE library_meta SET value=CAST(value AS INTEGER)+1
+                        WHERE key='catalog_revision'; END""")
             if "queue_position" not in {row["name"] for row in db.execute("PRAGMA table_info(jobs)")}:
                 db.execute("ALTER TABLE jobs ADD COLUMN queue_position INTEGER NOT NULL DEFAULT 0")
                 rows = db.execute("SELECT id FROM jobs ORDER BY created,id").fetchall()
@@ -789,11 +799,24 @@ class Store:
         with self.db() as db:
             db.execute("DELETE FROM presets WHERE id=?", (preset_id,))
 
-    def snapshot(self):
-        with self.db() as db:
-            rows = db.execute("SELECT * FROM tracks ORDER BY created DESC, id DESC").fetchall()
-            jobs = [dict(row) for row in db.execute("SELECT id,title,created,status,error,started,finished,track_id,queue_position,recipe FROM jobs ORDER BY created, id")]
-            presets = [dict(row) for row in db.execute("SELECT * FROM presets ORDER BY rowid")]
+    def snapshot(self, since=None):
+        with self._snapshot_lock, self.db() as db:
+            # Keep revision and rows in one read transaction, including when
+            # another studio process writes while this snapshot is assembled.
+            db.execute("BEGIN")
+            revision = db.execute("SELECT value FROM library_meta WHERE key='catalog_revision'").fetchone()[0]
+            if since == revision:
+                return {"catalog_revision": revision}
+            if self._snapshot_cache is None or self._snapshot_cache["catalog_revision"] != revision:
+                catalog = self._catalog_snapshot(db)
+                catalog["catalog_revision"] = revision
+                self._snapshot_cache = catalog
+            return copy.deepcopy(self._snapshot_cache)
+
+    def _catalog_snapshot(self, db):
+        rows = db.execute("SELECT id,title,created,favorite,archived,notes,recipe,audio FROM tracks ORDER BY created DESC, id DESC").fetchall()
+        jobs = [dict(row) for row in db.execute("SELECT id,title,created,status,error,started,finished,track_id,queue_position,recipe FROM jobs ORDER BY created, id")]
+        presets = [dict(row) for row in db.execute("SELECT * FROM presets ORDER BY rowid")]
         for job in jobs:
             recipe = json.loads(job.pop("recipe"))
             saved = recipe.get("performance") or {}
@@ -812,8 +835,7 @@ class Store:
                            "seed": recipe["seed"], "duration": audio["duration"],
                            "mode": recipe.get("mode", "lyrics"), "score_available": bool((recipe.get("symbolic_plan") or {}).get("artifact_id")), "performance_available": bool(recipe.get("performance")),
                            "acoustic_source": (recipe.get("acoustic") or {}).get("artifact_id", "")})
-        with self.db() as db:
-            plans = [{"id": row["id"], "title": row["title"], "finished": row["finished"], "recipe": json.loads(row["recipe"])}
+        plans = [{"id": row["id"], "title": row["title"], "finished": row["finished"], "recipe": json.loads(row["recipe"])}
                      for row in db.execute("SELECT id,title,finished,recipe FROM jobs WHERE status='planned' ORDER BY finished DESC")]
         return {"tracks": tracks, "jobs": jobs, "presets": presets, "plans": plans}
 

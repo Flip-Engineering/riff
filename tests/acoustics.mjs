@@ -43,8 +43,8 @@ try {
   const page = await browser.newPage({ viewport: { width: 1280, height: 1000 }, reducedMotion: "reduce" });
   const errors = []; page.on("pageerror", error => { errors.push(error.message); console.error("Browser error:", error.message); });
   await page.addInitScript(value => { if (!localStorage.getItem("riff.draft")) localStorage.setItem("riff.draft", JSON.stringify(value)); }, initial);
-  await page.route("**/api/state", async route => {
-    const response = await route.fetch(), next = await response.json();
+  await page.route("**/api/state*", async route => {
+    const response = await route.fetch({url: new URL("/api/state", route.request().url()).href}), next = await response.json();
     next.engine = { ...next.engine, ready, capabilities: { ...next.engine.capabilities, acoustic_checkpoint: true, acoustic_decode: true } };
     next.jobs = jobs; next.reviews = [proposal]; next.review_settings = { ...next.review_settings, enabled: true };
     next.tracks[0].acoustic_source = source;

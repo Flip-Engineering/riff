@@ -52,7 +52,7 @@ try {
   release = true;
   await page.locator("#idea-engine").selectOption("ai");
   let writingStage = "Waiting for memory";
-  await page.route("**/api/state", async route => {
+  await page.route("**/api/state*", async route => {
     const response = await route.fetch(), next = await response.json();
     next.writing = { id: "writer:browser-fixture", job_id: null, stage: writingStage };
     await route.fulfill({ response, json: next });
@@ -71,7 +71,7 @@ try {
   assert.equal(await page.locator("#lyrics").inputValue(), "My edits take precedence.");
   assert.equal(await page.locator("#abc").inputValue(), before.abc);
   assert.equal(await page.locator("#writer-status").textContent(), "Ready for an idea");
-  await page.unroute("**/api/state");
+  await page.unroute("**/api/state*");
   console.log("PASS Local writing shows reservation wait and active writing independently of music progress");
   console.log("PASS A delayed full-recipe proposal cannot overwrite typing in the current draft");
   assert.deepEqual(errors, []);

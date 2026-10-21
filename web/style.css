@@ -2569,3 +2569,6 @@ body.with-mini-player {
     margin-left: 0;
   }
 }
+
+.library-pagination { text-align: center; margin: 24px 0 36px; }
+.library-pagination p { margin-bottom: 12px; }
