@@ -80,6 +80,33 @@ try {
   console.log("PASS Same-origin packaged worker encodes exact pixels and frame order without main-thread PNG, animation-frame or idle callbacks");
 
   await fresh();
+  const pipelinedPng = await page.evaluate(async () => {
+    const canvas = encoderCanvas(), controller = new AbortController();
+    const context = canvas.getContext("2d"), encoder = await createVideoFrameEncoder(canvas, controller.signal);
+    try {
+      context.fillStyle = "#cad0f0"; context.fillRect(0, 0, canvas.width, canvas.height);
+      const first = encoder.submit(0);
+      // The snapshot is taken before submit() returns, so drawing the next
+      // frame here must not leak into the first PNG.
+      context.fillStyle = "#573450"; context.fillRect(0, 0, canvas.width, canvas.height);
+      const second = encoder.submit(1);
+      const pending = await Promise.all([first, second]);
+      const [a, b] = await Promise.all(pending.map(value => value.frame));
+      context.fillStyle = "#cad0f0"; context.fillRect(0, 0, canvas.width, canvas.height);
+      const firstMatches = await encoderPixelsEqual(canvas, a);
+      context.fillStyle = "#573450"; context.fillRect(0, 0, canvas.width, canvas.height);
+      return { firstMatches, secondMatches: await encoderPixelsEqual(canvas, b),
+        distinct: a !== b, bytes: [a.byteLength, b.byteLength] };
+    } finally { encoder.close(); }
+  });
+  assert.equal(pipelinedPng.firstMatches, true);
+  assert.equal(pipelinedPng.secondMatches, true);
+  assert.equal(pipelinedPng.distinct, true);
+  assert(pipelinedPng.bytes.every(size => size > 0));
+  assert.deepEqual(await page.evaluate(() => encoderWorkers.map(worker => worker.stopped)), [true]);
+  console.log("PASS Overlapped PNG submissions retain their own pixels, frame order and worker lifecycle");
+
+  await fresh();
   const encoded = await page.evaluate(async () => {
     if (typeof VideoEncoder !== "function" || typeof VideoFrame !== "function") return { supported: false };
     const canvas = document.createElement("canvas"); canvas.width = 320; canvas.height = 248;

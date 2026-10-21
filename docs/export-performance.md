@@ -40,8 +40,11 @@ index and resumes only the unaccepted suffix, including a partly accepted batch.
 An encoder may hold frames until more arrive, so the
 export drains it whenever its upload queue is full (one second of H.264 frames;
 up to one batch of PNG frames, also limited by the batch byte budget) and at the
-end. PNG encoding can prepare the next batch while the previous one uploads,
-instead of blocking behind a two-frame queue. A drain is bounded to 60
+end. The PNG path snapshots the next frame before returning from `submit` and
+keeps at most two bitmaps, so the worker encodes the previous frame while the
+next is drawn and uploaded. Progress and cancellation yields are bounded to a
+human-scale cadence, and preview copies are throttled independently of the
+encoded frames. A drain is bounded to 60
 seconds and remains cancellable. Every output passes the dimension, frame-count
 and frame-rate validation before it can be downloaded.
 
@@ -195,6 +198,44 @@ longer exports are bounded by the host encoder rather than the browser, which
 drew and encoded 4K60 at 48–50 frames per second in isolation. On a single
 machine the browser and libx264 share its cores. One passage and one host; load
 and content change these figures.
+
+### October 21 measurement — pipelined PNG fallback
+
+The PNG fallback, used by browsers without WebCodecs H.264, previously waited
+for a complete PNG encode before taking the next frame's snapshot: one pending
+worker request also serialized `createImageBitmap` and the encode. The export now
+snapshots the next frame before returning from `submit` and lets the worker
+encode the previous frame while the next one is drawn. Two bitmaps may be in
+flight; bytes are still admitted through the same bounded queue. Progress and
+cancellation task yields are capped to about 10 Hz, and preview copies are
+throttled independently of the encoded frames. Cancellation still aborts the
+export controller immediately and closes late snapshots.
+
+Matched runs used the isolated fixture server, the same 72-second recording and
+already-warmed motion data, Chrome 1208 headless on the 64-thread Linux host,
+software WebGL/SwiftShader and FFmpeg 6.1.1. PNG transport was forced so both
+versions used the same path; the runs alternated baseline and patched code. Host
+load average was roughly 25–40 from other jobs, so absolute times are not
+portable.
+
+| Picture / passage | Frames | Version | Wall s | Before finish s | Snapshot s | Encode s | MP4 bytes |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1920×1080/60, 2 s | 120 | baseline | 19.0 | 17.7 | 2.44 | 6.67 | 429,285 |
+| 1920×1080/60, 2 s | 120 | pipelined | 12.1 | 10.9 | 0.05 | 10.6 | 429,285 |
+| 3840×2160/60, 1 s | 60 | baseline | 34.1 | 29.1 | 4.64 | 10.42 | 625,019 |
+| 3840×2160/60, 1 s | 60 | pipelined | 24.5 | 19.0 | 0.16 | 17.95 | 625,019 |
+
+The pipelined rows report more encode time because that stage now measures the
+worker encode while drawing and uploading continue; it overlaps the other heavy
+stages and is not additive. Wall time improved by about 1.4–1.6× in these runs.
+The pair outputs are byte-identical: SHA-256
+`de203b01ba274046ab948f11f5e43deb4747e96de320557ba33fb7ea37f6c1f8` for
+1080p and `de43f5033945374e76c3e423212ac39eea712281e753964516fd85d5d1af54b1`
+for 4K. `ffprobe` reports the exact 120/60 frames, requested dimensions and
+frame rate, with audio and video durations equal. The H.264 path already
+pipelined its frames; alternating 1080p60/4 s runs were output-identical and
+showed no measured regression beyond host-load noise. Longer passages, an idle
+host and hardware-GPU browsers remain to be measured.
 
 ### Historical September 19 profile trial — rejected approach
 
