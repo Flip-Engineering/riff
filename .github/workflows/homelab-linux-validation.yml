@@ -107,7 +107,7 @@ jobs:
       - name: Build and test the Linux CPU engine
         run: |
           set -euo pipefail
-          elixir scripts/build_cached_native.exs --backend cpu --build-only 2>&1 | tee "$RUNNER_TEMP/riff-homelab-validation/native-cpu-build.log"
+          scripts/run_native_build_queued.sh cpu --build-only 2>&1 | tee "$RUNNER_TEMP/riff-homelab-validation/native-cpu-build.log"
           python3 scripts/check_native_solver.py 2>&1 | tee "$RUNNER_TEMP/riff-homelab-validation/native-solver-tests.log"
           python3 scripts/check_native_lora.py --output "$RUNNER_TEMP/riff-homelab-validation/native-lora" 2>&1 | tee "$RUNNER_TEMP/riff-homelab-validation/native-lora-tests.log"
           elixir scripts/check_native_score_replay.exs --download-tokenizer --output "$RUNNER_TEMP/riff-homelab-validation/native-score-check" 2>&1 | tee "$RUNNER_TEMP/riff-homelab-validation/native-score-replay-tests.log"

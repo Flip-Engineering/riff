@@ -135,7 +135,8 @@ jobs:
             for (const name of ['ACTIONS_RESULTS_URL', 'ACTIONS_RUNTIME_TOKEN', 'ACTIONS_CACHE_SERVICE_V2']) {
               if (process.env[name]) core.exportVariable(name, process.env[name]);
             }
-      - run: elixir scripts/build_cached_native.exs --backend ${{ matrix.backend }} --build-only --jobs 2
+      - name: Build native backend through the shared compile queue
+        run: scripts/run_native_build_queued.sh ${{ matrix.backend }} --build-only --jobs 2
       - run: python scripts/check_native_solver.py
       - run: python scripts/check_native_lora.py --output data/native-lora-check
       - run: elixir scripts/check_native_score_replay.exs --download-tokenizer --output data/native-score-check
@@ -160,7 +161,11 @@ jobs:
       github.repository == 'Flip-Engineering/riff'
     # Requires a self-hosted Linux NVIDIA container runner carrying the riff-cuda label.
     runs-on: [self-hosted, Linux, X64, riff-cuda]
-    container: nvidia/cuda:12.8.1-devel-ubuntu24.04@sha256:520292dbb4f755fd360766059e62956e9379485d9e073bbd2f6e3c20c270ed66
+    container:
+      image: nvidia/cuda:12.8.1-devel-ubuntu24.04@sha256:520292dbb4f755fd360766059e62956e9379485d9e073bbd2f6e3c20c270ed66
+      # The CUDA runner must mount the host shared queue. The wrapper fails
+      # closed if the queue or state root is unavailable; no direct compile.
+      options: --volume /var/tmp/baton2-compile-queue:/var/tmp/baton2-compile-queue
     env:
       ImageOS: ubuntu24
       RIFF_CUDA_IMAGE: nvidia/cuda:12.8.1-devel-ubuntu24.04@sha256:520292dbb4f755fd360766059e62956e9379485d9e073bbd2f6e3c20c270ed66
@@ -180,10 +185,11 @@ jobs:
             for (const name of ['ACTIONS_RESULTS_URL', 'ACTIONS_RUNTIME_TOKEN', 'ACTIONS_CACHE_SERVICE_V2']) {
               if (process.env[name]) core.exportVariable(name, process.env[name]);
             }
-      - run: |
+      - name: Build CUDA backend through the shared compile queue
+        run: |
           CUDAHOSTCXX="$(command -v g++)"
           export CUDAHOSTCXX
-          elixir scripts/build_cached_native.exs --backend cuda --compile-only --cuda-arch '86' --jobs 2
+          scripts/run_native_build_queued.sh cuda --compile-only --cuda-arch '86' --jobs 2
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
