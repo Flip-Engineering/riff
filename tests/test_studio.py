@@ -227,7 +227,8 @@ class LyricsTests(StudioFixture):
         cases = [
             ("instrumental", recipe(mode="instrumental", lyrics=""), {}, "instrumental"),
             ("free", recipe(mode="free", lyrics=""), {}, "instrumental"),
-            ("recorded-empty", recipe(lyrics=""), {}, "instrumental"),
+            ("recorded-empty", recipe(lyrics="", lyrics_source="none"), {}, "instrumental"),
+            ("unknown-empty", recipe(lyrics=""), {}, "missing"),
             ("explicit-empty", recipe(lyrics=""),
              {"command": ["audiocpp_cli", "--lyrics", "", "--seed", "7"]}, "instrumental"),
             ("legacy-import", recipe(lyrics=""),

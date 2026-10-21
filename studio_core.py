@@ -280,14 +280,15 @@ def lyrics_record(recipe, metrics=None):
     known wordless take, whose validated recipe records an empty input.
     """
     text = recipe.get("lyrics")
+    command = (metrics or {}).get("command")
+    command_lyrics = isinstance(command, list) and bool(command) and "--lyrics" in command
     if isinstance(text, str) and text.strip():
         return {"state": "recorded", "text": text}
     if recipe.get("mode", "lyrics") in ("free", "instrumental"):
         return {"state": "instrumental", "text": ""}
-    command = (metrics or {}).get("command")
-    if isinstance(text, str) and isinstance(command, list) and command and "--lyrics" not in command:
+    if isinstance(command, list) and command and not command_lyrics:
         return {"state": "missing", "text": ""}
-    if isinstance(text, str):
+    if isinstance(text, str) and ("lyrics_source" in recipe or command_lyrics):
         return {"state": "instrumental", "text": ""}
     return {"state": "missing", "text": ""}
 
