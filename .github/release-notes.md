@@ -1,9 +1,7 @@
-Riff 0.6.28 improves browsing large music libraries on mobile.
+Riff 0.6.29 speeds up PNG-based MP4 exports by overlapping frame drawing, snapshots, encoding and upload.
 
-The library starts with a small batch of recordings and adds more as you scroll. Search, genre tags, sorting, favorites and archived recordings continue to cover the entire collection. Take history also loads in batches, and cover artwork paints across idle turns so it does not block the whole screen at once.
+Exports keep the selected picture size, frame rate, passage and encoding settings. The browser takes ordered snapshots, keeps two snapshots in flight, and updates progress and previews at an interactive cadence. Cancellation releases pending snapshots and the export worker.
 
-State polling now sends only changing runtime information when the catalog is unchanged. Cached catalog snapshots, genre matching and compressed JSON reduce server work and transfer size. Database revision tracking catches changes made by other studio processes. Existing API clients can continue requesting complete snapshots.
+Controlled self-hosted samples improved export wall time by about 1.3 to 1.6 times for 1080p60 two-second passages and 4K60 one-second passages. Their MP4 files were byte-identical to the baseline, including the video frames and audio. Matched H.264 samples also retained identical output. These measurements cover the tested browser and host; export time depends on the device, browser, picture size and recording length.
 
-Validation includes a 1,200-recording mobile regression and controlled measurements against a 1,717-recording library. These are browser/server measurements, not a guarantee of speed on every phone. The first catalog load still scales with collection size.
-
-The graphical macOS download remains an ad-hoc signed preview with no Developer ID signature or notarization. NVIDIA desktop packaging remains in development. The ChatGPT plugin is a separate downstream delivery.
+The native music engine and model requirements are unchanged.
