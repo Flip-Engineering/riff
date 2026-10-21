@@ -67,7 +67,10 @@ def validate_recipe(payload):
             raise ValueError(f"{name.replace('_', ' ').capitalize()} must be text.")
         return value.strip()
     title = text("title")
-    lyrics, style, abc = text("lyrics"), text("style"), text("abc")
+    lyrics = payload.get("lyrics", "")
+    if not isinstance(lyrics, str):
+        raise ValueError("Lyrics must be text.")
+    style, abc = text("style"), text("abc")
     mode = text("mode", "lyrics")
     if mode not in ("free", "instrumental", "lyrics", "surprise"):
         raise ValueError("Choose free play, instrumental, my lyrics, or surprise song.")
@@ -93,9 +96,9 @@ def validate_recipe(payload):
     idea_engine = text("idea_engine", "ai")
     if idea_engine not in ("ai", "phrases", "openrouter"):
         raise ValueError("Choose the AI writer, OpenRouter writer, or phrase shuffler.")
-    if mode == "surprise" and not lyrics:
+    if mode == "surprise" and not lyrics.strip():
         lyrics, source = (idea["lyrics"], "generated") if idea_engine == "phrases" else ("", "pending")
-    elif not lyrics:
+    elif not lyrics.strip():
         source = "none"
     title_auto = not title or payload.get("title_auto") is True
     title = title or ("A new song" if source == "pending" else idea["title"])
@@ -252,14 +255,41 @@ def recipe_from_metrics(metrics):
         elif value == "--request-option" and "=" in command[index + 1]:
             key, val = command[index + 1].split("=", 1)
             opts[key] = val
-    instrumental = opts.get("lyrics", "").strip() == "[Instrumental]"
-    return {"title": "Across the bay", "lyrics": "" if instrumental else opts.get("lyrics", ""), "style": opts.get("style", ""),
-            "mode": "instrumental" if instrumental else "lyrics",
-            "seed": str(opts.get("seed", "831001")), "steps": int(opts.get("num_inference_steps", 8)),
-            "solver": opts.get("ode_method", "midpoint"),
-            "cot": opts.get("cot", "off"), "max_seconds": int(opts.get("semantic_max_tokens", 750)) / TOKEN_RATE,
-            "abc": opts.get("abc", ""),
-            **{key: copy.deepcopy(metrics[key]) for key in ("loras", "lora_provenance") if key in metrics}}
+    recorded = opts.get("lyrics")
+    instrumental = isinstance(recorded, str) and recorded.strip() == "[Instrumental]"
+    recipe = {"title": "Across the bay", "style": opts.get("style", ""),
+              "mode": "instrumental" if instrumental else "lyrics",
+              "seed": str(opts.get("seed", "831001")), "steps": int(opts.get("num_inference_steps", 8)),
+              "solver": opts.get("ode_method", "midpoint"),
+              "cot": opts.get("cot", "off"), "max_seconds": int(opts.get("semantic_max_tokens", 750)) / TOKEN_RATE,
+              "abc": opts.get("abc", ""),
+              **{key: copy.deepcopy(metrics[key]) for key in ("loras", "lora_provenance") if key in metrics}}
+    if recorded is not None:
+        # The command proves the lyric input. Without --lyrics the metrics do
+        # not record words at all, so leave the field absent rather than
+        # inventing an empty input that would read as a wordless composition.
+        recipe["lyrics"] = "" if instrumental else recorded
+    return recipe
+
+
+def lyrics_record(recipe, metrics=None):
+    """Report the lyric input retained for a saved composition.
+
+    Validated recipes carry the exact text that was used. Legacy CLI imports
+    can lack a lyric argument entirely; that absence stays distinct from a
+    known wordless take, whose validated recipe records an empty input.
+    """
+    text = recipe.get("lyrics")
+    if isinstance(text, str) and text.strip():
+        return {"state": "recorded", "text": text}
+    if recipe.get("mode", "lyrics") in ("free", "instrumental"):
+        return {"state": "instrumental", "text": ""}
+    command = (metrics or {}).get("command")
+    if isinstance(text, str) and isinstance(command, list) and command and "--lyrics" not in command:
+        return {"state": "missing", "text": ""}
+    if isinstance(text, str):
+        return {"state": "instrumental", "text": ""}
+    return {"state": "missing", "text": ""}
 
 
 class Store:

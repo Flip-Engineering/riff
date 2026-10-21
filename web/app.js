@@ -453,6 +453,53 @@ $("#preset-form").addEventListener("submit", async (event) => {
   }
 });
 
+const lyricsPanel = $("#lyrics-panel"),
+  lyricsToggle = $("#lyrics-toggle"),
+  lyricsText = $("#lyrics-text"),
+  lyricsNote = $("#lyrics-note");
+function lyricsPreference() {
+  try {
+    return localStorage.getItem("riff.lyrics.open") === "true";
+  } catch {
+    return false;
+  }
+}
+function applyLyricsPanel(open) {
+  lyricsPanel.hidden = !open;
+  lyricsToggle.setAttribute("aria-expanded", String(open));
+  lyricsToggle.setAttribute("aria-label", open ? "Hide lyrics" : "Show lyrics");
+}
+function renderLyrics() {
+  lyricsToggle.disabled = !selected;
+  lyricsText.hidden = true;
+  lyricsText.textContent = "";
+  lyricsNote.hidden = true;
+  lyricsNote.textContent = "";
+  if (!selected) {
+    applyLyricsPanel(false);
+    return;
+  }
+  const record = selected.lyrics || { state: "missing", text: "" };
+  if (record.state === "recorded") {
+    lyricsText.textContent = record.text;
+    lyricsText.hidden = false;
+  } else {
+    lyricsNote.textContent =
+      record.state === "instrumental"
+        ? "Instrumental"
+        : "Lyrics weren't retained for this recording";
+    lyricsNote.hidden = false;
+  }
+  applyLyricsPanel(lyricsPreference());
+}
+lyricsToggle.addEventListener("click", () => {
+  if (!selected) return;
+  const open = lyricsPanel.hidden;
+  applyLyricsPanel(open);
+  try {
+    localStorage.setItem("riff.lyrics.open", String(open));
+  } catch {}
+});
 function renderPlayerInfo() {
   const has = !!selected;
   $("#refine-performance").hidden = !selected?.recipe?.performance;
@@ -486,6 +533,7 @@ function renderPlayerInfo() {
   $("#download").setAttribute("aria-disabled", String(!has));
   if (has) $("#download").href = `/api/tracks/${selected.id}/audio?download=1`;
   else $("#download").removeAttribute("href");
+  renderLyrics();
   renderReviews();
   window.RiffCompare?.render();
 }
@@ -810,11 +858,13 @@ async function openDetails(id) {
     $("#edit-title").value = detailTrack.title;
     $("#edit-notes").value = detailTrack.notes;
     $("#detail-style").textContent = detailTrack.recipe.style;
+    const lyrics = detailTrack.lyrics;
     $("#detail-lyrics").textContent =
-      detailTrack.recipe.lyrics ||
-      (detailTrack.recipe.mode === "instrumental"
-        ? "Instrumental"
-        : "Open lyrics");
+      lyrics?.state === "recorded"
+        ? lyrics.text
+        : lyrics?.state === "instrumental"
+          ? "Instrumental"
+          : "Lyrics weren't retained for this recording";
     $("#detail-settings").textContent =
       `Seed ${detailTrack.recipe.seed} / ${detailTrack.recipe.steps} steps / ${detailTrack.recipe.cot === "off" ? "Direct" : detailTrack.recipe.cot === "melody" ? "Melody" : "Melody & chords"}`;
     for (const adapter of detailTrack.recipe.lora_provenance || []) {

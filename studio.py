@@ -22,7 +22,7 @@ from urllib.parse import parse_qs, quote, unquote, urlsplit
 import webbrowser
 
 import run as engine
-from studio_core import CONTEXT, ROOT, Generator, Store
+from studio_core import CONTEXT, ROOT, Generator, Store, lyrics_record
 from reviews import Reviews
 from paths import DATA, OUTPUTS
 from model_options import schema
@@ -273,6 +273,7 @@ class Handler(BaseHTTPRequestHandler):
                         self.wfile.write(body)
                 else:
                     del track["file"]
+                    track["lyrics"] = lyrics_record(track["recipe"], track["metrics"])
                     self.json_response(200, track)
             elif (match := JOB_ROUTE.fullmatch(path)) and not match[2]:
                 self.json_response(200, self.server.store.job(match[1]))

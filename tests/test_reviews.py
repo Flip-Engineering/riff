@@ -385,7 +385,7 @@ class ReviewClientTests(unittest.TestCase):
                 proposal["generation"]["lyrics"] = returned_lyrics
                 result, request = self.request(json.dumps(proposal), source=source)
                 final = recommended_generation(result["generation"], source, True)
-                self.assertEqual(final["lyrics"], source["lyrics"].strip())
+                self.assertEqual(final["lyrics"], source["lyrics"])
                 self.assertEqual(result["notes"], proposal["notes"])
                 self.assertEqual(final["steps"], 37)
                 schema = request["response_format"]["json_schema"]["schema"]["properties"]["generation"]
