@@ -1,7 +1,7 @@
-Riff 0.6.29 speeds up PNG-based MP4 exports by overlapping frame drawing, snapshots, encoding and upload.
+Riff 0.6.30 saves the lyrics used for each composition and shows them alongside playback.
 
-Exports keep the selected picture size, frame rate, passage and encoding settings. The browser takes ordered snapshots, keeps two snapshots in flight, and updates progress and previews at an interactive cadence. Cancellation releases pending snapshots and the export worker.
+Open Lyrics in the player to read the saved words while listening. The panel preserves line breaks and Unicode text, supports right-to-left text, and remembers whether it is open. Track details also show the saved lyrics.
 
-Controlled self-hosted samples improved export wall time by about 1.3 to 1.6 times for 1080p60 two-second passages and 4K60 one-second passages. Their MP4 files were byte-identical to the baseline, including the video frames and audio. Matched H.264 samples also retained identical output. These measurements cover the tested browser and host; export time depends on the device, browser, picture size and recording length.
+Instrumental compositions and older recordings without saved lyrics have distinct status messages. Changing a recording's title or prompt preserves its original composition lyrics.
 
 The native music engine and model requirements are unchanged.
