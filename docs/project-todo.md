@@ -10,6 +10,17 @@ rejected; rejected experiments remain documented in the private ledger.
 
 ## Open-issue execution pass
 
+- Large mobile libraries (0.6.28): library cards and take history start with 24
+  entries; scrolling appends recording batches and buttons keep every entry
+  accessible. Search, tags, sorting, favorites and archive still cover the full
+  catalog. Hidden library cards are deferred and covers paint across idle turns.
+  Revision-based state polls omit an unchanged catalog while continuing live
+  progress, reviews and engine status; full responses support older clients.
+  SQLite triggers invalidate cached snapshots for writes from other processes.
+  JSON compression and bounded genre caching reduce transfer and rebuild cost.
+  See the October 21 measurements in [validation](validation.md). The first cold
+  snapshot still reads the whole catalog; this does not implement server paging.
+
 - #7/#23/#24/#25: the October 19 [LoRA research](yue2-lora-research.md)
   supersedes the missing-community-encoder and missing-native-loader premises.
   The source now includes a pinned native adapter backport, validated import,

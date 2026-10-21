@@ -393,15 +393,40 @@ function artContent(seed) { return artSVG(seed).replace(/^<svg[^>]*>/, "").repla
 function artThumbnail(seed) {
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 440 340" aria-hidden="true" data-art-seed="${encodeURIComponent(String(seed))}"><rect width="440" height="340" fill="currentColor" opacity=".08"/></svg>`;
 }
-const pendingPosters = new Set();
+const pendingPosters = new Set(), visiblePosters = new Set();
+let posterPaintScheduled = false;
+function schedulePosterPaint() {
+  if (posterPaintScheduled || !visiblePosters.size) return;
+  posterPaintScheduled = true;
+  // A viewport can reveal several expensive covers together. Yield between
+  // covers so scrolling, search and playback do not wait for the whole batch.
+  const schedule = window.requestIdleCallback || (callback => setTimeout(callback, 16));
+  schedule(() => {
+    posterPaintScheduled = false;
+    const target = visiblePosters.values().next().value;
+    if (target) {
+      visiblePosters.delete(target);
+      posterObserver.unobserve(target); pendingPosters.delete(target);
+      if (target.isConnected) {
+        target.innerHTML = artContent(decodeURIComponent(target.dataset.artSeed));
+        target.dataset.artReady = "true";
+      }
+    }
+    schedulePosterPaint();
+  }, { timeout: 250 });
+}
 const posterObserver = new IntersectionObserver(entries => {
   for (const { target, isIntersecting } of entries) {
-    if (!isIntersecting) continue;
-    posterObserver.unobserve(target); pendingPosters.delete(target);
-    if (target.isConnected) target.innerHTML = artContent(decodeURIComponent(target.dataset.artSeed));
+    if (isIntersecting) visiblePosters.add(target);
+    else visiblePosters.delete(target);
   }
+  schedulePosterPaint();
 }, { rootMargin: "50% 0px" });
 function observeArtPosters(root) {
-  for (const target of pendingPosters) if (!target.isConnected) { posterObserver.unobserve(target); pendingPosters.delete(target); }
-  for (const target of root.querySelectorAll("[data-art-seed]")) { pendingPosters.add(target); posterObserver.observe(target); }
+  for (const target of pendingPosters) if (!target.isConnected) {
+    posterObserver.unobserve(target); pendingPosters.delete(target); visiblePosters.delete(target);
+  }
+  for (const target of root.querySelectorAll("[data-art-seed]:not([data-art-ready])")) {
+    if (!pendingPosters.has(target)) { pendingPosters.add(target); posterObserver.observe(target); }
+  }
 }

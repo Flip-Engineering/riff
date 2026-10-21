@@ -1,10 +1,11 @@
 """Genre tags derived from a recording's sound description.
 
-The library searches and filters by these tags. They are computed from the style text each time the state is read,
-so they need no storage and follow the vocabulary as it grows. Only the description itself is read: the
+The library searches and filters by these tags. They are derived from style text with a bounded in-memory cache,
+so they need no persistent storage and follow the vocabulary as it grows. Only the description itself is read: the
 "References:" list names artists, and an artist's name ("Rebirth Brass Band", "Gipsy Kings") is not a genre.
 """
 import re
+from functools import lru_cache
 
 # (tag, pattern) in the order they are tried; a tag's position in the result follows where it first appears in the text.
 VOCABULARY = [
@@ -108,9 +109,16 @@ _REFERENCES = re.compile(r"\breferences?\s*:", re.IGNORECASE)
 
 def genre_tags(style):
     """Return the genre tags found in a sound description, in the order they first appear, then implied families."""
-    text = _REFERENCES.split(style or "", maxsplit=1)[0].lower()
+    return list(_genre_tags(style or ""))
+
+
+@lru_cache(maxsize=4096)
+def _genre_tags(style):
+    # A job update should not repeat every genre regex over thousands of
+    # unchanged descriptions. Return immutable cached data to protect callers.
+    text = _REFERENCES.split(style, maxsplit=1)[0].lower()
     found = sorted(((match.start(), tag) for tag, pattern in _COMPILED if (match := pattern.search(text))))
     tags = list(dict.fromkeys(tag for _, tag in found))
     for tag in list(tags):
         tags.extend(broader for broader in IMPLIES.get(tag, []) if broader not in tags)
-    return tags
+    return tuple(tags)

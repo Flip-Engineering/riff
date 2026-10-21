@@ -12,7 +12,7 @@ try {
     const stale = await original("/api/state");
     let hold = true;
     api = (...args) => {
-      if (args[0] === "/api/state" && hold) {
+      if (args[0].startsWith("/api/state") && hold) {
         hold = false;
         return new Promise(resolve => { window.releaseOldState = () => resolve(stale); });
       }

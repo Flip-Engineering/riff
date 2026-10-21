@@ -428,3 +428,31 @@ links to the exact workflow results rather than treating configured jobs as pass
   main-thread frame fell from 1.20 to 1.00 ms in Chrome on the M4. An offscreen
   WebGL hand-over was measured and rejected; it was pixel-identical and 14%
   faster at 4K, but 46% slower per frame at the inline view's size.
+
+
+## Large mobile library, 2026-10-21
+
+A read-only snapshot of the homelab library contained 1,717 recordings and
+1,793 jobs. At a 390 x 844 viewport with Chrome CPU throttling set to 6x,
+initial library cards fell from 1,708 to 24 and initial history rows from 1,793
+to 24. DOM nodes fell from 57,390 to 5,579. Explicit library rendering measured
+704 ms before and 16 ms after; the largest observed main-thread task fell from
+2,432 ms to 279 ms. These are controlled browser measurements, not timings
+from the user's phone or a guarantee for all devices.
+
+Against a SQLite backup (the live database was not modified), old catalog
+snapshot construction took 1,976 ms; the initial new snapshot took 2,015 ms,
+a cached full snapshot 53 ms, and an unchanged revision check 0.989 ms.
+Catalog contents matched exactly. The JSON catalog was 3,380,798 bytes and
+gzip level 4 reduced it to 707,564 bytes. An unchanged catalog contributes only
+its revision; normal polls still include live progress, review and engine state.
+A bounded genre cache additionally avoids repeating unchanged style matching
+when a job or recording invalidates the catalog.
+
+Regressions exercise 1,200 recordings on a mobile viewport, all-catalog search,
+sort, tags, favorites/archive, incremental scrolling, history expansion, actual
+playback, unchanged and job-only poll DOM preservation, database invalidation
+from another Store/direct SQL, cache isolation, compressed responses/HEAD and
+encoding refusal, plus delayed pre-save state protection. Initial full catalog
+size and cold construction remain proportional to the collection; no claim of
+server-side pagination is made.

@@ -4,6 +4,7 @@ import argparse
 from contextlib import nullcontext
 import fcntl
 import hashlib
+import gzip
 import html
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -128,7 +129,16 @@ class Handler(BaseHTTPRequestHandler):
 
     def json_response(self, status, value):
         body = json.dumps(value, ensure_ascii=False).encode("utf-8")
-        self.send_response(status)
+        # Large catalogs compress well; leave streaming audio/video untouched.
+        encodings = [part.strip().split(";") for part in self.headers.get("Accept-Encoding", "").lower().split(",")]
+        use_gzip = any(parts[0] == "gzip" and not any(re.fullmatch(r"q=0(?:\.0*)?", p.strip()) for p in parts[1:]) for parts in encodings)
+        if use_gzip and len(body) >= 1024:
+            body = gzip.compress(body, compresslevel=4)
+            self.send_response(status)
+            self.send_header("Content-Encoding", "gzip")
+        else:
+            self.send_response(status)
+        self.send_header("Vary", "Accept-Encoding")
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
@@ -162,7 +172,8 @@ class Handler(BaseHTTPRequestHandler):
         path = unquote(parsed.path)
         try:
             if path == "/api/state":
-                state = self.server.store.snapshot()
+                since = parse_qs(parsed.query).get("catalog_revision", [None])[0]
+                state = self.server.store.snapshot(since=since)
                 state["studio"] = self.server.studio_identity
                 state["live"] = self.server.generator.status()
                 state["writing"] = self.server.generator.writing_status()

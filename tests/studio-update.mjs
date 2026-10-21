@@ -13,7 +13,7 @@ await page.addInitScript(() => {
   // Another tab can save a different shared draft while this tab refreshes.
   if (window.__refreshSnapshot) localStorage.setItem("riff.draft", JSON.stringify({ title: "Another tab’s work", mode: "free" }));
 });
-await page.route("**/api/state", async route => {
+await page.route("**/api/state*", async route => {
   const response = await route.fetch(), data = await response.json();
   backendBuild ||= data.studio.build;
   data.studio.build = backendBuild;

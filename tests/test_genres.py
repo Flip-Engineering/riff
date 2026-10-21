@@ -4,6 +4,11 @@ from genres import genre_tags
 
 
 class GenreTagTests(unittest.TestCase):
+    def test_cached_tags_are_not_shared_mutable_lists(self):
+        tags = genre_tags("Warm jazz quartet")
+        tags.append("not a genre")
+        self.assertEqual(genre_tags("Warm jazz quartet"), ["jazz"])
+
     def test_tags_follow_the_description_in_order_and_add_broader_families(self):
         self.assertEqual(genre_tags("English, a 1958 doo-wop ballad sung on a street corner."), ["doo-wop", "ballad"])
         self.assertEqual(genre_tags("English, glitchy, maximal hyperpop about one person."), ["hyperpop", "pop", "electronic"])

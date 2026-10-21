@@ -158,6 +158,39 @@ class StoreTests(StudioFixture):
         self.assertEqual(track["tags"], ["doo-wop", "ballad"])
         self.assertEqual(track["notes"], "for the album")
 
+    def test_catalog_revision_cache_and_external_writes(self):
+        track_id = self.store.add_track(self.audio, recipe(), {})
+        first = self.store.snapshot()
+        revision = first["catalog_revision"]
+        with patch.object(self.store, "_catalog_snapshot", side_effect=AssertionError("rebuilt unchanged catalog")):
+            self.assertEqual(self.store.snapshot(since=revision), {"catalog_revision": revision})
+            self.assertEqual(self.store.snapshot(), first)
+        # A caller cannot mutate the cached snapshot through its returned value.
+        first["tracks"][0]["title"] = "local edit"
+        self.assertNotEqual(self.store.snapshot()["tracks"][0]["title"], "local edit")
+        other = Store(self.root / "data", self.root / "outputs")
+        other.update_track(track_id, {"title": "Changed elsewhere", "notes": "searchable elsewhere", "favorite": True})
+        changed = self.store.snapshot(since=revision)
+        self.assertNotEqual(changed["catalog_revision"], revision)
+        self.assertEqual(changed["tracks"][0]["title"], "Changed elsewhere")
+        revision = changed["catalog_revision"]
+        sound = other.add_preset({"name": "New sound", "style": "jazz"})
+        self.assertIn(sound, self.store.snapshot(since=revision)["presets"])
+        revision = self.store.snapshot()["catalog_revision"]
+        # Direct SQL writes must invalidate too, including job lifecycle changes.
+        with other.db() as db:
+            db.execute("INSERT INTO jobs (id,title,created,status,recipe) VALUES ('job','Job',1,'queued',?)", (json.dumps(recipe()),))
+        queued = self.store.snapshot(since=revision)
+        revision = queued["catalog_revision"]
+        with other.db() as db:
+            db.execute("UPDATE jobs SET status='failed',error='retained failure' WHERE id='job'")
+        failed = self.store.snapshot(since=revision)
+        self.assertEqual(failed["jobs"][0]["error"], "retained failure")
+        revision = failed["catalog_revision"]
+        with other.db() as db:
+            db.execute("DELETE FROM tracks WHERE id=?", (track_id,))
+        self.assertEqual(self.store.snapshot(since=revision)["tracks"], [])
+
     def test_existing_import_is_idempotent_and_skips_failed_jobs(self):
         metrics = {"exit_code": 0, "command": ["audiocpp_cli", "--lyrics", "Original lyrics", "--seed", "77", "--request-option", "style=Jazz", "--request-option", "semantic_max_tokens=500"]}
         self.audio.with_suffix(".metrics.json").write_text(json.dumps(metrics))
@@ -528,6 +561,29 @@ class HttpTests(StudioFixture):
         self.assertEqual(self.request("HEAD", "/")[1]["Content-Length"], str(len(body)))
         self.assertEqual(self.request("HEAD", "/")[2], b"")
         self.assertEqual(self.request("GET", "/updates.js")[0], 200)
+
+    def test_conditional_catalog_keeps_live_state_and_gzip_roundtrips(self):
+        import gzip
+        state = json.loads(self.request("GET", "/api/state")[2])
+        path = "/api/state?catalog_revision=" + state["catalog_revision"]
+        status, headers, body = self.request("GET", path)
+        delta = json.loads(body)
+        self.assertEqual(status, 200)
+        self.assertNotIn("tracks", delta)
+        self.assertNotIn("jobs", delta)
+        self.assertIn("live", delta)
+        self.assertIn("engine", delta)
+        self.store.update_track(self.track_id, {"notes": "A changed recording"})
+        status, headers, body = self.request("GET", path, headers={"Accept-Encoding": "gzip"})
+        self.assertEqual(headers["Content-Encoding"], "gzip")
+        self.assertEqual(int(headers["Content-Length"]), len(body))
+        full = json.loads(gzip.decompress(body))
+        self.assertEqual(full["tracks"][0]["notes"], "A changed recording")
+        status, headers, body = self.request("HEAD", "/api/state", headers={"Accept-Encoding": "gzip"})
+        self.assertEqual(body, b"")
+        self.assertGreater(int(headers["Content-Length"]), 0)
+        headers = self.request("GET", "/api/state", headers={"Accept-Encoding": "gzip;q=0.0"})[1]
+        self.assertNotIn("Content-Encoding", headers)
 
     def test_build_changes_for_asset_bytes_and_version_but_not_mtime(self):
         with tempfile.TemporaryDirectory() as folder:

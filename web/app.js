@@ -86,7 +86,8 @@ let selected = null,
   filter = "all",
   toastTimer,
   pollTimer,
-  savedSignature = "",
+  savedTracksSignature = "",
+  savedPresetsSignature = "",
   busySubmit = false,
   connected = false,
   firstLoad = true;
@@ -698,7 +699,24 @@ function tagChips(track, tokens) {
     })
     .join("")}</div>`;
 }
+function libraryCard(t, tokens) {
+  return `<article class="library-card"><button class="library-card-art" type="button" data-play="${t.id}" aria-label="Play ${esc(t.title)}">${artThumbnail(t.seed)}<span class="card-play-overlay">${icon("play")}</span></button><div class="library-card-body"><div class="library-card-title"><button type="button" data-select="${t.id}">${esc(t.title)}</button><button class="icon-button" type="button" data-favorite="${t.id}" aria-label="Favorite ${esc(t.title)}" aria-pressed="${t.favorite}">${icon("heart")}</button></div><p>${esc(t.style)}</p>${tagChips(t, tokens)}<div class="card-meta"><span>${formatDuration(t.duration)}</span><span>${esc(formatDate(t.created))}</span><button class="icon-button" type="button" data-detail="${t.id}" aria-label="Details for ${esc(t.title)}">${icon("more")}</button></div></div></article>`;
+}
+const libraryPageSize = 24;
+let libraryVersion = 0, libraryRenderedVersion = -1, libraryQueryKey = "";
+let libraryMatches = [], libraryShown = 0;
+function appendLibraryPage(count = libraryPageSize) {
+  const tokens = searchTokens($("#search").value);
+  const end = Math.min(libraryShown + count, libraryMatches.length);
+  $("#library-grid").insertAdjacentHTML("beforeend", libraryMatches.slice(libraryShown, end)
+    .map((t) => libraryCard(t, tokens)).join(""));
+  libraryShown = end;
+  $("#library-more").hidden = libraryShown >= libraryMatches.length;
+  $("#library-progress").textContent = libraryMatches.length ? `${libraryShown} of ${libraryMatches.length} recordings` : "";
+  observeArtPosters($("#library-grid"));
+}
 function renderLibrary() {
+  if ($("#library-view").hidden) return;
   const query = $("#search").value.trim().toLocaleLowerCase();
   const tokens = searchTokens(query);
   let tracks = state.tracks.filter(
@@ -716,13 +734,16 @@ function renderLibrary() {
   );
   $("#library-description").textContent =
     `${state.tracks.filter((t) => !t.archived).length} ${state.tracks.filter((t) => !t.archived).length === 1 ? "recording" : "recordings"}, and room for whatever comes next.`;
-  $("#library-grid").innerHTML = tracks
-    .map(
-      (t) =>
-        `<article class="library-card"><button class="library-card-art" type="button" data-play="${t.id}" aria-label="Play ${esc(t.title)}">${artThumbnail(t.seed)}<span class="card-play-overlay">${icon("play")}</span></button><div class="library-card-body"><div class="library-card-title"><button type="button" data-select="${t.id}">${esc(t.title)}</button><button class="icon-button" type="button" data-favorite="${t.id}" aria-label="Favorite ${esc(t.title)}" aria-pressed="${t.favorite}">${icon("heart")}</button></div><p>${esc(t.style)}</p>${tagChips(t, tokens)}<div class="card-meta"><span>${formatDuration(t.duration)}</span><span>${esc(formatDate(t.created))}</span><button class="icon-button" type="button" data-detail="${t.id}" aria-label="Details for ${esc(t.title)}">${icon("more")}</button></div></div></article>`,
-    )
-    .join("");
-  observeArtPosters($("#library-grid"));
+  const key = JSON.stringify([query, filter, $("#sort").value]);
+  if (libraryRenderedVersion !== libraryVersion || libraryQueryKey !== key) {
+    const limit = libraryQueryKey === key ? Math.max(libraryShown, libraryPageSize) : libraryPageSize;
+    libraryMatches = tracks;
+    libraryRenderedVersion = libraryVersion;
+    libraryQueryKey = key;
+    libraryShown = 0;
+    $("#library-grid").replaceChildren();
+    appendLibraryPage(limit);
+  }
   $("#library-empty").hidden = tracks.length > 0;
   $("#empty-title").textContent = query
     ? "Try a different search."
@@ -750,6 +771,12 @@ $$("[data-filter]").forEach((button) =>
     renderLibrary();
   }),
 );
+$("#library-more").addEventListener("click", () => appendLibraryPage());
+const libraryMoreObserver = new IntersectionObserver(entries => {
+  if (entries.some(entry => entry.isIntersecting) && !$("#library-more").hidden && !$("#library-view").hidden)
+    appendLibraryPage();
+}, { rootMargin: "400px 0px" });
+libraryMoreObserver.observe($("#library-more"));
 $("#search").addEventListener("input", renderLibrary);
 // A genre chip adds its tag to the search, or takes it back out when it is already there.
 $("#library-grid").addEventListener("click", (event) => {
@@ -974,8 +1001,12 @@ function renderQueue() {
       : "";
   $("#generation-footnote").parentElement.hidden = connected;
 }
+let historyLimit = 24;
+$("#history-more").addEventListener("click", () => { historyLimit += 24; renderHistory(); });
 function renderHistory() {
-  const jobs = state.jobs.slice().reverse();
+  if ($("#library-view").hidden) return;
+  const jobs = state.jobs.slice().reverse().slice(0, historyLimit);
+  $("#history-more").hidden = historyLimit >= state.jobs.length;
   const history = $("#job-history"), signature = JSON.stringify(jobs);
   if (history.dataset.signature === signature) return;
   history.dataset.signature = signature;
@@ -1101,13 +1132,17 @@ $("#generation-form").addEventListener("submit", async (event) => {
 
 async function refresh() {
   const request = ++refreshRequest;
-  const next = await api("/api/state");
+  const revision = state.catalog_revision;
+  const response = await api(`/api/state${revision === undefined ? "" : `?catalog_revision=${encodeURIComponent(revision)}`}`);
+  // Older servers still send complete state; newer ones omit an unchanged catalog.
+  const catalogChanged = Array.isArray(response.tracks);
+  const next = { ...state, ...response };
   // A poll started before a mutation can finish after its explicit refresh.
   // Never replace that newer state with the delayed pre-mutation snapshot.
   if (request < appliedRefreshRequest) return;
   appliedRefreshRequest = request;
   connected = true;
-  const signature = JSON.stringify([next.tracks, next.presets, next.jobs]);
+
   const added = next.tracks.filter((track) => !latestTrackIds.has(track.id));
   const oldJobs = new Map(state.jobs.map((job) => [job.id, job.status]));
   state = next;
@@ -1131,11 +1166,19 @@ async function refresh() {
     (t) => !t.archived,
   ).length;
 
-  if (signature !== savedSignature) {
-    renderRecent();
+  if (catalogChanged) {
+    const tracksSignature = JSON.stringify(next.tracks);
+    if (tracksSignature !== savedTracksSignature) {
+      libraryVersion++;
+      renderRecent();
+      savedTracksSignature = tracksSignature;
+    }
+    const presetsSignature = JSON.stringify(next.presets);
+    if (presetsSignature !== savedPresetsSignature) {
+      renderPresets();
+      savedPresetsSignature = presetsSignature;
+    }
     renderLibrary();
-    renderPresets();
-    savedSignature = signature;
   }
   renderQueue();
   if (firstLoad) {

@@ -37,8 +37,8 @@ try {
   const plan = (id, title, artifact, abc, cot, tokenCount = 37, displayError = "") => ({ id, title, finished: 1789300800,
     recipe: { cot, symbolic_plan: { artifact_id: artifact, abc, token_count: tokenCount, truncated: false,
       ...(displayError ? { display_error: displayError } : {}) } } });
-  await page.route("**/api/state", async route => {
-    const response = await route.fetch(), next = await response.json();
+  await page.route("**/api/state*", async route => {
+    const response = await route.fetch({url: new URL("/api/state", route.request().url()).href}), next = await response.json();
     next.engine = { ...next.engine, capabilities: { ...next.engine?.capabilities, exact_score_replay: available } };
     next.tracks[0].recipe = { ...next.tracks[0].recipe, ...initial,
       ...(capturedOnly ? { score_source: "" } : {}),
