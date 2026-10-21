@@ -394,14 +394,14 @@ function artThumbnail(seed) {
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 440 340" aria-hidden="true" data-art-seed="${encodeURIComponent(String(seed))}"><rect width="440" height="340" fill="currentColor" opacity=".08"/></svg>`;
 }
 const pendingPosters = new Set(), visiblePosters = new Set();
+const schedulePosterIdle = window.requestIdleCallback?.bind(window) || (callback => setTimeout(callback, 16));
 let posterPaintScheduled = false;
 function schedulePosterPaint() {
   if (posterPaintScheduled || !visiblePosters.size) return;
   posterPaintScheduled = true;
   // A viewport can reveal several expensive covers together. Yield between
   // covers so scrolling, search and playback do not wait for the whole batch.
-  const schedule = window.requestIdleCallback || (callback => setTimeout(callback, 16));
-  schedule(() => {
+  schedulePosterIdle(() => {
     posterPaintScheduled = false;
     const target = visiblePosters.values().next().value;
     if (target) {
