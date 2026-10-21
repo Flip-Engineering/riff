@@ -13,7 +13,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   deploy:
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, baton2-native-linux-x64]
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

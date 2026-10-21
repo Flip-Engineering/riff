@@ -1,0 +1,145 @@
+name: Apple Silicon qualification
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Exact commit to validate from this repository
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: apple-silicon-validation-${{ inputs.source_sha }}
+  cancel-in-progress: false
+
+jobs:
+  macos-arm64:
+    name: Remote Apple Silicon source, browser, and Metal checks
+    runs-on: [self-hosted, macOS, ARM64]
+    steps:
+      - name: Check out the requested commit
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ inputs.source_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Record runner and source identity
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          RUNNER_NAME: ${{ runner.name }}
+          RUNNER_OS: ${{ runner.os }}
+          RUNNER_ARCH: ${{ runner.arch }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          test "$(uname -m)" = arm64
+          test "$(sw_vers -productVersion | cut -d. -f1)" -ge 15
+          for tool in python3 node npm elixir rustc cmake ffmpeg ffprobe; do
+            command -v "$tool"
+          done
+          xcodebuild -version
+          xcrun --find metal
+          mkdir -p "$RUNNER_TEMP/riff-apple-silicon-validation"
+          python3 - <<'PY' | tee "$RUNNER_TEMP/riff-apple-silicon-validation/runner.json"
+          import json, os, platform, subprocess
+          def output(*command):
+              return subprocess.check_output(command, text=True, stderr=subprocess.STDOUT).strip()
+          print(json.dumps({
+              "source_sha": output("git", "rev-parse", "HEAD"),
+              "runner_name": os.environ.get("RUNNER_NAME"),
+              "runner_os": os.environ.get("RUNNER_OS", platform.system()),
+              "runner_architecture": os.environ.get("RUNNER_ARCH", platform.machine()),
+              "runner_labels": ["self-hosted", "macOS", "ARM64"],
+              "macos": output("sw_vers", "-productVersion"),
+              "xcode": output("xcodebuild", "-version"),
+              "metal": output("xcrun", "--find", "metal"),
+          }, sort_keys=True, indent=2))
+          PY
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.14'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Set up the pinned control toolchain
+        uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124
+        with:
+          otp-version: '28.0.2'
+          elixir-version: '1.18.4'
+          version-type: strict
+
+      - name: Record active toolchain after setup
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' | tee "$RUNNER_TEMP/riff-apple-silicon-validation/toolchain.json"
+          import json, subprocess
+          def output(*command):
+              return subprocess.check_output(command, text=True, stderr=subprocess.STDOUT).strip()
+          elixir = output("elixir", "--version")
+          otp = next((line.strip() for line in elixir.splitlines() if line.strip().startswith("Erlang/OTP ")), None)
+          version = next((line.strip() for line in elixir.splitlines() if line.strip().startswith("Elixir ")), None)
+          print(json.dumps({
+              "python": output("python3", "--version"),
+              "node": output("node", "--version"),
+              "npm": output("npm", "--version"),
+              "elixir": version,
+              "otp": otp,
+              "rust": output("rustc", "--version"),
+              "cmake": output("cmake", "--version").splitlines()[0],
+              "ffmpeg": output("ffmpeg", "-version").splitlines()[0],
+              "ffprobe": output("ffprobe", "-version").splitlines()[0],
+          }, sort_keys=True, indent=2))
+          PY
+
+      - name: Install browser dependencies
+        run: |
+          set -euo pipefail
+          npm ci
+          npx playwright install chromium
+
+      - name: Run the studio check and Python tests
+        run: |
+          set -euo pipefail
+          python3 studio.py --check 2>&1 | tee "$RUNNER_TEMP/riff-apple-silicon-validation/studio-check.log"
+          python3 -B -m unittest discover -s tests -v 2>&1 | tee "$RUNNER_TEMP/riff-apple-silicon-validation/python-tests.log"
+
+      - name: Run the browser suite
+        run: |
+          set -euo pipefail
+          npm run test:all-browser 2>&1 | tee "$RUNNER_TEMP/riff-apple-silicon-validation/browser-tests.log"
+
+      - name: Build and test the Metal engine
+        run: |
+          set -euo pipefail
+          elixir scripts/build_cached_native.exs --backend metal --build-only --jobs 2 2>&1 | tee "$RUNNER_TEMP/riff-apple-silicon-validation/native-metal-build.log"
+          python3 scripts/check_native_solver.py 2>&1 | tee "$RUNNER_TEMP/riff-apple-silicon-validation/native-solver-tests.log"
+          python3 scripts/check_native_lora.py --output "$RUNNER_TEMP/riff-apple-silicon-validation/native-lora" 2>&1 | tee "$RUNNER_TEMP/riff-apple-silicon-validation/native-lora-tests.log"
+          elixir scripts/check_native_score_replay.exs --download-tokenizer --output "$RUNNER_TEMP/riff-apple-silicon-validation/native-score-check" 2>&1 | tee "$RUNNER_TEMP/riff-apple-silicon-validation/native-score-replay-tests.log"
+          elixir scripts/check_native_acoustic.exs --tokenizer "$RUNNER_TEMP/riff-apple-silicon-validation/native-score-check/yue2-qwen.tiktoken" 2>&1 | tee "$RUNNER_TEMP/riff-apple-silicon-validation/native-acoustic-tests.log"
+          python3 scripts/check_native_attention.py 2>&1 | tee "$RUNNER_TEMP/riff-apple-silicon-validation/native-attention-tests.log"
+
+      - name: Upload Apple Silicon evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: riff-apple-silicon-${{ inputs.source_sha }}
+          path: |
+            ${{ runner.temp }}/riff-apple-silicon-validation/runner.json
+            ${{ runner.temp }}/riff-apple-silicon-validation/toolchain.json
+            ${{ runner.temp }}/riff-apple-silicon-validation/*.log
+            ${{ runner.temp }}/riff-apple-silicon-validation/native-lora/*.json
+            ${{ runner.temp }}/riff-apple-silicon-validation/native-score-check/*.json
+            test-results/
+            native-cache-receipts/
+          if-no-files-found: warn

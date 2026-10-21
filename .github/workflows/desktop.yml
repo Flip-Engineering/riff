@@ -20,7 +20,7 @@ jobs:
     if: >-
       github.repository == 'Flip-Engineering/riff' &&
       (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
-    runs-on: macos-15
+    runs-on: [self-hosted, macOS, ARM64]
     timeout-minutes: 120
     outputs:
       version: ${{ steps.source.outputs.version }}
@@ -106,9 +106,8 @@ jobs:
           rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal
           command -v pkg-config
           xcrun --find metal
-          if ! command -v ffmpeg || ! command -v ffprobe; then
-            brew install ffmpeg
-          fi
+          command -v ffmpeg
+          command -v ffprobe
           ffmpeg -v error -f lavfi -i 'anullsrc=r=48000:cl=mono' -t 0.01 -f f32le -y "$RIFF_PREVIEW_ROOT/test-media.f32"
           python3 -m venv "$RIFF_PREVIEW_ROOT/tools"
           elixir -r desktop/support.exs -e '
@@ -323,7 +322,7 @@ jobs:
   publish:
     if: inputs.publish && startsWith(github.ref, 'refs/tags/v')
     needs: preview
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, baton2-native-linux-x64]
     timeout-minutes: 15
     permissions:
       contents: write
@@ -341,6 +340,10 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
+      - name: Verify provisioned publish tools
+        run: |
+          set -euo pipefail
+          for tool in git gh jq sha256sum stat; do command -v "$tool"; done
 
       - name: Download only the verified build artifact
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
