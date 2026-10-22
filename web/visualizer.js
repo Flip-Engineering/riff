@@ -182,6 +182,8 @@ function drawSoundField() {
   const seed = selected?.recipe.seed ?? "reed0f_cobalt8d82";
   drawSeedArtwork(context, width, height, seed, audio.currentTime,
     liveSound.read(audio.currentTime) || motionAt(soundMotionTrack === selected?.id ? soundMotion : null, audio.currentTime), artworkAppearance());
+  window.soundFieldDraws = (window.soundFieldDraws || 0) + 1;
+  window.soundFieldDrawnTime = audio.currentTime;
   if (!audio.paused && !quietMotion.matches) soundAnimation = requestAnimationFrame(drawSoundField);
 }
 
@@ -236,7 +238,17 @@ document.addEventListener("DOMContentLoaded", () => {
     synchronizeSoundField();
   }));
   audio.addEventListener("emptied", liveSound.reset);
-  audio.addEventListener("seeking", liveSound.reset);
+  audio.addEventListener("seeking", () => {
+    liveSound.reset();
+    // A seek can complete without firing `seeked` when the target position is
+    // not buffered yet. Redraw once the seek finishes so the analysis for the
+    // new position is drawn deterministically.
+    const poll = () => {
+      if (audio.seeking) return setTimeout(poll, 25);
+      synchronizeSoundField();
+    };
+    setTimeout(poll, 25);
+  });
   audio.addEventListener("play", () => {
     liveSound.start().then(synchronizeSoundField);
     soundSnapshotPending = quietMotion.matches;

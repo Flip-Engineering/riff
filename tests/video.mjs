@@ -140,8 +140,11 @@ try {
   await page.waitForTimeout(120);
   assert((await page.locator("#sound-field").evaluate(canvas => canvas.toDataURL())) === frozen,
     "The artwork remains frozen after the final pause frame");
+  const drawsBefore = await page.evaluate(() => window.soundFieldDraws ?? 0);
   await page.evaluate(() => { audio.currentTime = 2; });
-  await page.waitForFunction(previous => document.querySelector("#sound-field").toDataURL() !== previous, frozen);
+  // The visualizer redraws once the seek completes and the analysis for the
+  // new position is drawn, independent of the media events.
+  await page.waitForFunction(d => window.soundFieldDraws > d && window.soundFieldDrawnTime === 2, drawsBefore);
   console.log("PASS Original seed geometry and palette preserved; playback animates, pause freezes, seek redraws");
 
   await page.locator("#download-video").click();
