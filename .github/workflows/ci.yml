@@ -106,7 +106,7 @@ jobs:
         include:
           - runner: '["self-hosted","Linux","X64","baton2-native-linux-x64"]'
             backend: cpu
-          - runner: '["self-hosted","macOS","ARM64"]'
+          - runner: '["macos-14"]'
             backend: metal
     runs-on: ${{ fromJSON(matrix.runner) }}
     steps:
