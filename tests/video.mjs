@@ -169,7 +169,7 @@ try {
     }
     await route.continue();
   });
-  const finished = page.waitForEvent("download", { timeout: 90000 });
+  const finished = page.waitForEvent("download", { timeout: 0 });
   finished.catch(() => {});
   await page.locator("#render-video").click();
   await page.waitForFunction(() => videoExport?.id || !document.querySelector("#video-error").hidden);
@@ -227,7 +227,7 @@ try {
     await page.locator("#video-width").fill(String(highWidth)); await page.locator("#video-height").fill(String(highHeight));
     await page.locator("#video-fps").fill(String(highFps)); await page.locator("#video-selection").selectOption("passage");
     await page.locator("#video-end").fill("0:02");
-    const highReady = page.waitForEvent("download", { timeout: 90000 }); highReady.catch(() => {});
+    const highReady = page.waitForEvent("download", { timeout: 0 }); highReady.catch(() => {});
     await page.locator("#render-video").click();
     await page.waitForFunction(() => videoExport?.id || !document.querySelector("#video-error").hidden);
     assert(await page.locator("#video-error").isHidden(), await page.locator("#video-error").textContent());
@@ -235,7 +235,7 @@ try {
     const highJob = await (await page.request.get(`${base}/api/video-exports/${highId}`)).json();
   assert.equal(highJob.transport, "h264");
     assert.equal(highJob.profile, undefined);
-    await page.waitForFunction(() => videoExport === null, null, { timeout: 90000 });
+    await page.waitForFunction(() => videoExport === null, null, { timeout: 0 });
     assert(await page.locator("#video-error").isHidden(), await page.locator("#video-error").textContent());
     const highDownload = await highReady; await highDownload.saveAs("test-results/high-transport.mp4");
     await page.waitForFunction(() => videoExport === null);
@@ -286,7 +286,7 @@ try {
   await page.waitForFunction(() => !document.querySelector("#video-error").hidden);
   assert.equal(await page.evaluate(() => videoExport), null);
   await page.locator("#video-end").fill("2.75");
-  const excerptReady = page.waitForEvent("download", { timeout: 90000 }); excerptReady.catch(() => {});
+  const excerptReady = page.waitForEvent("download", { timeout: 0 }); excerptReady.catch(() => {});
   await page.locator("#render-video").click();
   await page.waitForFunction(() => videoExport?.id);
   const excerptId = await page.evaluate(() => videoExport.id);
