@@ -41,26 +41,79 @@ fi
   exit 1
 }
 
-# The queue replaces the artifact destination token with its private work path.
-# The child writes the complete build there; the queue publishes that directory
-# and installs it at $output on a cache hit or a fresh execution.
-"$queue" -- run --kind cc \
-  --state-root "$state_root" \
-  --cwd "$cwd" \
-  --option "source_id=$source_id" \
-  --option "backend=$backend" \
-  --artifact "native=$output" \
-  -- /bin/sh -c '
-    set -eu
-    destination=$1
-    backend=$2
-    shift 2
-    elixir scripts/build_cached_native.exs --backend "$backend" "$@"
-    mkdir -p "$destination"
-    rm -rf "$destination/engines" "$destination/native-cache-receipts"
-    cp -a engines "$destination/engines"
-    cp -a native-cache-receipts "$destination/native-cache-receipts"
-  ' _ "$output" "$backend" "$@"
+compiler=${CXX:-c++}
+command -v "$compiler" >/dev/null 2>&1 || {
+  echo "native C++ compiler is unavailable: $compiler" >&2
+  exit 1
+}
+compiler_version=$("$compiler" --version | head -n 1)
+
+# Bind the actual build identity before taking queue custody. The manifest
+# contains the relative hashes of the build scripts, drivers, policy, engine
+# pins/patches and the resolved toolchain versions. The queue hashes this
+# manifest as an auxiliary input, so changing any bound byte changes its key.
+manifest=$(mktemp "$cwd/.native-build-inputs.XXXXXX")
+trap 'rm -f "$manifest"' EXIT HUP INT TERM
+(
+  cd "$cwd" || exit 1
+  for file in scripts/build_cached_native.exs scripts/native_cache.exs setup_engine.py paths.py platform_support.py scripts/compiler_cache_tool.json .github/workflows/ci.yml sources.json; do
+    [ -f "$file" ] || {
+      echo "missing native build input: $file" >&2
+      exit 1
+    }
+    sha256sum "$file"
+  done
+  for patch in patches/*.patch; do
+    [ -f "$patch" ] || continue
+    sha256sum "$patch"
+  done
+  printf 'compiler=%s\n' "$compiler_version"
+  for tool in c++ nvcc cmake; do
+    if command -v "$tool" >/dev/null 2>&1; then
+      printf 'toolchain-%s=%s\n' "$tool" "$("$tool" --version | head -n 1)"
+    fi
+  done
+) > "$manifest" || {
+  echo "could not write the native build input manifest" >&2
+  exit 1
+}
+
+queue_command() {
+  mode=$1
+  shift
+  # The queue replaces artifact destinations with its private work path. The
+  # child writes the complete build there; the queue publishes that directory
+  # and installs it at $output on a cache hit or a fresh execution.
+  set -- --kind cc \
+    --state-root "$state_root" \
+    --cwd "$cwd" \
+    --source-root "$cwd" \
+    --compiler "$compiler" \
+    --linker "$compiler" \
+    --version "$compiler_version" \
+    --aux "$manifest" \
+    --option "source_id=$source_id" \
+    --option "backend=$backend" \
+    --artifact "native=$output" \
+    -- /bin/sh -c '
+      set -eu
+      destination=$1
+      backend=$2
+      shift 2
+      elixir scripts/build_cached_native.exs --backend "$backend" "$@"
+      mkdir -p "$destination"
+      rm -rf "$destination/engines" "$destination/native-cache-receipts"
+      cp -a engines "$destination/engines"
+      cp -a native-cache-receipts "$destination/native-cache-receipts"
+    ' _ "$output" "$backend" "$@"
+  "$queue" -- "$mode" "$@"
+}
+
+if [ "${RIFF_NATIVE_BUILD_KEY_ONLY:-}" = 1 ]; then
+  queue_command key "$@"
+  exit $?
+fi
+queue_command run "$@"
 
 [ -d "$output/engines" ] || {
   echo "shared compile queue did not install native engines at $output/engines" >&2

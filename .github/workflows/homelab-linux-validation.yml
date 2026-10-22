@@ -104,6 +104,9 @@ jobs:
           npx playwright install chromium 2>&1 | tee "$RUNNER_TEMP/riff-homelab-validation/playwright-install.log"
           npm run test:all-browser 2>&1 | tee "$RUNNER_TEMP/riff-homelab-validation/browser-tests.log"
 
+      - name: Verify native build queue input identity
+        run: scripts/check_native_queue_inputs.sh
+
       - name: Build and test the Linux CPU engine
         run: |
           set -euo pipefail
