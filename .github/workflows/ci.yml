@@ -105,6 +105,8 @@ jobs:
         include:
           - runner: '["self-hosted","Linux","X64","baton2-native-linux-x64"]'
             backend: cpu
+          - runner: '["self-hosted","macOS","ARM64"]'
+            backend: metal
     runs-on: ${{ fromJSON(matrix.runner) }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -127,6 +129,7 @@ jobs:
         with:
           python-version: '3.14'
       - name: Provide ephemeral compiler-cache access
+        if: runner.os == 'Linux'
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
         with:
           script: |
@@ -136,11 +139,17 @@ jobs:
               if (process.env[name]) core.exportVariable(name, process.env[name]);
             }
       - name: Build native backend through the shared compile queue
+        if: runner.os == 'Linux'
         run: scripts/run_native_build_queued.sh ${{ matrix.backend }} --build-only --jobs 2
+      - name: Build the Metal backend directly
+        if: runner.os == 'macOS'
+        run: elixir scripts/build_cached_native.exs --backend metal --build-only --jobs 2
       - run: python scripts/check_native_solver.py
       - run: python scripts/check_native_lora.py --output data/native-lora-check
       - run: elixir scripts/check_native_score_replay.exs --download-tokenizer --output data/native-score-check
       - run: elixir scripts/check_native_acoustic.exs --tokenizer data/native-score-check/yue2-qwen.tiktoken
+      - if: matrix.backend == 'metal'
+        run: python3 scripts/check_native_attention.py
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
