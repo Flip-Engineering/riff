@@ -42,7 +42,7 @@ path, input schema and output schema.
 | `family.create` | `{"name": "...", "takes": [recipe, ...], "shared": {...}, "context": {...}}`. Creates a named family and queues one study per take. See Study families. |
 | `GET /api/v1/families/{id}` | A family's name, shared inputs, takes with their differences, and selection history. |
 | `GET /api/v1/families` | Families, most recently active first. `named=true\|false`, `limit` and `cursor` as for operations. |
-| `family.rename` | `{"family_id": id, "name": "..."}`. Names a family started implicitly, or renames one. |
+| `family.rename` | `{"family_id": id, "name": "..."}`. Names a family started implicitly, or renames one. Changes only the name. |
 
 The Studio's `POST /api/generations` and `POST /api/plans` run the same
 implementation, so a take queued from the form has the same operation record as
@@ -87,19 +87,28 @@ label and a place for provenance without changing any recorded take.
 
 - `family.create` takes one or more study recipes in `takes`. Recipe fields that
   every study has can be given once in `shared`; each study is `{...shared, ...take}`.
-  Every study is validated before any is queued. Each queued study has a key
-  derived from the family, so repeating a request (with the same
-  `idempotency_key`) after a failure queues only the studies still missing and
-  returns the same family. There is no limit on the number of takes.
-- `study.create` with `family_id` adds a study to an existing family.
-- `family.rename` can name a family that began implicitly.
+  Every study is validated before any is queued. Each study's own key is derived
+  from the family and the take's position in `takes`. Repeating the same request
+  (same `idempotency_key`, same `takes` in the same order) after a failure
+  therefore queues only the studies still missing and returns the same family.
+  Changing or reordering `takes` under one key is a different request and is
+  refused with 409. There is no limit on the number of takes.
+- `study.create` with `family_id` adds a study to an existing family. The family's
+  declared `shared` inputs are provenance and are never merged into that study; send
+  the whole recipe.
+- `family.rename` names a family that began implicitly, or renames one. It changes
+  only the name.
 - `context` is free JSON the caller wants kept with the family, for example the
-  brief it started from. It is stored and returned unchanged.
+  brief it started from. It is set by `family.create`, returned unchanged, and not
+  changed by `family.rename`.
 
 `GET /api/v1/families/{id}` returns:
 
-- `shared`: the recorded inputs every study has in common (same field list as
-  `inputs.compare`, plus the composed score and performance).
+- `declared_shared`: the shared recipe fields the caller declared at creation.
+  Provenance only.
+- `common`: the recorded inputs every study actually has in common, computed from
+  the takes (same field list as `inputs.compare`, plus the composed score and
+  performance). This is what the Studio shows as shared.
 - `takes`, oldest first, each with `role` (`study`, `develop`, `replay`,
   `resume`), `status`, `seed`, `stages`, `outputs`, editable `settings`,
   `parent`, `children`, `selected`, and `diff`. For a study, `diff` lists the

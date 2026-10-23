@@ -94,13 +94,12 @@ class Families:
         return row["id"], True
 
     def rename(self, payload):
-        """Name a family, including one started implicitly, or rename it."""
-        unknown = set(payload) - {"family_id", "name", "context"}
+        """Name a family, including one started implicitly, or rename it. Only the name and its update time change."""
+        unknown = set(payload) - {"family_id", "name"}
         if unknown:
-            raise ValueError("Unknown input: " + ", ".join(sorted(unknown)))
+            raise ValueError("Unknown input: " + ", ".join(sorted(unknown)) + ". A family's context is provenance and is set when it is created.")
         family_id = identity(payload.get("family_id"), "Family")
         name = text(payload.get("name"), "The family name")
-        context = object_value(payload["context"], "context") if "context" in payload else None
         now = time.time()
         with self.store.db() as db:
             db.execute("BEGIN IMMEDIATE")
@@ -109,11 +108,9 @@ class Families:
                 if not db.execute("SELECT 1 FROM operations WHERE family_id=? LIMIT 1", (family_id,)).fetchone():
                     raise KeyError("Family not found.")
                 first = db.execute("SELECT MIN(created) FROM operations WHERE family_id=?", (family_id,)).fetchone()[0]
-                db.execute("INSERT INTO families (id,name,created,updated,context) VALUES (?,?,?,?,?)",
-                           (family_id, name, first, now, json.dumps(context or {})))
+                db.execute("INSERT INTO families (id,name,created,updated) VALUES (?,?,?,?)", (family_id, name, first, now))
             else:
-                db.execute("UPDATE families SET name=?,updated=?" + (",context=?" if context is not None else "") + " WHERE id=?",
-                           (name, now) + ((json.dumps(context),) if context is not None else ()) + (family_id,))
+                db.execute("UPDATE families SET name=?,updated=? WHERE id=?", (name, now, family_id))
         return self.get(family_id)
 
     # -- reads ----------------------------------------------------------------
@@ -136,7 +133,8 @@ class Families:
                           "created": operation["created"], "parent": operation["parent"], "resumes": operation["resumes"],
                           "seed": receipt["seed"], "stages": {stage: item["state"] for stage, item in receipt["stages"].items()},
                           "outputs": receipt["outputs"], "derivation": receipt["derivation"],
-                          "settings": {key: receipt["result_recipe"][key] for key in ("max_seconds", "steps", "solver", "cot")
+                          "settings": {key: receipt["result_recipe"][key] for key in
+                                       ("max_seconds", "steps", "solver", "cot", "style", "lyrics", "cfg_scale", "temperature")
                                        if key in receipt["result_recipe"]}})
             recipes.append(receipt["result_recipe"])
         by_id = {}
@@ -147,7 +145,7 @@ class Families:
         # The studies are what a family compares. Without any, the takes that start it are.
         studies = [index for index, take in enumerate(takes) if take["role"] == "study"]
         compared = studies or [index for index, take in enumerate(takes) if (take["parent"] or {}).get("id") not in by_id]
-        shared, differing = self.operations.split_inputs([self.operations.input_view(recipes[index]) for index in compared])
+        common, differing = self.operations.split_inputs([self.operations.input_view(recipes[index]) for index in compared])
         differences = dict(zip(compared, differing))
         for index, take in enumerate(takes):
             # A study is shown against the other studies, a take grown from another against the take it continues.
@@ -165,7 +163,7 @@ class Families:
                           "rationale": r["rationale"], "created": r["created"]}
         return {"family_id": family_id, "named": row is not None, "name": row["name"] if row else None, "created": created,
                 "updated": row["updated"] if row else created, "context": json.loads(row["context"]) if row else {},
-                "declared_shared": json.loads(row["shared"]) if row else {}, "shared": shared, "takes": takes,
+                "declared_shared": json.loads(row["shared"]) if row else {}, "common": common, "takes": takes,
                 "selection": {"current": item(current) if current else None, "history": [item(r) for r in history]}}
 
     def _against_parent(self, take, recipe, recipes, by_id):
@@ -237,11 +235,13 @@ def catalog(recipe_schema):
     selection = {"type": ["object", "null"], "properties": {"current": {"type": ["object", "null"]}, "history": {"type": "array"}}}
     field = {"type": "object", "required": ["field", "label", "value", "recorded"]}
     family = {
-        "type": "object", "required": ["family_id", "named", "name", "created", "context", "declared_shared", "shared", "takes", "selection"],
+        "type": "object", "required": ["family_id", "named", "name", "created", "context", "declared_shared", "common", "takes", "selection"],
         "properties": {
             "named": {"type": "boolean"}, "name": {"type": ["string", "null"]},
-            "shared": {"type": "array", "items": {"type": "object", "required": ["field", "label", "value"]},
-                       "description": "Recorded inputs every study in the family has in common."},
+            "declared_shared": {"type": "object", "description": "The shared recipe fields the caller declared when it created the "
+                                "family. Provenance only: it is never merged into a take added later."},
+            "common": {"type": "array", "items": {"type": "object", "required": ["field", "label", "value"]},
+                       "description": "Recorded inputs every study in the family actually has in common, computed from the takes."},
             "takes": {"type": "array", "items": {"type": "object", "required": [
                 "operation_id", "job_id", "track_id", "name", "role", "status", "title", "parent", "seed", "stages", "outputs",
                 "settings", "diff", "children", "selected"], "properties": {
@@ -270,9 +270,9 @@ def catalog(recipe_schema):
                           "output_schema": {"type": "object", "required": ["family_id", "replayed", "submissions", "family"],
                                             "properties": {"submissions": {"type": "array", "items": SUBMISSION_SCHEMA}, "family": family}}},
         "family.rename": {"method": "POST", "path": f"{base}/family.rename", "since": 1, "idempotent": True,
-                          "summary": "Name a family, including one started implicitly by an earlier study, or rename it.",
+                          "summary": "Name a family, including one started implicitly by an earlier study, or rename it. Changes only the name; "
+                                     "context is provenance and stays as it was created.",
                           "input_schema": {"type": "object", "required": ["family_id", "name"], "additionalProperties": False, "properties": {
-                              "family_id": {"type": "string", "pattern": "^[a-f0-9]{32}$"}, "name": {"type": "string"},
-                              "context": {"type": "object"}}},
+                              "family_id": {"type": "string", "pattern": "^[a-f0-9]{32}$"}, "name": {"type": "string"}}},
                           "output_schema": family},
     }

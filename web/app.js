@@ -555,7 +555,6 @@ function renderPlayerInfo() {
   renderLyrics();
   renderReviews();
   window.RiffCompare?.render();
-  window.RiffFamilies?.render(next);
 }
 function renderWaveform() {
   const peaks = selected?.audio.waveform || Array(160).fill(0.05),
@@ -1232,6 +1231,7 @@ async function refresh() {
   window.RiffLoRAs?.render(next);
   window.RiffScore?.update(next);
   window.RiffCompare?.render();
+  window.RiffFamilies?.render(next);
   $("#library-count").textContent = state.tracks.filter(
     (t) => !t.archived,
   ).length;

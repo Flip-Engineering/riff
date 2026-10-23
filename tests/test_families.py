@@ -102,6 +102,30 @@ class CreateTests(FamilyFixture):
         self.assertEqual([item["replayed"] for item in result["submissions"]], [True, False, False])
         self.assertEqual(len(self.request("GET", "/api/v1/families")[1]["families"]), 1)
 
+    def test_context_is_provenance_set_at_creation_and_untouched_by_rename_or_new_studies(self):
+        family = self.create(shared=BASE, context={"brief": "an orchard at night"})[1]
+        status, error = self.request("POST", "/api/v1/operations/family.rename", {"family_id": family["family_id"], "name": "x", "context": {}})
+        self.assertEqual(status, 400)
+        self.assertIn("provenance", error["error"])
+        renamed = self.request("POST", "/api/v1/operations/family.rename", {"family_id": family["family_id"], "name": "Renamed"})[1]
+        self.assertEqual((renamed["context"], renamed["declared_shared"]), ({"brief": "an orchard at night"}, BASE))
+        self.assertEqual(renamed["name"], "Renamed")
+
+    def test_declared_shared_inputs_are_never_merged_into_a_study_added_later(self):
+        family = self.create(shared=BASE)[1]
+        status, added = self.study(recipe={"title": "Bare", "seed": "9"}, family_id=family["family_id"])
+        self.assertEqual(status, 201)
+        effective = added["receipt"]["effective_recipe"]
+        self.assertEqual((effective["style"], effective["lyrics"]), ("", ""))
+        state = self.family(family["family_id"])[1]
+        self.assertEqual(state["declared_shared"], BASE)
+        self.assertNotIn("style", {item["field"] for item in state["common"]})
+
+    def test_a_repeat_must_be_the_same_request_so_reordering_takes_is_refused(self):
+        self.create(shared=BASE, takes=[{"seed": "1"}, {"seed": "2"}], idempotency_key="order")
+        self.assertEqual(self.create(shared=BASE, takes=[{"seed": "2"}, {"seed": "1"}], idempotency_key="order")[0], 409)
+        self.assertEqual(len(self.jobs()), 2)
+
     def test_studies_can_be_added_to_a_family_later(self):
         family = self.create(shared=BASE)[1]
         status, added = self.study(recipe={**BASE, "seed": "44"}, family_id=family["family_id"])
@@ -115,7 +139,7 @@ class SharedAndDiffTests(FamilyFixture):
         status, state = self.family(family["family_id"])
         self.assertEqual(status, 200)
         conforms(state, self.schema("family.get"))
-        shared = {item["field"]: item["value"] for item in state["shared"]}
+        shared = {item["field"]: item["value"] for item in state["common"]}
         for field in ("style", "lyrics", "cot", "steps", "mode"):
             self.assertIn(field, shared)
         self.assertEqual(shared["style"], BASE["style"])
@@ -127,13 +151,14 @@ class SharedAndDiffTests(FamilyFixture):
         self.assertEqual(diffs[2], {"seed": "33", "max_seconds": 12.0, "solver": "midpoint"})
         self.assertTrue(all(item["recorded"] for take in state["takes"] for item in take["diff"]))
         self.assertEqual([take["role"] for take in state["takes"]], ["study"] * 3)
-        self.assertEqual(state["takes"][1]["settings"], {"max_seconds": 20.0, "steps": 8, "solver": "ab2", "cot": "melody"})
+        self.assertEqual(state["takes"][1]["settings"], {"max_seconds": 20.0, "steps": 8, "solver": "ab2", "cot": "melody", "style": BASE["style"],
+                                                         "lyrics": BASE["lyrics"], "cfg_scale": 1.0, "temperature": 1.0})
 
     def test_a_single_study_family_shares_everything_and_differs_in_nothing(self):
         family = self.create(shared=BASE, takes=[{"seed": "5"}])[1]
         state = self.family(family["family_id"])[1]
         self.assertEqual(state["takes"][0]["diff"], [])
-        self.assertIn("seed", {item["field"] for item in state["shared"]})
+        self.assertIn("seed", {item["field"] for item in state["common"]})
 
     def test_a_score_a_study_composed_shows_as_a_difference(self):
         family = self.create(shared=BASE)[1]
@@ -216,9 +241,8 @@ class NamingAndListingTests(FamilyFixture):
         self.assertEqual(status, 200, named)
         conforms(named, self.schema("family.rename"))
         self.assertEqual((named["named"], named["name"]), (True, "First idea"))
-        renamed = self.request("POST", "/api/v1/operations/family.rename",
-                               {"family_id": study["family_id"], "name": "Second idea", "context": {"note": "kept"}})[1]
-        self.assertEqual((renamed["name"], renamed["context"], renamed["created"]), ("Second idea", {"note": "kept"}, named["created"]))
+        renamed = self.request("POST", "/api/v1/operations/family.rename", {"family_id": study["family_id"], "name": "Second idea"})[1]
+        self.assertEqual((renamed["name"], renamed["created"]), ("Second idea", named["created"]))
         self.assertEqual(len(self.request("GET", "/api/v1/families")[1]["families"]), 1)
         for body in ({"family_id": "7" * 32, "name": "x"}, ):
             self.assertEqual(self.request("POST", "/api/v1/operations/family.rename", body)[0], 404)

@@ -72,6 +72,14 @@
           <div><label for="solver-${esc(take.operation_id)}">Synthesis method</label><select id="solver-${esc(take.operation_id)}" name="solver"><option value="midpoint"${take.settings.solver === "ab2" ? "" : " selected"}>Midpoint</option><option value="ab2"${take.settings.solver === "ab2" ? " selected" : ""}>Multistep (AB2)</option></select></div>
           <div><label for="title-${esc(take.operation_id)}">Title</label><input id="title-${esc(take.operation_id)}" name="title" type="text" placeholder="${esc(take.title)} — developed" /></div>
         </div>
+        <details class="family-inputs"><summary>Edit inputs</summary>
+          <label for="direction-${esc(take.operation_id)}">Sound direction</label><textarea id="direction-${esc(take.operation_id)}" name="style" rows="3">${esc(take.settings.style ?? "")}</textarea>
+          <label for="words-${esc(take.operation_id)}">Words</label><textarea id="words-${esc(take.operation_id)}" name="lyrics" rows="6">${esc(take.settings.lyrics ?? "")}</textarea>
+          <div class="advanced-grid">
+            <div><label for="guidance-${esc(take.operation_id)}">Guidance</label><input id="guidance-${esc(take.operation_id)}" name="guidance" type="number" min="0" max="20" step="any" value="${esc(take.settings.cfg_scale ?? 1)}" /></div>
+            <div><label for="variation-${esc(take.operation_id)}">Variation</label><input id="variation-${esc(take.operation_id)}" name="variation" type="number" min="0" max="5" step="any" value="${esc(take.settings.temperature ?? 1)}" /></div>
+          </div>
+          <p class="control-hint">Only what you change is sent. A kept score still applies to edited words.</p></details>
         <fieldset><legend>Keep from this take</legend>
           <label><input type="checkbox" name="retain" value="seed" checked /> Seed</label>
           <label><input type="checkbox" name="retain" value="score"${canScore ? " checked" : " disabled"} /> Composed score${canScore ? "" : " (this take has none)"}</label>
@@ -89,7 +97,7 @@
         <button type="submit" class="text-button">${family.named ? "Rename" : "Name it"}</button></form></header>
       ${Object.keys(family.context).length ? `<dl class="family-context">${Object.entries(family.context).map(([name, value]) => `<div><dt>${esc(name)}</dt><dd>${text(name, value)}</dd></div>`).join("")}</dl>` : ""}
       <section aria-labelledby="family-shared-heading"><h4 id="family-shared-heading">Shared by the studies</h4>
-        ${family.shared.length ? `<dl class="family-shared">${family.shared.map(item => `<div><dt>${esc(item.label)}</dt><dd>${text(item.field, item.value)}</dd></div>`).join("")}</dl>`
+        ${family.common.length ? `<dl class="family-shared">${family.common.map(item => `<div><dt>${esc(item.label)}</dt><dd>${text(item.field, item.value)}</dd></div>`).join("")}</dl>`
           : '<p class="control-hint">The studies have no recorded input in common.</p>'}</section>
       <ol class="family-takes" aria-label="Takes in this family">${family.takes.map(take => takeHtml(take, family)).join("")}</ol>
       <details class="family-history"${history.length ? "" : " hidden"}><summary>Selection history (${history.length})</summary><ol>${history.map(item => {
@@ -150,6 +158,10 @@
         if (steps !== take.settings.steps) changes.steps = steps;
         if (form.elements.solver.value !== take.settings.solver) changes.solver = form.elements.solver.value;
         if (form.elements.title.value.trim()) changes.title = form.elements.title.value.trim();
+        if (form.elements.style.value !== (take.settings.style ?? "")) changes.style = form.elements.style.value;
+        if (form.elements.lyrics.value !== (take.settings.lyrics ?? "")) changes.lyrics = form.elements.lyrics.value;
+        if (Number(form.elements.guidance.value) !== (take.settings.cfg_scale ?? 1)) changes.cfg_scale = Number(form.elements.guidance.value);
+        if (Number(form.elements.variation.value) !== (take.settings.temperature ?? 1)) changes.temperature = Number(form.elements.variation.value);
         const button = form.querySelector("button[type=submit]"); button.disabled = true;
         try {
           const result = await keyed(`develop${take.operation_id}${JSON.stringify([retain, changes])}`,

@@ -82,6 +82,9 @@ try {
   await form.locator("[name=duration]").fill("20");
   await form.locator("[name=steps]").fill("12");
   await form.locator("[name=title]").fill("Night Orchard, developed");
+  assert(!(await form.locator("[name=style]").isVisible()), "Style and words stay behind Edit inputs until asked for");
+  await form.locator("summary", { hasText: "Edit inputs" }).click();
+  await form.locator("[name=style]").fill("brushed drums, warm bass");
   await form.getByRole("button", { name: "Develop", exact: true }).click();
   await page.locator(".family-take").nth(2).waitFor();
   const grown = await call(`/api/v1/families/${family.family_id}`);
@@ -94,6 +97,9 @@ try {
   assert.equal(developed.derivation.selection, chosen.selection.current.id);
   assert.equal(developed.settings.max_seconds, 20);
   assert.equal(developed.settings.steps, 12);
+  assert.equal(developed.settings.style, "brushed drums, warm bass");
+  assert.equal(grown.takes[1].settings.style, "");
+  assert.deepEqual(developed.diff.find(item => item.field === "style").before, "");
   const first = grown.takes[0], original = await call(`/api/jobs/${grown.takes[1].job_id}`);
   assert.equal(original.recipe.max_seconds, 7);
   assert.equal(original.recipe.seed, "22");
