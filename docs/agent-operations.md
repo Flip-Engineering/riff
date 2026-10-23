@@ -127,3 +127,22 @@ Operation records are stored in the library database. Jobs made before this
 surface existed have no record: `GET` on their job ID returns a receipt derived
 from the job row with `recorded: false` and the missing fields named in
 `unrecorded`. `request`, `references` and `runtime` are not reconstructed.
+
+## The Studio and agents share one implementation
+
+Every take the Studio queues (the main form, studies, score composition, saved
+sound finishing and producer recommendations) is posted to `/api/generations` or
+`/api/plans`, which call the same `Operations.submit` as `study.create`. Validation,
+reference resolution, the queue and the operation record are therefore one code
+path. The Studio sends an `Idempotency-Key` with each submit and keeps it only
+when no response arrived, so asking again for the same recipe after a lost
+response returns the take already queued instead of queueing a second one.
+
+The Studio fills its editor from a take on the client, because the editor holds
+fields only the page has (readable notation, draft text, undo). The browser test
+`tests/agent-parity.mjs` drives the real controls against a real server and checks
+that the recipe the Studio builds for **Refine this performance** and for a
+variation equals, after validation, the draft `take.replay` and `take.develop`
+return for the same take. A change to what the server carries over, or to what the
+page carries over, fails that test.
+

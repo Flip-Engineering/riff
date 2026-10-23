@@ -148,7 +148,7 @@
     if (button) button.disabled = true;
     refreshUi();
     try {
-      const job = await api("/api/generations", "POST", { acoustic_source: reference, decoder: values,
+      const job = await queueTake("/api/generations", { acoustic_source: reference, decoder: values,
         ...(title === undefined ? {} : { title }) });
       notify(`“${job.recipe.title}” is on its way.`);
       await refresh();

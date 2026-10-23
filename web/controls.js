@@ -178,7 +178,7 @@
     if (!$("#audition-length").reportValidity() || !$("#audition-steps").reportValidity()) return;
     studySubmitting = true; $("#audition").disabled = true; $("#audition").textContent = "Queuing study…";
     try {
-      const job = await api("/api/generations", "POST", recipe);
+      const job = await queueTake("/api/generations", recipe);
       await refresh(); notify(`“${job.recipe.title}” is on its way.`);
       $("#queue-panel").scrollIntoView({ behavior: "smooth", block: "nearest" });
     } catch (error) { errorMessage("#study-error", error.message); }

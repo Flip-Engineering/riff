@@ -257,7 +257,7 @@
         if (!review?.generation?.mode || generate.disabled) return;
         generate.disabled = true;
         try {
-          const job = await api("/api/generations", "POST", takeRecipe(review));
+          const job = await queueTake("/api/generations", takeRecipe(review));
           notify(`“${job.recipe.title}” is on its way.`);
           await refresh();
         } finally { generate.disabled = false; }
