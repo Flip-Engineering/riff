@@ -1,0 +1,7 @@
+[INFO][yue2] reusing resident session
+[TIMING ts=20261024-100100] yue2.plan_ms 1800
+[TIMING ts=20261024-100110] yue2.semantic_ms 4100.5
+[TIMING ts=20261024-100114] yue2.nar_ms 3300
+[TIMING ts=20261024-100115] yue2.vae_decode_ms 1100
+[TIMING ts=20261024-100115] yue2.resident.retained 1
+[TIMING ts=20261024-100115] session.wall_ms 9725

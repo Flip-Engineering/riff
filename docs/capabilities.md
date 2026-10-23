@@ -187,6 +187,28 @@ response. Links open related takes in new tabs so current drafts and unsaved
 notes survive. No model, provider request or generation is started. Named study
 families and queued operation identities remain separate follow-up work.
 
+## Take metrics
+
+Every finished, failed or cancelled take writes a metrics file (`<job>.metrics.json`, also stored
+with the track) next to its audio. Besides the command, exit code, wall time and memory reservation
+it records what the engine reported and what the studio measured:
+
+- `timings.stages`: seconds for `plan`, `performance` (semantic codes), `sound` (acoustic synthesis) and
+  `audio` (decoded waveform), read from the engine's `[TIMING ts=...] <name> <ms>` lines
+  (`yue2.plan_ms`, `yue2.semantic_ms`, `yue2.nar_ms`, `yue2.vae_decode_ms`). A stage the engine did not
+  report is absent, not zero. `timings.load_seconds` is the time spent bringing weights to the device and
+  is present only when the engine printed weight-load lines. `timings.engine_session_seconds` is the
+  engine's own session total and `timings.parsed_lines` is how many timing lines were read.
+- `warm`: `engine` (`warm` or `process`), `hit` (true only when a warm engine's log has timing lines and
+  no weight-load line, false for a take in its own process, null when there was nothing to judge from) and
+  `prepare_seconds` (how long starting or reusing the warm engine took before the take began).
+- `queue`: `waited_seconds` from submission to the worker claiming the take, `admission_wait_seconds` spent
+  waiting for memory, and the last waiting reason.
+- `memory`: `observed_peak_bytes` and, when the scheduler reports them, `reserved_host_bytes` and
+  `reserved_device_bytes`.
+
+These fields are not yet part of the agent operation receipts.
+
 ## Delete a song
 
 `DELETE /api/tracks/{track_id}` with `{}` permanently removes the library entry

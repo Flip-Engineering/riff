@@ -1,0 +1,15 @@
+[INFO][yue2] loading session
+[TIMING ts=20261024-100000] yue2.ar.weights_load_ms 412.5
+[TIMING ts=20261024-100001] yue2.ar.weights_upload_ms 8470.2
+[TIMING ts=20261024-100001] yue2.ar.init_total_ms 8901.7
+[TRACE ts=20261024-100001] yue2.ar.prefix_state shape=[1,512] size=512 samples=0
+[TIMING ts=20261024-100010] yue2.nar.weights_upload_ms 3879
+[TIMING ts=20261024-100010] yue2.nar.weights_total_ms 4100
+[TIMING ts=20261024-100011] yue2.vae.init_ms 1349.1
+[TIMING ts=20261024-100012] yue2.plan_ms 2250.5
+yue2.ar.progress 0.5
+[TIMING ts=20261024-100030] yue2.semantic_ms 14900.25
+[TIMING ts=20261024-100045] yue2.nar_ms 6120
+[TIMING ts=20261024-100046] yue2.vae_decode_ms 1980.75
+[TIMING ts=20261024-100046] session.wall_ms 25715
+[TIMING ts=20261024-100046] yue2.semantic.truncated not-a-number
