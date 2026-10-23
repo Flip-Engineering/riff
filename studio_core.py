@@ -28,6 +28,7 @@ from symbolic import read_plan
 from warm_engine import WarmEngine, job_from_command
 from loras import LoRALibrary
 from operations import SCHEMA as OPERATIONS_SCHEMA, recipe_changes
+from families import SCHEMA as FAMILIES_SCHEMA
 
 CONTEXT = model_options.CONTEXT
 TOKEN_RATE = model_options.TOKEN_RATE
@@ -321,7 +322,7 @@ class Store:
                 CREATE TABLE IF NOT EXISTS detached_performances (
                     id TEXT PRIMARY KEY, file TEXT NOT NULL, recipe TEXT NOT NULL);
                 CREATE INDEX IF NOT EXISTS jobs_status ON jobs(status, created);
-            """ + OPERATIONS_SCHEMA)
+            """ + OPERATIONS_SCHEMA + FAMILIES_SCHEMA)
             db.execute("BEGIN IMMEDIATE")
             db.execute("INSERT OR IGNORE INTO library_meta VALUES ('catalog_revision','0')")
             # Database triggers also catch imports and changes from other processes.

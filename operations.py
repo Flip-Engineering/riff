@@ -312,7 +312,8 @@ class Operations:
                 return self.family_for(parent, family_id, own)
         if family_id is not None:
             identity(family_id, "Family")
-            if not db.execute("SELECT 1 FROM operations WHERE family_id=? LIMIT 1", (family_id,)).fetchone():
+            if not (db.execute("SELECT 1 FROM operations WHERE family_id=? LIMIT 1", (family_id,)).fetchone()
+                    or db.execute("SELECT 1 FROM families WHERE id=?", (family_id,)).fetchone()):
                 raise KeyError("Family not found.")
             return family_id
         if parent:
@@ -450,19 +451,36 @@ class Operations:
             return {"id": reference, "job_id": None, "track_id": track["id"], "status": "done", "title": track["title"],
                     "recipe": track["recipe"], "kind": "take", "operation_id": None, "family_id": None}
 
+    @staticmethod
+    def input_view(recipe):
+        """A recorded recipe plus the identities of the composed score and performance it produced."""
+        view = dict(recipe)
+        if (recipe.get("symbolic_plan") or {}).get("artifact_id"):
+            view["composed_score"] = recipe["symbolic_plan"]["artifact_id"]
+        if (recipe.get("performance") or {}).get("sha256"):
+            view["performance_sha256"] = recipe["performance"]["sha256"]
+        return view
+
+    @staticmethod
+    def split_inputs(views):
+        """The recorded inputs every view shares, and for each view the ones where it differs from the others."""
+        shared, differing = [], [[] for _ in views]
+        for field, label in INPUT_FIELDS + COMPARED_RESULTS:
+            observed = [(field in view, view.get(field)) for view in views]
+            if all(item == observed[0] for item in observed):
+                if observed[0][0]:
+                    shared.append({"field": field, "label": label, "value": observed[0][1]})
+            else:
+                for items, (recorded, value) in zip(differing, observed):
+                    items.append({"field": field, "label": label, "value": value, "recorded": recorded})
+        return shared, differing
+
     def compare(self, references):
         """Show which recorded inputs the subjects share and where they differ."""
         if not isinstance(references, list) or len(references) < 2:
             raise ValueError("Choose at least two takes, jobs or operations to compare.")
         subjects = [self._subject(reference) for reference in references]
-        views = []
-        for subject in subjects:
-            recipe, view = subject["recipe"], dict(subject["recipe"])
-            if (recipe.get("symbolic_plan") or {}).get("artifact_id"):
-                view["composed_score"] = recipe["symbolic_plan"]["artifact_id"]
-            if (recipe.get("performance") or {}).get("sha256"):
-                view["performance_sha256"] = recipe["performance"]["sha256"]
-            views.append(view)
+        views = [self.input_view(subject["recipe"]) for subject in subjects]
         shared, differences = [], []
         for field, label in INPUT_FIELDS + COMPARED_RESULTS:
             observed = [(field in view, view.get(field)) for view in views]
