@@ -2,6 +2,8 @@
 from review_recipe import response_schema, lora_schema
 from model_options import CONTEXT, TOKEN_RATE
 from video import VIDEO_ENCODING, VIDEO_FRAME_BATCH
+from operations import catalog
+from paths import ROOT
 
 
 def describe():
@@ -28,6 +30,7 @@ def describe():
         "video_encoding": VIDEO_ENCODING,
         "video_frame_batch": VIDEO_FRAME_BATCH,
         "request_header": {"X-Riff-Request": "1"},
+        "agent_surface": catalog(recipe, (ROOT / "VERSION").read_text().strip()),
         "operations": {
             "loras": {"method": "GET", "path": "/api/loras", "description": "Installed adapters and native activation availability."},
             "lora_search": {"method": "GET", "path": "/api/loras/hub?q=&sort=downloads&page=0&limit=20"},
