@@ -502,6 +502,13 @@ class LoRALibrary:
                     raise ValueError("Installed LoRA provenance has changed; import the adapter again.")
             except (KeyError, TypeError, OSError) as exc:
                 raise ValueError("Installed LoRA is missing or its manifest is invalid.") from exc
+            # Earlier versions stored the size of everything in the staging
+            # directory. Report the referenced payload size; `bytes` is not part
+            # of the identity, and a missing file keeps the stored value.
+            try:
+                manifest["bytes"] = _payload_bytes(path.parent, manifest["files"])
+            except (KeyError, TypeError, ValueError):
+                pass
             return manifest
 
     def list(self):

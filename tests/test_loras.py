@@ -173,6 +173,22 @@ class FormatTests(LoRAFixture):
         self.assertTrue(list((self.library.root / installed["id"]).glob("scratch-*")))
         self.assertEqual(installed["bytes"], expected)
 
+    def test_existing_receipt_with_inflated_bytes_reads_back_corrected(self):
+        installed = self.library.import_local([self.adapter(style="comfyui", combined=True)])
+        path = self.library.root / installed["id"] / "manifest.json"
+        stored = json.loads(path.read_text())
+        stored["bytes"] += 16 * 1024 * 1024
+        path.write_text(json.dumps(stored))
+        self.assertEqual(self.library.get(installed["id"])["bytes"], installed["bytes"])
+        self.assertEqual({item["id"]: item["bytes"] for item in self.library.list()}, {installed["id"]: installed["bytes"]})
+        self.assertEqual(json.loads(path.read_text())["bytes"], stored["bytes"])
+
+    def test_missing_referenced_file_keeps_stored_receipt_bytes(self):
+        installed = self.library.import_local([self.adapter(style="comfyui", combined=True)])
+        directory = self.library.root / installed["id"]
+        (directory / installed["files"][0]["engine_file"]).unlink()
+        self.assertEqual(self.library.get(installed["id"])["bytes"], installed["bytes"])
+
     def test_full_deltas_are_not_silently_changed_to_replacements(self):
         for mode in ("delta", "replacement"):
             source = self.adapter(mode + ".safetensors", stage="nar", style="comfyui", full=mode)
