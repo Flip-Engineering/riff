@@ -196,6 +196,12 @@ selected files; local uploads retain their original filenames. The manifest's
 }
 ```
 
+The manifest's top-level `bytes` is the size of the distinct files its `files`
+descriptors reference: each original upload, each normalized engine file and each
+retained PEFT configuration, counted once. A combined AR/NAR upload is counted
+once even though two descriptors name it. It excludes `manifest.json` and any
+other file in the installation directory.
+
 Editable fields are `name`, `notes`, `license`, `tags`, `trigger_words`, and
 `default_strength`. `license` records a creator's stated license or the user's
 annotation; Riff does not infer rights from model compatibility. Trigger words are
