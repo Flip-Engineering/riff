@@ -191,10 +191,12 @@ response returns the take already queued instead of queueing a second one.
 
 The Studio's editor still fills itself from a take in browser code. It holds
 fields only the page has (readable notation, draft text, undo), and the browser
-tests that cover score replay mock the API with synthetic recipes. Moving that
-hydration onto the server drafts (`enqueue: false`) is deferred to the study
-families work (#10). Until then the two are held together by tests rather than by
-construction:
+tests that cover score replay mock the API with synthetic recipes. The study
+families work (#10) did not change this: its Develop form calls `take.develop`
+directly, but Refine this performance, Render performance and variation still fill
+the editor in browser code. Moving them onto the server drafts (`enqueue: false`)
+is a separate follow-up. Until then the two are held together by tests rather
+than by construction:
 
 - `tests/agent-parity.mjs` drives the real controls against a real server and checks
   that the recipe the Studio builds for **Refine this performance**, for **Render
