@@ -39,6 +39,10 @@ path, input schema and output schema.
 | `take.select` | `{"take": id, "rationale": "..."}`. Records a durable choice of a completed take within its family. Append-only: a later choice is added to the history, never replaces it. Queues nothing. |
 | `operation.resume` | `{"operation_id": id}`. For an interrupted, failed or cancelled operation. Queues a new operation, linked by `resumes`, that continues from the last captured stage (saved sound, then performance, then composed score, then a plain rerun) with the same seed. It happens only when called: Riff never resumes or re-queues a cancelled or interrupted take by itself. `POST /api/jobs/{id}/retry` is the same call. |
 | `operation.cancel` | `{"operation_id": id}`. Cancels the job. Completed stages stay in the receipt. |
+| `family.create` | `{"name": "...", "takes": [recipe, ...], "shared": {...}, "context": {...}}`. Creates a named family and queues one study per take. See Study families. |
+| `GET /api/v1/families/{id}` | A family's name, shared inputs, takes with their differences, and selection history. |
+| `GET /api/v1/families` | Families, most recently active first. `named=true\|false`, `limit` and `cursor` as for operations. |
+| `family.rename` | `{"family_id": id, "name": "..."}`. Names a family started implicitly, or renames one. |
 
 The Studio's `POST /api/generations` and `POST /api/plans` run the same
 implementation, so a take queued from the form has the same operation record as
@@ -73,6 +77,44 @@ The receipt's `derivation` records the source, what was `retained`, `notes`, the
 input `changed` against the source (the lineage difference format), and the
 `selection` it came from: the one passed as `selection`, or the source take's
 latest selection in its family.
+
+## Study families
+
+A family groups studies and everything grown from them. It is the `family_id` every
+operation already carries: a new study starts one, and `take.develop`,
+`take.replay` and `operation.resume` join their source's family. Naming adds a
+label and a place for provenance without changing any recorded take.
+
+- `family.create` takes one or more study recipes in `takes`. Recipe fields that
+  every study has can be given once in `shared`; each study is `{...shared, ...take}`.
+  Every study is validated before any is queued. Each queued study has a key
+  derived from the family, so repeating a request (with the same
+  `idempotency_key`) after a failure queues only the studies still missing and
+  returns the same family. There is no limit on the number of takes.
+- `study.create` with `family_id` adds a study to an existing family.
+- `family.rename` can name a family that began implicitly.
+- `context` is free JSON the caller wants kept with the family, for example the
+  brief it started from. It is stored and returned unchanged.
+
+`GET /api/v1/families/{id}` returns:
+
+- `shared`: the recorded inputs every study has in common (same field list as
+  `inputs.compare`, plus the composed score and performance).
+- `takes`, oldest first, each with `role` (`study`, `develop`, `replay`,
+  `resume`), `status`, `seed`, `stages`, `outputs`, editable `settings`,
+  `parent`, `children`, `selected`, and `diff`. For a study, `diff` lists the
+  recorded inputs where it differs from the other studies, so the studies' own
+  differences (seed, length, solver, score source, planning mode, acoustic
+  settings) are what you read. For a developed, replayed or resumed take, `diff`
+  lists its changes against the take it continues, with `before` and `value`
+  (null if that take is unavailable). A value that was never recorded has
+  `recorded: false` and is not treated as a default.
+- `selection`: the current choice and the full history from `take.select`.
+
+To promote a chosen study, call `take.select` with a rationale, then
+`take.develop` with the take and the controls to change. The new take keeps the
+seed and verified score by default and records its parent, family and selection.
+The studies' own recipes are never edited.
 
 ## Identity
 

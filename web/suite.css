@@ -240,3 +240,53 @@ button:focus-visible, a:focus-visible, summary:focus-visible { outline: 2px soli
 .score-voice span { width: 88px; flex-shrink: 0; font-size: 11px; overflow-wrap: anywhere; }
 .score-voice svg { height: 40px; min-width: 0; width: 100%; fill: currentColor; }
 .score-voice[aria-pressed="false"] { color: var(--muted); opacity: .55; }
+
+.study-family { display: grid; gap: 8px; margin-top: 14px; }
+.study-family select, .study-family input { width: 100%; }
+.study-family .text-button { justify-self: start; }
+.families-dialog { max-width: 980px; }
+.families-layout { display: grid; grid-template-columns: minmax(180px, 240px) minmax(0, 1fr); gap: 26px; align-items: start; }
+.families-list ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.families-list button { width: 100%; text-align: left; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--ink); font: inherit; padding: 10px 12px; cursor: pointer; display: grid; gap: 3px; }
+.families-list button span { color: var(--quiet); font-size: 11px; }
+.families-list button[aria-current] { border-color: var(--ink); background: var(--surface-up); }
+.family-board { min-width: 0; overflow-wrap: anywhere; }
+.family-head { display: flex; flex-wrap: wrap; gap: 10px 20px; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+.family-head h3 { margin: 0; font: 22px Georgia, serif; letter-spacing: -0.3px; }
+.family-rename { display: flex; gap: 8px; align-items: center; margin: 0; }
+.family-rename input { width: 15em; max-width: 100%; }
+.family-shared, .family-context { margin: 8px 0 18px; display: grid; gap: 4px; font-size: 12px; }
+.family-shared > div, .family-context > div { display: grid; grid-template-columns: minmax(7em, 11em) minmax(0, 1fr); gap: 12px; }
+.family-shared dt, .family-context dt { color: var(--quiet); }
+.family-shared dd, .family-context dd { margin: 0; }
+.family-shared pre, .family-context pre { white-space: pre-wrap; font: inherit; margin: 6px 0 0; }
+.family-takes { list-style: none; padding: 0; margin: 18px 0; display: grid; gap: 14px; }
+.family-take { border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; display: grid; gap: 10px; }
+.family-take[data-selected] { border-color: var(--blue); border-width: 2px; }
+.family-take-head { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: baseline; }
+.family-take-head h4 { margin: 0; font-size: 14px; }
+.family-role, .family-status, .family-selected { font-size: 10px; letter-spacing: .04em; text-transform: uppercase; color: var(--quiet); }
+.family-selected { color: var(--blue); font-weight: 600; }
+.family-seed { margin: 0; font-size: 11px; color: var(--quiet); }
+.family-diff { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; font-size: 11px; }
+.family-diff li { border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px; }
+.family-diff li > span { color: var(--quiet); }
+.family-diff em { color: var(--muted); }
+.family-diff pre { white-space: pre-wrap; font: inherit; margin: 6px 0 0; }
+.family-actions { display: flex; flex-wrap: wrap; gap: 6px 16px; }
+.family-select { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; }
+.family-select input { flex: 1 1 14em; min-width: 0; }
+.family-develop { display: grid; gap: 12px; border-top: 1px solid var(--line); padding-top: 12px; }
+.family-develop[hidden] { display: none; }
+.family-develop fieldset { border: 0; padding: 0; margin: 0; display: grid; gap: 6px; font-size: 12px; }
+.family-develop legend { color: var(--quiet); padding: 0; margin-bottom: 4px; }
+.family-develop fieldset label { display: flex; gap: 8px; align-items: center; }
+.family-develop fieldset input[type=checkbox] { width: auto; }
+.family-history { font-size: 12px; }
+.family-history summary { cursor: pointer; color: var(--quiet); }
+@media (max-width: 760px) {
+  .families-layout { grid-template-columns: minmax(0, 1fr); }
+  .family-shared > div, .family-context > div { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+  .family-rename { width: 100%; }
+  .family-rename input { flex: 1; width: auto; }
+}

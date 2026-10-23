@@ -555,6 +555,7 @@ function renderPlayerInfo() {
   renderLyrics();
   renderReviews();
   window.RiffCompare?.render();
+  window.RiffFamilies?.render(next);
 }
 function renderWaveform() {
   const peaks = selected?.audio.waveform || Array(160).fill(0.05),
