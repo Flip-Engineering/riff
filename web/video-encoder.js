@@ -4,12 +4,20 @@
  * One transferred bitmap in, one encoded frame out; no frame queue.
  */
 let canvas = null, context = null, encoding = false, encodedBytes = 0, byteBudget = 0;
+const tracing = self.name === "riff-video-profile";
+const phase = (id, name) => {
+  if (tracing) self.postMessage({ id, phase: name, worker_ms: performance.now(), worker_origin_ms: performance.timeOrigin });
+};
+phase(undefined, "script_evaluated");
 
 self.onmessage = async ({ data }) => {
   if (data.type === "init") {
     try {
+      phase(data.id, "canvas_create_start");
       canvas = new OffscreenCanvas(data.width, data.height);
+      phase(data.id, "context_create_start");
       context = canvas.getContext("2d", { alpha: false });
+      phase(data.id, "context_ready");
       byteBudget = data.byteBudget;
       self.postMessage({ id: data.id, ready: Boolean(context && canvas.convertToBlob), transport: "png" });
     } catch { self.postMessage({ id: data.id, ready: false }); }
@@ -24,8 +32,11 @@ self.onmessage = async ({ data }) => {
     encoding = true;
     context.drawImage(bitmap, 0, 0);
     bitmap.close();
+    phase(data.id, "bitmap_drawn");
     let image = await canvas.convertToBlob({ type: "image/png" });
+    phase(data.id, "png_encoded");
     const frame = await image.arrayBuffer();
+    phase(data.id, "png_read");
     image = null;
     encodedBytes += frame.byteLength;
     // Chromium can retain the Blob wrappers until this worker is collected,

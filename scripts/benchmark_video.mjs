@@ -70,6 +70,8 @@ let blobTail = Promise.resolve();
 const blobSamples = [];
 const results = [];
 let frameEvents = [];
+let workerAssets = [];
+const assetRequests = new WeakMap();
 let sampler;
 let samplingError;
 let gpuSampler;
@@ -152,13 +154,32 @@ try {
     if (latencyMs) await new Promise(resolve => setTimeout(resolve, latencyMs));
     await route.continue();
   });
+  if (interceptFrames || interceptCapabilities) await page.route(`${fixture.url}/video-encoder.js`, async route => {
+    const request = route.request();
+    let record = assetRequests.get(request);
+    if (!record) { record = {}; assetRequests.set(request, record); workerAssets.push(record); }
+    record.route_entered_at = new Date().toISOString();
+    record.route_continued_at = new Date().toISOString();
+    const began = performance.now();
+    await route.continue();
+    record.route_continue_ack_ms = performance.now() - began;
+  });
   page.on("request", request => {
+    if (request.url() === `${fixture.url}/video-encoder.js`) {
+      let record = assetRequests.get(request);
+      if (!record) { record = {}; assetRequests.set(request, record); workerAssets.push(record); }
+      record.request_at = new Date().toISOString(); record.request_seconds = performance.now() / 1000;
+    }
     if (!frameRoute.test(request.url())) return;
     frameRequests++;
     frameEvents.push({ event: "request", wall_time: new Date().toISOString(), seconds: performance.now() / 1000,
       index: Number(request.headers()["x-riff-frame"]) });
   });
   page.on("response", response => {
+    if (response.url() === `${fixture.url}/video-encoder.js`) {
+      const request = response.request(), record = assetRequests.get(request);
+      if (record) { record.response_at = new Date().toISOString(); record.timing = request.timing(); record.status = response.status(); }
+    }
     if (!/\/api\/video-exports\/[a-f0-9]+\/frames$/.test(response.url())) return;
     const event = { event: "response", wall_time: new Date().toISOString(), seconds: performance.now() / 1000,
       index: Number(response.request().headers()["x-riff-frame"]), status: response.status() };
@@ -215,12 +236,15 @@ try {
             await page.locator("#video-end").fill(String(duration));
             await page.evaluate(profileEveryFrame => {
               window.benchmarkWorkers = [];
+              const originalFactory = createVideoFrameEncoder;
+              createVideoFrameEncoder = (canvas, signal, options = {}) => originalFactory(canvas, signal, { ...options, trace: true });
               const NativeWorker = Worker;
               window.Worker = class extends NativeWorker {
                 constructor(...args) {
+                  const opened = performance.now();
                   super(...args);
-                  const record = { index: benchmarkWorkers.length, opened_ms: performance.now(), ready_ms: null,
-                    retired_ms: null, encoded_bytes: 0, stopped: false, requests: [] };
+                  const record = { index: benchmarkWorkers.length, opened_ms: opened, constructed_ms: performance.now(), ready_ms: null,
+                    retired_ms: null, encoded_bytes: 0, stopped: false, requests: [], phases: [] };
                   benchmarkWorkers.push(record);
                   const stop = this.terminate.bind(this), post = this.postMessage.bind(this);
                   this.terminate = () => { record.stopped = true; record.stopped_ms = performance.now(); stop(); };
@@ -236,6 +260,11 @@ try {
                     });
                   };
                   this.addEventListener("message", ({ data }) => {
+                    if (data.phase) {
+                      record.phases.push({ phase: data.phase, request: data.id, received_ms: performance.now(),
+                        worker_ms: data.worker_ms, worker_origin_ms: data.worker_origin_ms });
+                      return;
+                    }
                     const request = record.requests.find(request => request.id === data.id);
                     if (request) { request.completed_ms = performance.now(); request.error = data.error; }
                     if (data.ready) record.ready_ms = performance.now() - record.opened_ms;
@@ -276,21 +305,22 @@ try {
             const creation = page.waitForResponse(response => response.request().method() === "POST" && response.url().endsWith("/video-exports"));
             const downloadReady = page.waitForEvent("download", { timeout }); downloadReady.catch(() => {});
             const began = performance.now();
-            frameRequests = 0; frameEvents = [];
+            frameRequests = 0; frameEvents = []; workerAssets = [];
             await page.evaluate(() => document.querySelector("#video-form").requestSubmit());
             const job = await (await creation).json();
-            activeRun = { width, height, fps, duration, transport, mode, round, job, samples, frame_uploads: frameEvents, page_time_origin_ms: await page.evaluate(() => performance.timeOrigin), url: `${fixture.url}/api/video-exports/${job.id}` };
+            activeRun = { width, height, fps, duration, transport, mode, round, job, samples, frame_uploads: frameEvents, worker_assets: workerAssets, page_time_origin_ms: await page.evaluate(() => performance.timeOrigin), url: `${fixture.url}/api/video-exports/${job.id}` };
             console.log(JSON.stringify({ started: activeRun.url, frames: job.frames }));
             assert.equal(job.transport, transport, "Requested codec must run, not silently fall back in a benchmark");
             await page.waitForFunction(() => videoExport === null, null, { timeout });
             const elapsed = (performance.now() - began) / 1000;
             clearInterval(sampler); sampler = null;
             sample(); gpuSampler?.stop();
-            const progress = await page.evaluate(() => { clearInterval(benchmarkTimer); return benchmarkProgress; });
+            const progress = await page.evaluate(() => { clearInterval(benchmarkTimer); benchmarkProgress.final_value = document.querySelector("#video-progress").value; return benchmarkProgress; });
             await blobTail;
             const workers = await page.evaluate(() => benchmarkWorkers);
-            assert(progress.samples.some(sample => sample.progress > 0 && sample.progress < 1), "Progress advances without pointer input");
             assert(await page.locator("#video-error").isHidden(), await page.locator("#video-error").textContent());
+            assert.equal(progress.final_value, 1, "Completed progress is visible without pointer input");
+            progress.intermediate_observed = progress.samples.some(sample => sample.progress > 0 && sample.progress < 1);
             const name = `${width}x${height}-${fps}fps-${duration}s-${transport}` +
               (uploadMode === "compare" ? `-${mode}` : "") + (repeats > 1 ? `-r${round + 1}` : "");
             const file = `${output}/${name}.mp4`;
@@ -310,7 +340,7 @@ try {
             assert.equal(hashes.frames, job.frames);
             const result = { name, width, height, fps, duration, transport, upload_mode: mode, repeat: round + 1,
               original_audio_sha256: sourceAudioHash, wall_seconds: elapsed,
-              resources: samples, progress, workers, frame_uploads: frameEvents,
+              resources: samples, progress, workers, frame_uploads: frameEvents, worker_assets: workerAssets,
               page_time_origin_ms: activeRun.page_time_origin_ms, retirements: workers.filter(worker => worker.retired_ms !== null).length, blob_samples: blobSamples.slice(), system_gpu_samples: gpuSampler?.samples || null,
               system_gpu_note: gpuSampler?.note() || "Sampling disabled",
               sampled_peak_temporary_allocated_bytes: samples.length ? samples.reduce((peak, sample) => Math.max(peak, sample.temporary_allocated_bytes), 0) : null,

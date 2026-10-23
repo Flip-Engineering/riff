@@ -405,3 +405,28 @@ below 547,368,624,128 bytes. Its last completed native sample was at elapsed
 sample was 1533.906 s. The exact timeout overlap and FFmpeg stdin/stderr were not
 retained. The original baseline's 1216 count was a live rendering poll, not a
 known terminal count. These records do not establish a shared exact-frame cause.
+
+
+### Page-only CDP validation
+
+`RIFF_BENCH_DRIVER=cdp` selects `scripts/benchmark_video_cdp.mjs` through the
+revision wrapper. It requires Node's built-in WebSocket API. It launches an
+isolated Chromium itself, attaches only to the page, and never enables worker
+auto-attachment or request interception. Worker target samples must remain
+unattached. Native browser fetches carry the frames; the driver retains only
+small upload metadata and media validation artifacts. Use
+`RIFF_BROWSER_EXECUTABLE` to match the browser binary between driver comparisons.
+The executable path and full launch arguments are recorded.
+
+```sh
+RIFF_BENCH_DRIVER=cdp RIFF_DEMO_WAV=/absolute/reference.wav \
+  RIFF_BENCH_DURATIONS=30 RIFF_BENCH_DIMENSIONS=2160x2160x60 \
+  node scripts/benchmark_video_revision.mjs COMMIT /absolute/new-results-directory
+```
+
+The optional worker profile name enables script-evaluated, canvas-construction,
+context-creation and PNG encoding/read phases in the traces. Normal Studio
+workers emit no profiling packets. The main handler ignores progress packets;
+they do not complete a frame or reset the existing 60-second encoder deadline,
+which also covers worker initialization. Neither that deadline, the backend
+inactivity deadline, the asset's `no-store` policy, nor the CSP changed.

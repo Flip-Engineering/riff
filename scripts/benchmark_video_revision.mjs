@@ -13,7 +13,8 @@ const commit = execFileSync("git", ["rev-parse", "--verify", `${revision}^{commi
 const output = resolve(destination);
 mkdirSync(output);
 const checkout = `${output}/source`;
-const driver = { source_revision: commit,
+const driverScript = process.env.RIFF_BENCH_DRIVER === "cdp" ? "benchmark_video_cdp.mjs" : "benchmark_video.mjs";
+const driver = { source_revision: commit, driver_script: driverScript,
   harness_revision: execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim(),
   harness_dirty: Boolean(execFileSync("git", ["status", "--porcelain", "--untracked-files=all"], { encoding: "utf8" }).trim()) };
 writeFileSync(`${output}/driver.json`, JSON.stringify(driver, null, 2) + "\n");
@@ -23,7 +24,7 @@ const interrupt = signal => child?.kill(signal);
 const onInt = () => interrupt("SIGINT"), onTerm = () => interrupt("SIGTERM");
 process.once("SIGINT", onInt); process.once("SIGTERM", onTerm);
 try {
-  child = spawn(process.execPath, [fileURLToPath(new URL("benchmark_video.mjs", import.meta.url)), `${output}/measurements`],
+  child = spawn(process.execPath, [fileURLToPath(new URL(driverScript, import.meta.url)), `${output}/measurements`],
     { cwd: checkout, env: process.env, stdio: "inherit" });
   const [code, signal] = await once(child, "exit");
   assert.equal(code, 0, `Benchmark exited ${code ?? signal}; retained receipts in ${output}`);

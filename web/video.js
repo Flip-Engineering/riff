@@ -180,8 +180,11 @@ async function createVideoFrameEncoder(canvas, signal, options = {}) {
   if (signal.aborted) close();
   const openWorker = async () => {
     if (stopped) throw stopped;
-    worker = new Worker("/video-encoder.js");
+    worker = new Worker("/video-encoder.js", options.trace ? { name: "riff-video-profile" } : undefined);
     worker.onmessage = ({ data }) => {
+      // Optional benchmark progress packets do not complete a frame or change
+      // the existing encoder deadline.
+      if (data.phase) return;
       let error = null;
       if (data.error) {
         error = new Error(data.error.message || "The browser could not encode this video frame.");
