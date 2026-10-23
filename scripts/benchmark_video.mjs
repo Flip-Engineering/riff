@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { spawn, execFileSync } from "node:child_process";
 import { once } from "node:events";
 import { createHash } from "node:crypto";
-import { mkdirSync, writeFileSync, statSync, mkdtempSync, rmSync, createReadStream, appendFileSync } from "node:fs";
+import { mkdirSync, writeFileSync, statSync, mkdtempSync, rmSync, createReadStream, appendFileSync, readdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { cpus, platform, release, loadavg } from "node:os";
 import { chromium } from "playwright";
@@ -69,6 +69,7 @@ let blobSampler;
 let blobTail = Promise.resolve();
 const blobSamples = [];
 const results = [];
+let frameEvents = [];
 let sampler;
 let samplingError;
 let gpuSampler;
@@ -119,13 +120,17 @@ try {
         const body = await blobPage.locator("body").innerText();
         const lengths = [...body.matchAll(/Length: ([\d,]+)/g)].map(match => Number(match[1].replaceAll(",", "")));
         const png = [...body.matchAll(/Content Type: image\/png\nType: data\nLength: ([\d,]+)/g)].map(match => Number(match[1].replaceAll(",", "")));
-        const sample = { seconds: performance.now() / 1000, ...metadata, count: lengths.length,
+        const sample = { seconds: performance.now() / 1000, wall_time: new Date().toISOString(), ...metadata, count: lengths.length,
           bytes: lengths.reduce((a, b) => a + b, 0), png_count: png.length,
           png_bytes: png.reduce((a, b) => a + b, 0), body };
         blobSamples.push(sample);
         appendFileSync(`${output}/blob-samples.jsonl`, JSON.stringify(sample) + "\n");
         if (metadata?.kind !== "before_frame") console.log(JSON.stringify({ blobs: sample.count, blob_bytes: sample.bytes, png_bytes: sample.png_bytes, ...metadata }));
-      } catch (error) { blobSamples.push({ error: String(error) }); } };
+      } catch (error) {
+        const sample = { seconds: performance.now() / 1000, wall_time: new Date().toISOString(), ...metadata, error: String(error) };
+        blobSamples.push(sample); appendFileSync(`${output}/blob-samples.jsonl`, JSON.stringify(sample) + "\n");
+      } };
+
       const pending = blobTail.then(capture); blobTail = pending.catch(() => {});
       return pending;
     };
@@ -142,14 +147,29 @@ try {
   let frameRequests = 0;
   await page.route(/\/api\/video-exports\/[a-f0-9]+\/frames$/, async route => {
     frameRequests++;
+    frameEvents.push({ event: "request", wall_time: new Date().toISOString(), seconds: performance.now() / 1000,
+      index: Number(route.request().headers()["x-riff-frame"]) });
     if (latencyMs) await new Promise(resolve => setTimeout(resolve, latencyMs));
     await route.continue();
+  });
+  page.on("response", response => {
+    if (!/\/api\/video-exports\/[a-f0-9]+\/frames$/.test(response.url())) return;
+    const event = { event: "response", wall_time: new Date().toISOString(), seconds: performance.now() / 1000,
+      index: Number(response.request().headers()["x-riff-frame"]), status: response.status() };
+    frameEvents.push(event);
+    void response.json().then(body => { event.received = body.received; event.error = body.error; }).catch(() => {});
+  });
+  page.on("requestfailed", request => {
+    if (/\/api\/video-exports\/[a-f0-9]+\/frames$/.test(request.url())) frameEvents.push({ event: "request_failed",
+      wall_time: new Date().toISOString(), seconds: performance.now() / 1000,
+      index: Number(request.headers()["x-riff-frame"]), error: request.failure()?.errorText });
   });
   const sourceAudioHash = await audioHash(`${fixture.url}/api/tracks/${fixture.track_id}/audio`);
   const errors = [];
   page.on("pageerror", error => errors.push(error.message));
   const environment = { platform: platform(), release: release(), cpu: cpus()[0].model,
     source_revision: sourceRevision, source_dirty: sourceDirty, graphics: graphics.gpu,
+    harness_time_origin_ms: performance.timeOrigin,
     browser_context: incognito ? "incognito (no Blob disk spill)" : "isolated persistent profile (disk-backed Blob storage enabled)",
     browser_args: JSON.parse(process.env.RIFF_BENCH_BROWSER_ARGS || "[]"),
     browser: browser.version(), source_audio_sha256: sourceAudioHash, load_average_start: loadavg(),
@@ -193,19 +213,24 @@ try {
                 constructor(...args) {
                   super(...args);
                   const record = { index: benchmarkWorkers.length, opened_ms: performance.now(), ready_ms: null,
-                    retired_ms: null, encoded_bytes: 0, stopped: false };
+                    retired_ms: null, encoded_bytes: 0, stopped: false, requests: [] };
                   benchmarkWorkers.push(record);
                   const stop = this.terminate.bind(this), post = this.postMessage.bind(this);
-                  this.terminate = () => { record.stopped = true; stop(); };
+                  this.terminate = () => { record.stopped = true; record.stopped_ms = performance.now(); stop(); };
                   this.postMessage = (...values) => {
                     const data = values[0];
+                    const request = { id: data.id, type: data.type, requested_ms: performance.now(), posted_ms: null };
+                    record.requests.push(request);
+                    const send = () => { request.posted_ms = performance.now(); return post(...values); };
                     if (data.type === "init") record.byte_budget = data.byteBudget;
-                    if (!profileEveryFrame || data.type !== "frame") return post(...values);
+                    if (!profileEveryFrame || data.type !== "frame") return send();
                     void benchmarkBlobSnapshot({ kind: "before_frame", worker: record.index, request: data.id }).then(() => {
-                      if (record.stopped) data.bitmap?.close(); else post(...values);
+                      if (record.stopped) data.bitmap?.close(); else send();
                     });
                   };
                   this.addEventListener("message", ({ data }) => {
+                    const request = record.requests.find(request => request.id === data.id);
+                    if (request) { request.completed_ms = performance.now(); request.error = data.error; }
                     if (data.ready) record.ready_ms = performance.now() - record.opened_ms;
                     if (data.frame) record.encoded_bytes += data.frame.byteLength;
                     if (data.retire) {
@@ -243,10 +268,10 @@ try {
             const creation = page.waitForResponse(response => response.request().method() === "POST" && response.url().endsWith("/video-exports"));
             const downloadReady = page.waitForEvent("download", { timeout }); downloadReady.catch(() => {});
             const began = performance.now();
-            frameRequests = 0;
+            frameRequests = 0; frameEvents = [];
             await page.evaluate(() => document.querySelector("#video-form").requestSubmit());
             const job = await (await creation).json();
-            activeRun = { width, height, fps, duration, transport, mode, round, job, samples, url: `${fixture.url}/api/video-exports/${job.id}` };
+            activeRun = { width, height, fps, duration, transport, mode, round, job, samples, frame_uploads: frameEvents, page_time_origin_ms: await page.evaluate(() => performance.timeOrigin), url: `${fixture.url}/api/video-exports/${job.id}` };
             console.log(JSON.stringify({ started: activeRun.url, frames: job.frames }));
             assert.equal(job.transport, transport, "Requested codec must run, not silently fall back in a benchmark");
             await page.waitForFunction(() => videoExport === null, null, { timeout });
@@ -277,7 +302,8 @@ try {
             assert.equal(hashes.frames, job.frames);
             const result = { name, width, height, fps, duration, transport, upload_mode: mode, repeat: round + 1,
               original_audio_sha256: sourceAudioHash, wall_seconds: elapsed,
-              resources: samples, progress, workers, retirements: workers.filter(worker => worker.retired_ms !== null).length, blob_samples: blobSamples.slice(), system_gpu_samples: gpuSampler?.samples || null,
+              resources: samples, progress, workers, frame_uploads: frameEvents,
+              page_time_origin_ms: activeRun.page_time_origin_ms, retirements: workers.filter(worker => worker.retired_ms !== null).length, blob_samples: blobSamples.slice(), system_gpu_samples: gpuSampler?.samples || null,
               system_gpu_note: gpuSampler?.note() || "Sampling disabled",
               sampled_peak_temporary_allocated_bytes: samples.length ? samples.reduce((peak, sample) => Math.max(peak, sample.temporary_allocated_bytes), 0) : null,
               frames_per_second: job.frames / elapsed, final_bytes: statSync(file).size, final_sha256: await fileHash(file), frame_requests: frameRequests,
@@ -316,10 +342,25 @@ try {
   console.log(`Receipts: ${output}/results.json`);
 } catch (error) {
   if (activeRun && page && !page.isClosed()) {
+    activeRun.browser_state = await page.evaluate(() => ({ workers: window.benchmarkWorkers, progress: window.benchmarkProgress,
+      time_origin_ms: performance.timeOrigin, observed_ms: performance.now() })).catch(() => null);
     activeRun.ui_error = await page.locator("#video-error").textContent().catch(() => null);
     activeRun.final_job = await page.request.get(activeRun.url).then(response => response.json()).catch(() => null);
   }
-  writeFileSync(`${output}/failure.json`, JSON.stringify({ error: String(samplingError || error), interrupted, diagnostics, active_run: activeRun,
+  if (activeRun) {
+    const findLog = path => {
+      for (const entry of readdirSync(path, { withFileTypes: true })) {
+        const file = `${path}/${entry.name}`;
+        if (entry.isFile() && entry.name === `${activeRun.job.id}.log`) return readFileSync(file, "utf8");
+        if (entry.isDirectory()) { const found = findLog(file); if (found !== null) return found; }
+      }
+      return null;
+    };
+    try { activeRun.ffmpeg_stderr = findLog(temporary); }
+    catch (error) { activeRun.ffmpeg_stderr_unavailable = String(error); }
+  }
+  writeFileSync(`${output}/failure.json`, JSON.stringify({ error: String(samplingError || error), observed_at: new Date().toISOString(), harness_time_origin_ms: performance.timeOrigin,
+    interrupted, diagnostics, active_run: activeRun,
     system_gpu_samples: gpuSampler?.samples || null, blob_samples: blobSamples }, null, 2) + "\n");
   throw error;
 } finally {

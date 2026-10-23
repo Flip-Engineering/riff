@@ -349,7 +349,10 @@ Additional controls:
   every five seconds. `frames` also samples before each worker frame and after
   each retirement, waiting for the pre-frame sample before posting that bitmap.
   These profiling modes affect timings; use them for retention evidence, not
-  throughput comparisons. JSONL records preserve the native Blob listings.
+  throughput comparisons. In particular, `frames` blocks frame submission while
+  sampling and can contribute to encoder or backend inactivity deadlines under
+  shared load. Prefer ungated `1` for full export validation. JSONL records
+  preserve native Blob listings and timestamp sampling errors.
 - Worker telemetry records each initialization time, byte budget, encoded-byte
   total and retirement, including when Blob profiling is disabled.
 - `RIFF_BENCH_BROWSER_ARGS='["--blob-transport-by-file-trigger=1"]'` forces
@@ -362,4 +365,8 @@ A supplied WAV must cover the longest passage. The built-in fixture is twelve
 seconds; use the existing two/ten-second defaults for a short matrix, or supply
 longer audio to exceed the recorded failure around frame 1521. Failures retain
 the last server job state, UI error, resource samples and Blob samples in
-`failure.json`, rather than being discarded from the evidence.
+`failure.json`, rather than being discarded from the evidence. The harness also
+retains worker request/post/response clocks, page and harness time origins, frame
+upload/acknowledgement events and any available FFmpeg stderr before fixture
+cleanup. An unavailable measurement stays unavailable; old captures cannot be
+retrofitted with timestamps they did not record.
