@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { spawn, execFileSync } from "node:child_process";
 import { once } from "node:events";
 import { createHash } from "node:crypto";
-import { mkdirSync, writeFileSync, statSync, mkdtempSync, rmSync, createReadStream } from "node:fs";
+import { mkdirSync, writeFileSync, statSync, mkdtempSync, rmSync, createReadStream, appendFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { cpus, platform, release, loadavg } from "node:os";
 import { chromium } from "playwright";
@@ -38,6 +38,11 @@ async function audioHash(url) {
   for await (const chunk of response.body) hash.update(chunk);
   return hash.digest("hex");
 }
+async function fileHash(file) {
+  const hash = createHash("sha256");
+  for await (const chunk of createReadStream(file)) hash.update(chunk);
+  return hash.digest("hex");
+}
 async function frameHashes(file, destination) {
   const child = spawn("ffmpeg", ["-v", "error", "-y", "-threads", "2", "-i", file,
     "-map", "0:v:0", "-f", "framemd5", destination], { stdio: ["ignore", "ignore", "pipe"] });
@@ -61,7 +66,7 @@ let browser;
 let page;
 let blobPage;
 let blobSampler;
-let samplingBlobs = false;
+let blobTail = Promise.resolve();
 const blobSamples = [];
 const results = [];
 let sampler;
@@ -105,25 +110,28 @@ try {
   const browserSession = await browser.newBrowserCDPSession();
   const graphics = await browserSession.send("SystemInfo.getInfo");
   page = await context.newPage();
-  if (process.env.RIFF_BENCH_BLOB_INTERNALS === "1") {
+  const profileEveryFrame = process.env.RIFF_BENCH_BLOB_INTERNALS === "frames";
+  if (["1", "frames"].includes(process.env.RIFF_BENCH_BLOB_INTERNALS)) {
     blobPage = await context.newPage();
-    const sampleBlobs = async () => {
-      if (samplingBlobs) return;
-      samplingBlobs = true;
-      try {
+    const sampleBlobs = metadata => {
+      const capture = async () => { try {
         await blobPage.goto("chrome://blob-internals/");
         const body = await blobPage.locator("body").innerText();
         const lengths = [...body.matchAll(/Length: ([\d,]+)/g)].map(match => Number(match[1].replaceAll(",", "")));
-        const sample = { seconds: performance.now() / 1000, count: lengths.length,
-          bytes: lengths.reduce((a, b) => a + b, 0), body };
+        const png = [...body.matchAll(/Content Type: image\/png\nType: data\nLength: ([\d,]+)/g)].map(match => Number(match[1].replaceAll(",", "")));
+        const sample = { seconds: performance.now() / 1000, ...metadata, count: lengths.length,
+          bytes: lengths.reduce((a, b) => a + b, 0), png_count: png.length,
+          png_bytes: png.reduce((a, b) => a + b, 0), body };
         blobSamples.push(sample);
-        writeFileSync(`${output}/blob-samples.json`, JSON.stringify(blobSamples, null, 2) + "\n");
-        console.log(JSON.stringify({ blobs: sample.count, blob_bytes: sample.bytes }));
-      } catch (error) { blobSamples.push({ error: String(error) }); }
-      finally { samplingBlobs = false; }
+        appendFileSync(`${output}/blob-samples.jsonl`, JSON.stringify(sample) + "\n");
+        if (metadata?.kind !== "before_frame") console.log(JSON.stringify({ blobs: sample.count, blob_bytes: sample.bytes, png_bytes: sample.png_bytes, ...metadata }));
+      } catch (error) { blobSamples.push({ error: String(error) }); } };
+      const pending = blobTail.then(capture); blobTail = pending.catch(() => {});
+      return pending;
     };
     await sampleBlobs();
-    blobSampler = setInterval(() => { void sampleBlobs(); }, 5000);
+    if (!profileEveryFrame) blobSampler = setInterval(() => { void sampleBlobs(); }, 5000);
+    else await page.exposeFunction("benchmarkBlobSnapshot", sampleBlobs);
   }
   let currentUploadMode = uploadMode;
   await page.route(`${fixture.url}/api/capabilities`, async route => {
@@ -178,6 +186,36 @@ try {
             await page.locator("#video-fps").fill(String(fps));
             await page.locator("#video-selection").selectOption("passage");
             await page.locator("#video-end").fill(String(duration));
+            await page.evaluate(profileEveryFrame => {
+              window.benchmarkWorkers = [];
+              const NativeWorker = Worker;
+              window.Worker = class extends NativeWorker {
+                constructor(...args) {
+                  super(...args);
+                  const record = { index: benchmarkWorkers.length, opened_ms: performance.now(), ready_ms: null,
+                    retired_ms: null, encoded_bytes: 0, stopped: false };
+                  benchmarkWorkers.push(record);
+                  const stop = this.terminate.bind(this), post = this.postMessage.bind(this);
+                  this.terminate = () => { record.stopped = true; stop(); };
+                  this.postMessage = (...values) => {
+                    const data = values[0];
+                    if (data.type === "init") record.byte_budget = data.byteBudget;
+                    if (!profileEveryFrame || data.type !== "frame") return post(...values);
+                    void benchmarkBlobSnapshot({ kind: "before_frame", worker: record.index, request: data.id }).then(() => {
+                      if (record.stopped) data.bitmap?.close(); else post(...values);
+                    });
+                  };
+                  this.addEventListener("message", ({ data }) => {
+                    if (data.ready) record.ready_ms = performance.now() - record.opened_ms;
+                    if (data.frame) record.encoded_bytes += data.frame.byteLength;
+                    if (data.retire) {
+                      record.retired_ms = performance.now();
+                      if (profileEveryFrame) void benchmarkBlobSnapshot({ kind: "after_retirement", worker: record.index });
+                    }
+                  });
+                }
+              };
+            }, profileEveryFrame);
             const samples = [];
             const sample = () => { if (sampleResources) samples.push(resourceSample(temporary)); };
             sample();
@@ -216,6 +254,8 @@ try {
             clearInterval(sampler); sampler = null;
             sample(); gpuSampler?.stop();
             const progress = await page.evaluate(() => { clearInterval(benchmarkTimer); return benchmarkProgress; });
+            await blobTail;
+            const workers = await page.evaluate(() => benchmarkWorkers);
             assert(progress.samples.some(sample => sample.progress > 0 && sample.progress < 1), "Progress advances without pointer input");
             assert(await page.locator("#video-error").isHidden(), await page.locator("#video-error").textContent());
             const name = `${width}x${height}-${fps}fps-${duration}s-${transport}` +
@@ -237,10 +277,10 @@ try {
             assert.equal(hashes.frames, job.frames);
             const result = { name, width, height, fps, duration, transport, upload_mode: mode, repeat: round + 1,
               original_audio_sha256: sourceAudioHash, wall_seconds: elapsed,
-              resources: samples, progress, blob_samples: blobSamples.slice(), system_gpu_samples: gpuSampler?.samples || null,
+              resources: samples, progress, workers, retirements: workers.filter(worker => worker.retired_ms !== null).length, blob_samples: blobSamples.slice(), system_gpu_samples: gpuSampler?.samples || null,
               system_gpu_note: gpuSampler?.note() || "Sampling disabled",
               sampled_peak_temporary_allocated_bytes: samples.length ? samples.reduce((peak, sample) => Math.max(peak, sample.temporary_allocated_bytes), 0) : null,
-              frames_per_second: job.frames / elapsed, final_bytes: statSync(file).size, frame_requests: frameRequests,
+              frames_per_second: job.frames / elapsed, final_bytes: statSync(file).size, final_sha256: await fileHash(file), frame_requests: frameRequests,
               sampled_peak_rss_bytes: samples.length ? samples.reduce((peak, sample) => Math.max(peak, sample.rss), 0) : null,
               sampled_mean_cpu_percent: samples.length ? samples.reduce((sum, sample) => sum + sample.cpu, 0) / samples.length : null,
               decoded_frames_sha256: hashes.sha256, receipt: completed.receipt };

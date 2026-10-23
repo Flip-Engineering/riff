@@ -327,7 +327,9 @@ fixture and export temporary files live below the result directory. It reports
 available disk space before running and samples temporary allocated/logical bytes,
 owned process RSS/CPU and host load every 500 ms. Linux also counts owned open
 unlinked files under that temporary directory, deduplicated by device/inode;
-other platforms report that component as unavailable. These are sampled peaks,
+other platforms report that component as unavailable. Inaccessible Linux
+descriptors are listed and mark that component unavailable for that sample;
+known allocated bytes are then a lower bound. These are sampled peaks,
 include fixture WAVs and retained MP4s in the temporary library, and exclude files
 outside the directory and in-memory `memfd` allocations.
 
@@ -344,7 +346,12 @@ Additional controls:
 - `RIFF_BENCH_TRANSPORTS=png` selects the long PNG reproduction alone.
 - `RIFF_BENCH_CONTEXT=incognito` exercises the no-disk-spill Blob context.
 - `RIFF_BENCH_BLOB_INTERNALS=1` retains live `chrome://blob-internals` records
-  every five seconds. This extra profiling can affect timings.
+  every five seconds. `frames` also samples before each worker frame and after
+  each retirement, waiting for the pre-frame sample before posting that bitmap.
+  These profiling modes affect timings; use them for retention evidence, not
+  throughput comparisons. JSONL records preserve the native Blob listings.
+- Worker telemetry records each initialization time, byte budget, encoded-byte
+  total and retirement, including when Blob profiling is disabled.
 - `RIFF_BENCH_BROWSER_ARGS='["--blob-transport-by-file-trigger=1"]'` forces
   Chromium's test file transport; disclose it with results.
 - `RIFF_BENCH_TIMEOUT_MS` optionally supplies a caller-selected wait timeout.

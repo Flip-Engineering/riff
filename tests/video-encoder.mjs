@@ -135,6 +135,11 @@ try {
     : "self.onmessage=()=>{};" }));
   await page.evaluate(async () => {
     window.retirementController = new AbortController();
+    window.retirementBitmaps = [];
+    const original = createImageBitmap;
+    window.createImageBitmap = async (...args) => {
+      const bitmap = await original(...args); retirementBitmaps.push(bitmap); return bitmap;
+    };
     const encoder = await createVideoFrameEncoder(encoderCanvas(), retirementController.signal);
     window.retirementResult = (async () => {
       try {
@@ -142,13 +147,14 @@ try {
         await first.frame; await second.frame;
         return "resolved";
       } catch (error) { return error.name; }
-      finally { encoder.close(); }
+      finally { encoder.close(); window.createImageBitmap = original; }
     })();
   });
   await page.waitForFunction(() => encoderWorkers.length === 2);
   await page.evaluate(() => retirementController.abort());
   assert.equal(await page.evaluate(() => retirementResult), "AbortError");
   assert.deepEqual(await page.evaluate(() => encoderWorkers.map(worker => worker.stopped)), [true, true]);
+  assert(await page.evaluate(() => retirementBitmaps.length === 2 && retirementBitmaps.every(bitmap => bitmap.width === 0 && bitmap.height === 0)));
   await page.unroute(workerRoute);
   console.log("PASS Cancellation during worker replacement releases the replacement and queued snapshot");
 
