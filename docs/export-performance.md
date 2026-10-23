@@ -382,3 +382,26 @@ retains worker request/post/response clocks, page and harness time origins, fram
 upload/acknowledgement events and any available FFmpeg stderr before fixture
 cleanup. An unavailable measurement stays unavailable; old captures cannot be
 retrofitted with timestamps they did not record.
+
+### October 23 validation status
+
+The [retained evidence](export-performance-20261023.json) includes the exact
+short-matrix media hashes, worker restart durations, quota probe and negative
+long trials. The reliability PR is blocked while the stall path is investigated.
+All six short PNG/H.264 pairs are byte-identical to the baseline. Retirement
+reproduces a bounded live PNG Blob footprint, but the ungated persistent long
+trial was interrupted at 1712 accepted frames. No full-run reliability claim is
+made yet. A main/fix × interception-on/off control at 1080p is running; Blob
+observation is non-blocking in all arms. Runtime deadlines and the byte budget
+have not changed.
+
+The earlier gated persistent trial was interrupted by backend 120 s inactivity
+cleanup during an observer stall under shared load; causation is unresolved.
+It peaked at 8,657,354,752 summed RSS bytes (8.66 GB), including the benchmark,
+browser processes, fixture server, FFmpeg and samplers, with shared pages counted.
+Scoped allocated temporary bytes peaked at 50,769,920; available disk never fell
+below 547,368,624,128 bytes. Its last completed native sample was at elapsed
+1461.205 s, followed by an untimestamped 30 s observer timeout; the final resource
+sample was 1533.906 s. The exact timeout overlap and FFmpeg stdin/stderr were not
+retained. The original baseline's 1216 count was a live rendering poll, not a
+known terminal count. These records do not establish a shared exact-frame cause.

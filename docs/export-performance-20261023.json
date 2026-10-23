@@ -1,0 +1,539 @@
+{
+  "observed_at": "2026-10-23T23:10:26.637Z",
+  "release_ready": false,
+  "status": "Reliability PR blocked pending stall-path investigation and full export acceptance. Runtime deadlines and byte budget have not changed.",
+  "limits": [
+    "The original baseline retained no terminal frame count, FFmpeg stderr/stdin totals or resource samples; 1216 was a live rendering poll.",
+    "The gated negative trials were interrupted by backend 120 s inactivity cleanup during an observer stall under shared load; causation unresolved.",
+    "The ungated persistent retry also failed at 1712, so observer gating alone does not establish the cause.",
+    "CPU/RSS are process-tree observations with shared pages; old captures included the sampler ps query.",
+    "Neither M4 memory-pressure behavior nor controlled representative-recording throughput is qualified."
+  ],
+  "quota_probe": [
+    {
+      "variant": "baseline",
+      "frames": 50,
+      "encoded_bytes": {
+        "bytes": 193913250
+      },
+      "blob_count": 50,
+      "blob_bytes": 193913250
+    },
+    {
+      "variant": "baseline",
+      "frames": 100,
+      "encoded_bytes": {
+        "bytes": 193913250
+      },
+      "blob_count": 100,
+      "blob_bytes": 387826500
+    },
+    {
+      "variant": "baseline",
+      "frames": 150,
+      "encoded_bytes": {
+        "bytes": 193913250
+      },
+      "blob_count": 150,
+      "blob_bytes": 581739750
+    },
+    {
+      "variant": "baseline",
+      "frames": 200,
+      "encoded_bytes": {
+        "bytes": 193913250
+      },
+      "blob_count": 200,
+      "blob_bytes": 775653000
+    },
+    {
+      "variant": "baseline",
+      "frames": 250,
+      "encoded_bytes": {
+        "bytes": 193913250
+      },
+      "blob_count": 250,
+      "blob_bytes": 969566250
+    },
+    {
+      "variant": "baseline",
+      "frames": 300,
+      "encoded_bytes": {
+        "bytes": 193913250
+      },
+      "blob_count": 300,
+      "blob_bytes": 1163479500
+    },
+    {
+      "variant": "baseline",
+      "frames": 350,
+      "encoded_bytes": {
+        "bytes": 193913250
+      },
+      "blob_count": 350,
+      "blob_bytes": 1357392750
+    },
+    {
+      "variant": "baseline",
+      "frames": 400,
+      "encoded_bytes": {
+        "bytes": 193913250
+      },
+      "blob_count": 400,
+      "blob_bytes": 1551306000
+    },
+    {
+      "variant": "baseline",
+      "frames": 450,
+      "encoded_bytes": {
+        "bytes": 193913250
+      },
+      "blob_count": 450,
+      "blob_bytes": 1745219250
+    },
+    {
+      "variant": "baseline",
+      "frames": 500,
+      "encoded_bytes": {
+        "bytes": 193913250
+      },
+      "blob_count": 500,
+      "blob_bytes": 1939132500
+    },
+    {
+      "variant": "baseline",
+      "frames": 550,
+      "encoded_bytes": {
+        "bytes": 193913250
+      },
+      "blob_count": 550,
+      "blob_bytes": 2133045750
+    },
+    {
+      "variant": "baseline",
+      "frames": 600,
+      "encoded_bytes": {
+        "bytes": 11634795,
+        "frame": 554,
+        "name": "NotReadableError",
+        "message": "The browser could not encode video frame 554 (NotReadableError: The requested file could not be read, typically due to permission problems that have occurred after a reference to a file was acquired.). The browser could not read the PNG data. Check available memory, temporary disk space and storage permissions, then try exporting again."
+      },
+      "blob_count": 553,
+      "blob_bytes": 2144680545
+    },
+    {
+      "variant": "retirement",
+      "frames": 50,
+      "encoded_bytes": {
+        "bytes": 193881750
+      },
+      "blob_count": 0,
+      "blob_bytes": 0
+    },
+    {
+      "variant": "retirement",
+      "frames": 100,
+      "encoded_bytes": {
+        "bytes": 193881750
+      },
+      "blob_count": 0,
+      "blob_bytes": 0
+    },
+    {
+      "variant": "retirement",
+      "frames": 150,
+      "encoded_bytes": {
+        "bytes": 193881750
+      },
+      "blob_count": 0,
+      "blob_bytes": 0
+    },
+    {
+      "variant": "retirement",
+      "frames": 200,
+      "encoded_bytes": {
+        "bytes": 193881750
+      },
+      "blob_count": 0,
+      "blob_bytes": 0
+    },
+    {
+      "variant": "retirement",
+      "frames": 250,
+      "encoded_bytes": {
+        "bytes": 193881750
+      },
+      "blob_count": 0,
+      "blob_bytes": 0
+    },
+    {
+      "variant": "retirement",
+      "frames": 300,
+      "encoded_bytes": {
+        "bytes": 193881750
+      },
+      "blob_count": 0,
+      "blob_bytes": 0
+    },
+    {
+      "variant": "retirement",
+      "frames": 350,
+      "encoded_bytes": {
+        "bytes": 193881750
+      },
+      "blob_count": 0,
+      "blob_bytes": 0
+    },
+    {
+      "variant": "retirement",
+      "frames": 400,
+      "encoded_bytes": {
+        "bytes": 193881750
+      },
+      "blob_count": 0,
+      "blob_bytes": 0
+    },
+    {
+      "variant": "retirement",
+      "frames": 450,
+      "encoded_bytes": {
+        "bytes": 193881750
+      },
+      "blob_count": 0,
+      "blob_bytes": 0
+    },
+    {
+      "variant": "retirement",
+      "frames": 500,
+      "encoded_bytes": {
+        "bytes": 193881750
+      },
+      "blob_count": 0,
+      "blob_bytes": 0
+    },
+    {
+      "variant": "retirement",
+      "frames": 550,
+      "encoded_bytes": {
+        "bytes": 193881750
+      },
+      "blob_count": 0,
+      "blob_bytes": 0
+    },
+    {
+      "variant": "retirement",
+      "frames": 600,
+      "encoded_bytes": {
+        "bytes": 193881750
+      },
+      "blob_count": 0,
+      "blob_bytes": 0
+    },
+    {
+      "variant": "retirement",
+      "frames": 650,
+      "encoded_bytes": {
+        "bytes": 193881750
+      },
+      "blob_count": 0,
+      "blob_bytes": 0
+    }
+  ],
+  "short_matrix": [
+    {
+      "dimension": "1920x1080x30",
+      "revision": "d30b139",
+      "transport": "png",
+      "frames": 60,
+      "wall_seconds": 22.908715086,
+      "mp4_sha256": "a9a79f957ecc42fc9e43786411b50940231a8112d696ab536668d349e4008fff",
+      "decoded_sha256": "25137c4c6da1b151b3624bbfa6a59737aea2bcafd994ce8c806462a471d569a6",
+      "retirements": 0,
+      "reinitialization_ms": []
+    },
+    {
+      "dimension": "1920x1080x30",
+      "revision": "d30b139",
+      "transport": "h264",
+      "frames": 60,
+      "wall_seconds": 34.373577491000006,
+      "mp4_sha256": "26920b708e7488f87a829a359256db8ca3c4ff15f74036fbea1f15e58412a41e",
+      "decoded_sha256": "a2e9e2d739d42796832a843ee37208e8115fff198874ff35208983cd8ae60378",
+      "retirements": 0,
+      "reinitialization_ms": []
+    },
+    {
+      "dimension": "1920x1080x30",
+      "revision": "2bccf31",
+      "transport": "png",
+      "frames": 60,
+      "wall_seconds": 24.21095769,
+      "mp4_sha256": "a9a79f957ecc42fc9e43786411b50940231a8112d696ab536668d349e4008fff",
+      "decoded_sha256": "25137c4c6da1b151b3624bbfa6a59737aea2bcafd994ce8c806462a471d569a6",
+      "retirements": 1,
+      "reinitialization_ms": [
+        194.09999999403954
+      ]
+    },
+    {
+      "dimension": "1920x1080x30",
+      "revision": "2bccf31",
+      "transport": "h264",
+      "frames": 60,
+      "wall_seconds": 42.96362463999999,
+      "mp4_sha256": "26920b708e7488f87a829a359256db8ca3c4ff15f74036fbea1f15e58412a41e",
+      "decoded_sha256": "a2e9e2d739d42796832a843ee37208e8115fff198874ff35208983cd8ae60378",
+      "retirements": 0,
+      "reinitialization_ms": []
+    },
+    {
+      "dimension": "2160x2160x30",
+      "revision": "d30b139",
+      "transport": "png",
+      "frames": 60,
+      "wall_seconds": 43.346271304,
+      "mp4_sha256": "b3312d67cbed8e9df758fde785d18677d45105e049679868d56357743286abd4",
+      "decoded_sha256": "e1080ff09c0249a9c916a8bfe2f78b807786e3ddde5b45bb90555f55950cbeae",
+      "retirements": 0,
+      "reinitialization_ms": []
+    },
+    {
+      "dimension": "2160x2160x30",
+      "revision": "d30b139",
+      "transport": "h264",
+      "frames": 60,
+      "wall_seconds": 59.279956623,
+      "mp4_sha256": "a7d96752ad4554a4f60c7720c79a090551e7cea1d746a1d992ba62d7795da325",
+      "decoded_sha256": "33c8dae58396a34a632dd907b8a255f4d14962a758a6d01eeff43c4748ea9cfa",
+      "retirements": 0,
+      "reinitialization_ms": []
+    },
+    {
+      "dimension": "2160x2160x30",
+      "revision": "2bccf31",
+      "transport": "png",
+      "frames": 60,
+      "wall_seconds": 48.942283227,
+      "mp4_sha256": "b3312d67cbed8e9df758fde785d18677d45105e049679868d56357743286abd4",
+      "decoded_sha256": "e1080ff09c0249a9c916a8bfe2f78b807786e3ddde5b45bb90555f55950cbeae",
+      "retirements": 2,
+      "reinitialization_ms": [
+        2489.5999999940395,
+        355.69999998807907
+      ]
+    },
+    {
+      "dimension": "2160x2160x30",
+      "revision": "2bccf31",
+      "transport": "h264",
+      "frames": 60,
+      "wall_seconds": 42.714338965,
+      "mp4_sha256": "a7d96752ad4554a4f60c7720c79a090551e7cea1d746a1d992ba62d7795da325",
+      "decoded_sha256": "33c8dae58396a34a632dd907b8a255f4d14962a758a6d01eeff43c4748ea9cfa",
+      "retirements": 0,
+      "reinitialization_ms": []
+    },
+    {
+      "dimension": "2160x2160x60",
+      "revision": "d30b139",
+      "transport": "png",
+      "frames": 120,
+      "wall_seconds": 85.67483164,
+      "mp4_sha256": "08dc6aabe0f749bb44803bd3b0cce989256522403a277f31b81b33a77b80b112",
+      "decoded_sha256": "141adce22f164db6668e13ad5c12f9317347238aa71c3e791652291ece3a5e9e",
+      "retirements": 0,
+      "reinitialization_ms": []
+    },
+    {
+      "dimension": "2160x2160x60",
+      "revision": "d30b139",
+      "transport": "h264",
+      "frames": 120,
+      "wall_seconds": 86.12080386399998,
+      "mp4_sha256": "5df0cca5639dabf5d1692bb57e6218075955d1ec22bb7c0e6a662e60c2aaf357",
+      "decoded_sha256": "859ae1da651195d86613a3f19e888fcffef183bed81b3e5c32a0bf8f1e960af6",
+      "retirements": 0,
+      "reinitialization_ms": []
+    },
+    {
+      "dimension": "2160x2160x60",
+      "revision": "2bccf31",
+      "transport": "png",
+      "frames": 120,
+      "wall_seconds": 70.110647998,
+      "mp4_sha256": "08dc6aabe0f749bb44803bd3b0cce989256522403a277f31b81b33a77b80b112",
+      "decoded_sha256": "141adce22f164db6668e13ad5c12f9317347238aa71c3e791652291ece3a5e9e",
+      "retirements": 5,
+      "reinitialization_ms": [
+        2394.4000000059605,
+        840.6999999880791,
+        3052.5999999940395,
+        1961.0999999940395,
+        258
+      ]
+    },
+    {
+      "dimension": "2160x2160x60",
+      "revision": "2bccf31",
+      "transport": "h264",
+      "frames": 120,
+      "wall_seconds": 87.29123459799999,
+      "mp4_sha256": "5df0cca5639dabf5d1692bb57e6218075955d1ec22bb7c0e6a662e60c2aaf357",
+      "decoded_sha256": "859ae1da651195d86613a3f19e888fcffef183bed81b3e5c32a0bf8f1e960af6",
+      "retirements": 0,
+      "reinitialization_ms": []
+    }
+  ],
+  "retained_failures": [
+    {
+      "name": "issue20-baseline-long",
+      "error": "AssertionError [ERR_ASSERTION]: The browser could not encode this video frame.",
+      "file_written_at": "2026-10-23T21:56:46.518Z",
+      "status": null,
+      "received": null,
+      "server_error": null,
+      "peak_summed_rss_bytes": null,
+      "peak_scoped_temporary_allocated_bytes": null,
+      "minimum_disk_free_bytes": null,
+      "peak_live_png_blob_bytes": null,
+      "retirement_samples": 0,
+      "observer_errors": [],
+      "last_successful_blob_sample": null,
+      "final_resource_seconds": null,
+      "ffmpeg_stderr": null
+    },
+    {
+      "name": "issue20-diagnostic-long",
+      "error": "Error: EACCES: permission denied, scandir '/proc/690235/fd'",
+      "file_written_at": "2026-10-23T22:04:49.354Z",
+      "status": null,
+      "received": null,
+      "server_error": null,
+      "peak_summed_rss_bytes": 14508703744,
+      "peak_scoped_temporary_allocated_bytes": 50970624,
+      "minimum_disk_free_bytes": 557016621056,
+      "peak_live_png_blob_bytes": 0,
+      "retirement_samples": 0,
+      "observer_errors": [
+        {
+          "error": "Error: page.goto: Target page, context or browser has been closed\nCall log:\n\u001b[2m  - navigating to \"chrome://blob-internals/\", waiting until \"load\"\u001b[22m\n"
+        }
+      ],
+      "last_successful_blob_sample": {
+        "seconds": 403.84135073,
+        "count": 1343,
+        "bytes": 2146726986
+      },
+      "final_resource_seconds": 407.522237555,
+      "ffmpeg_stderr": null
+    },
+    {
+      "name": "issue20-fixed-persistent",
+      "error": "AssertionError [ERR_ASSERTION]: The browser video encoder stopped responding. Try exporting again.",
+      "file_written_at": "2026-10-23T22:35:04.966Z",
+      "status": "interrupted",
+      "received": 1216,
+      "server_error": "The browser stopped sending video frames.",
+      "peak_summed_rss_bytes": 8657354752,
+      "peak_scoped_temporary_allocated_bytes": 50769920,
+      "minimum_disk_free_bytes": 547368624128,
+      "peak_live_png_blob_bytes": 34921530,
+      "retirement_samples": 55,
+      "observer_errors": [
+        {
+          "error": "TimeoutError: page.goto: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - navigating to \"chrome://blob-internals/\", waiting until \"load\"\u001b[22m\n"
+        }
+      ],
+      "last_successful_blob_sample": {
+        "seconds": 1461.204998367,
+        "kind": "before_frame",
+        "worker": 55,
+        "request": 1288,
+        "count": 21,
+        "bytes": 33455638,
+        "png_count": 21,
+        "png_bytes": 33455638
+      },
+      "final_resource_seconds": 1533.905806168,
+      "ffmpeg_stderr": null
+    },
+    {
+      "name": "issue20-fixed-incognito",
+      "error": "AssertionError [ERR_ASSERTION]: This export is no longer accepting frames.",
+      "file_written_at": "2026-10-23T22:41:41.867Z",
+      "status": "interrupted",
+      "received": 1408,
+      "server_error": "The browser stopped sending video frames.",
+      "peak_summed_rss_bytes": 8615804928,
+      "peak_scoped_temporary_allocated_bytes": 49397760,
+      "minimum_disk_free_bytes": 545713283072,
+      "peak_live_png_blob_bytes": 34921530,
+      "retirement_samples": 63,
+      "observer_errors": [
+        {
+          "error": "TimeoutError: page.goto: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - navigating to \"chrome://blob-internals/\", waiting until \"load\"\u001b[22m\n"
+        }
+      ],
+      "last_successful_blob_sample": {
+        "seconds": 1931.840121877,
+        "kind": "before_frame",
+        "worker": 64,
+        "request": 1490,
+        "count": 19,
+        "bytes": 50726064,
+        "png_count": 16,
+        "png_bytes": 25363000
+      },
+      "final_resource_seconds": 1931.8344227819998,
+      "ffmpeg_stderr": null
+    },
+    {
+      "name": "issue20-fixed-persistent-retry",
+      "error": "AssertionError [ERR_ASSERTION]: The browser video encoder stopped responding. Try exporting again.",
+      "file_written_at": "2026-10-23T22:53:09.813Z",
+      "status": "interrupted",
+      "received": 1712,
+      "server_error": "The browser stopped sending video frames.",
+      "peak_summed_rss_bytes": 9400475648,
+      "peak_scoped_temporary_allocated_bytes": 52592640,
+      "minimum_disk_free_bytes": 545719267328,
+      "peak_live_png_blob_bytes": 35091586,
+      "retirement_samples": 0,
+      "observer_errors": [
+        {
+          "error": "TimeoutError: locator.innerText: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('body')\u001b[22m\n"
+        },
+        {
+          "error": "TimeoutError: page.goto: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - navigating to \"chrome://blob-internals/\", waiting until \"load\"\u001b[22m\n"
+        },
+        {
+          "error": "TimeoutError: page.goto: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - navigating to \"chrome://blob-internals/\", waiting until \"load\"\u001b[22m\n"
+        },
+        {
+          "error": "TimeoutError: page.goto: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - navigating to \"chrome://blob-internals/\", waiting until \"load\"\u001b[22m\n"
+        },
+        {
+          "error": "Error: page.goto: Navigation to \"chrome://blob-internals/\" is interrupted by another navigation to \"chrome://blob-internals/\"\nCall log:\n\u001b[2m  - navigating to \"chrome://blob-internals/\", waiting until \"load\"\u001b[22m\n"
+        }
+      ],
+      "last_successful_blob_sample": {
+        "seconds": 772.908649286,
+        "count": 3,
+        "bytes": 25431870,
+        "png_count": 0,
+        "png_bytes": 0
+      },
+      "final_resource_seconds": 771.559372107,
+      "ffmpeg_stderr": null
+    }
+  ],
+  "pending_controls": {
+    "description": "1920x1080/60, 30 seconds, 1800 frames, same source WAV, non-blocking Blob observation; main versus fix crossed with forced interception on/off",
+    "arms": [
+      "d30b139/intercept1",
+      "286e2cc/intercept1",
+      "286e2cc/intercept0",
+      "d30b139/intercept0"
+    ]
+  }
+}
