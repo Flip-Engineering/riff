@@ -219,7 +219,7 @@ try {
     activeRun = { width, height, fps, duration, transport, samples, polls, worker_assets: workerAssets, sampling_errors: samplingErrors };
     const began = performance.now();
     await cdp.evaluate(session, () => { document.querySelector("#video-form").requestSubmit(); });
-    let job, terminalFailure;
+    let job, terminalFailure, previousProgress;
     monitor = setInterval(() => {
       if (!job || terminalFailure) return;
       void fetch(`${fixture.url}/api/video-exports/${job.id}`).then(response => response.json()).then(value => {
@@ -233,6 +233,11 @@ try {
         workers: benchmarkWorkers.slice(-2).map(value => ({ index: value.index, ready_ms: value.ready_ms, retired_ms: value.retired_ms,
           stopped: value.stopped, phase: value.phases.at(-1), request: value.requests.at(-1) })) }));
       polls.push(state); if (state.job) { job = state.job; activeRun.job = job; }
+      if (state.progress !== previousProgress) {
+        previousProgress = state.progress;
+        console.log(JSON.stringify({ progress: state.progress, elapsed_seconds: (performance.now() - began) / 1000,
+          latest_worker: state.workers.at(-1) }));
+      }
       if (state.error) throw new Error(state.error);
       if (job && !state.active) break;
       const info = await cdp.send("Target.getTargets");
