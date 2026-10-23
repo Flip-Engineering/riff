@@ -138,11 +138,20 @@ path. The Studio sends an `Idempotency-Key` with each submit and keeps it only
 when no response arrived, so asking again for the same recipe after a lost
 response returns the take already queued instead of queueing a second one.
 
-The Studio fills its editor from a take on the client, because the editor holds
-fields only the page has (readable notation, draft text, undo). The browser test
-`tests/agent-parity.mjs` drives the real controls against a real server and checks
-that the recipe the Studio builds for **Refine this performance** and for a
-variation equals, after validation, the draft `take.replay` and `take.develop`
-return for the same take. A change to what the server carries over, or to what the
-page carries over, fails that test.
+The Studio's editor still fills itself from a take in browser code. It holds
+fields only the page has (readable notation, draft text, undo), and the browser
+tests that cover score replay mock the API with synthetic recipes. Moving that
+hydration onto the server drafts (`enqueue: false`) is deferred to the study
+families work (#10). Until then the two are held together by tests rather than by
+construction:
 
+- `tests/agent-parity.mjs` drives the real controls against a real server and checks
+  that the recipe the Studio builds for **Refine this performance**, for **Render
+  performance** in the history, and for a variation equals, after validation, the
+  draft `take.replay` or `take.develop` returns for the same take. A change to what
+  the server carries over, or to what the page carries over, fails it.
+- Finishing a saved sound (**Finish audio**) is not covered in the browser, because
+  the browser fixture has no native saved-sound artifacts. `tests/test_operations.py`
+  checks that `take.replay` with `replay: "sound"` queues exactly the take the
+  Studio's `{acoustic_source, decoder, title}` request does, using a stub of the
+  saved-sound service.

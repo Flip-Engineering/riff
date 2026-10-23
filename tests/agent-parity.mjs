@@ -20,12 +20,17 @@ const page = await browser.newPage({ viewport: { width: 1280, height: 1000 } });
 const errors = []; page.on("pageerror", error => errors.push(error.message));
 const call = (path, body) => page.evaluate(({ path, body }) => api(path, body ? "POST" : "GET", body), { path, body });
 const operation = (name, body) => call(`/api/v1/operations/${name}`, body);
-// What a take would be queued as. The seed is chosen at random when none is given, so it is not compared.
-const effective = async recipe => {
+// Playwright does not wait for a promise returned by waitForFunction's predicate, so poll from here.
+const until = async (check, what) => {
+  for (let attempt = 0; attempt < 300; attempt++) { if (await check()) return; await new Promise(resolve => setTimeout(resolve, 100)); }
+  throw new Error(`Timed out waiting for ${what}`);
+};
+// What a take would be queued as. Without a retained seed the engine chooses one at random, so it is left out.
+const effective = async (recipe, keepSeed = false) => {
   const checked = await operation("recipe.validate", { recipe });
   assert(checked.valid, checked.error);
   const { seed, ...rest } = checked.effective_recipe;
-  return rest;
+  return keepSeed ? { seed, ...rest } : rest;
 };
 try {
   await page.goto(fixture.url);
@@ -80,6 +85,24 @@ try {
   assert.equal(varied.parent_track_id, fixture.track_id);
   assert(!varied.performance_source);
   console.log("PASS The Studio's refine-performance and variation drafts equal the agent operations' drafts for the same take");
+
+  // Rendering a performance made earlier (Render performance in the history) builds the same take as the agent's replay.
+  const made = await call("/api/generations", { title: "Phrasing for later", lyrics: "[Verse]\nLamps along the wall.",
+    style: "slow folk, warm room", seed: "77", max_seconds: 12, render_mode: "performance" });
+  await until(async () => (await call(`/api/jobs/${made.id}`)).status === "performed", "the performance to be saved");
+  await page.reload();
+  await page.locator('.main-nav [data-view="library"]').click();
+  await page.locator(`[data-finish-performance="${made.id}"]`).click();
+  await page.waitForFunction(id => formRecipe().performance_source === id, made.id);
+  const rendered = await page.evaluate(() => formRecipe());
+  const rerun = await operation("take.replay", { source: made.id, replay: "performance", enqueue: false,
+    changes: { title: rendered.title } });
+  assert(rerun.validation.valid, rerun.validation.error);
+  assert.deepEqual(await effective(rendered, true), await effective(rerun.draft, true));
+  assert.equal(rendered.performance_source, made.id);
+  assert.equal(rerun.draft.performance_source, made.id);
+  assert.equal(rerun.validation.effective_recipe.seed, "77");
+  console.log("PASS The Studio's Render performance draft equals take.replay for the same saved performance");
   assert.deepEqual(errors, []);
 } finally {
   await browser.close();

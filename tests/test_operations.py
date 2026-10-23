@@ -665,6 +665,17 @@ class ReplayTests(DerivedFixture):
         self.assertEqual(self.derive("take.replay", source=scored["job_id"])[0], 400)
         self.assertEqual(self.derive("take.replay", source=scored["job_id"], replay="score", retain=["seed"])[0], 400)
 
+    def test_replay_sound_queues_what_the_studios_finish_audio_button_posts(self):
+        """Finish audio posts {acoustic_source, decoder, title?} to /api/generations; replay is the same take."""
+        take = self.source(stages=("sound",))
+        studio = self.request("POST", "/api/generations", {"acoustic_source": SOUND, "decoder": {"core_frames": 5}, "title": "Finished"})[1]
+        agent = self.derive("take.replay", source=take["job_id"], replay="sound",
+                            changes={"decoder": {"core_frames": 5}, "title": "Finished"})[1]
+        self.assertEqual(studio["recipe"], agent["receipt"]["effective_recipe"])
+        draft = self.derive("take.replay", source=take["job_id"], replay="sound", enqueue=False,
+                            changes={"decoder": {"core_frames": 5}, "title": "Finished"})[1]
+        self.assertEqual(draft["draft"], {"acoustic_source": SOUND, "decoder": {"core_frames": 5}, "title": "Finished"})
+
     def test_replay_sound_finishes_the_saved_sound_with_decoder_controls(self):
         take = self.source(stages=("sound",))
         status, result = self.derive("take.replay", source=take["job_id"], replay="sound", changes={"decoder": {"core_frames": 5}})
