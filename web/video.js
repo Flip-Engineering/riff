@@ -5,7 +5,7 @@ let videoPreviewRevision = 0;
 const videoPresets = { "4k": [3840, 2160, 60], studio: [2560, 1980, 60], portrait: [2160, 3840, 60], square: [2160, 2160, 60] };
 
 // A frame upload resolves through a microtask. Yield one ordinary browser task
-// after each acknowledged frame so progress and cancellation can paint without
+// at the progress cadence so progress and cancellation can paint without
 // depending on pointer events. This is deliberately independent of audio time,
 // requestAnimationFrame and idle scheduling.
 function yieldVideoProgress() {
@@ -141,6 +141,10 @@ async function createVideoFrameEncoder(canvas, signal, options = {}) {
   }
   const timings = { snapshot_seconds: 0, encode_seconds: 0 };
   let worker = null, pending = null, stopped = null, failure = null, sequence = 0;
+  let usesWorker = false;
+  // Use the upload budget where advertised; standalone encoders use one raw
+  // RGBA frame's size. This bounds retained worker Blobs, not export length.
+  const byteBudget = options.maxBytes > 0 ? options.maxBytes : canvas.width * canvas.height * 4;
   const cancelled = () => new DOMException("Export cancelled.", "AbortError");
   const settle = (id, value, error) => {
     if (pending?.id !== id) return;
@@ -174,28 +178,40 @@ async function createVideoFrameEncoder(canvas, signal, options = {}) {
   };
   signal.addEventListener("abort", close, { once: true });
   if (signal.aborted) close();
+  const openWorker = async () => {
+    if (stopped) throw stopped;
+    worker = new Worker("/video-encoder.js");
+    worker.onmessage = ({ data }) => {
+      let error = null;
+      if (data.error) {
+        error = new Error(data.error.message || "The browser could not encode this video frame.");
+        error.name = data.error.name || "Error";
+      }
+      settle(data.id, data, error);
+      if (data.retire) releaseWorker();
+    };
+    worker.onerror = event => {
+      event.preventDefault();
+      failure = new Error("The browser could not open its video encoder.");
+      if (pending) settle(pending.id, null, failure);
+    };
+    worker.onmessageerror = () => {
+      failure = new Error("The browser could not read this video frame.");
+      if (pending) settle(pending.id, null, failure);
+    };
+    const ready = await wait(id => worker.postMessage({
+      type: "init", id, width: canvas.width, height: canvas.height, byteBudget,
+    }));
+    if (!ready.ready) {
+      releaseWorker();
+      throw new Error("The browser could not open its video encoder.");
+    }
+  };
   try {
     if (typeof Worker === "function" && typeof OffscreenCanvas === "function" &&
         typeof createImageBitmap === "function" && OffscreenCanvas.prototype.convertToBlob) {
-      if (stopped) throw stopped;
-      worker = new Worker("/video-encoder.js");
-      worker.onmessage = ({ data }) => {
-        const error = data.error ? new Error("The browser could not encode this video frame.") : null;
-        settle(data.id, data, error);
-      };
-      worker.onerror = event => {
-        event.preventDefault();
-        failure = new Error("The browser could not open its video encoder.");
-        if (pending) settle(pending.id, null, failure);
-      };
-      worker.onmessageerror = () => {
-        failure = new Error("The browser could not read this video frame.");
-        if (pending) settle(pending.id, null, failure);
-      };
-      const ready = await wait(id => worker.postMessage({
-        type: "init", id, width: canvas.width, height: canvas.height,
-      }));
-      if (!ready.ready) releaseWorker();
+      await openWorker();
+      usesWorker = true;
     }
   } catch (error) {
     releaseWorker();
@@ -254,14 +270,19 @@ async function createVideoFrameEncoder(canvas, signal, options = {}) {
     // behind, while the retained bitmap count stays explicitly bounded.
     async submit(index = 0) {
       if (stopped) throw stopped;
-      if (!worker) return { frame: Promise.resolve(await encodeOnMainThread()) };
+      if (!usesWorker) {
+        try { return { frame: Promise.resolve(await encodeOnMainThread()) }; }
+        catch (error) { throw videoFrameError(index, error); }
+      }
       while (inFlight >= 2) {
         await new Promise(resolve => slotWaiters.push(resolve));
         if (stopped) throw stopped;
       }
       if (failure) throw failure;
       const snapshotStarted = performance.now();
-      const bitmap = await snapshot();
+      let bitmap;
+      try { bitmap = await snapshot(); }
+      catch (error) { throw videoFrameError(index, error); }
       timings.snapshot_seconds += (performance.now() - snapshotStarted) / 1000;
       if (stopped) { bitmap.close(); throw stopped; }
       if (failure) { bitmap.close(); throw failure; }
@@ -275,10 +296,14 @@ async function createVideoFrameEncoder(canvas, signal, options = {}) {
         if (failure) { bitmap.close(); throw failure; }
         const encodingStarted = performance.now();
         try {
+          if (!worker) await openWorker();
           const result = await wait(id => worker.postMessage({ type: "frame", id, bitmap }, [bitmap]));
           if (!(result.frame instanceof ArrayBuffer)) throw new Error("The browser could not encode this video frame.");
           return result.frame;
+        } catch (error) {
+          throw videoFrameError(index, error);
         } finally {
+          bitmap.close();
           timings.encode_seconds += (performance.now() - encodingStarted) / 1000;
         }
       })();
@@ -291,6 +316,15 @@ async function createVideoFrameEncoder(canvas, signal, options = {}) {
     close,
   };
   return png;
+}
+
+function videoFrameError(index, cause) {
+  if (cause.name === "AbortError") return cause;
+  const detail = `${cause.name || "Error"}: ${cause.message || "PNG encoding failed."}`;
+  const advice = cause.name === "NotReadableError"
+    ? "The browser could not read the PNG data. Check available memory, temporary disk space and storage permissions, then try exporting again."
+    : "Try exporting again.";
+  return new Error(`The browser could not encode video frame ${index + 1} (${detail}). ${advice}`, { cause });
 }
 
 function updateVideoPicture() {
@@ -475,13 +509,13 @@ async function createVideo(event) {
     if (!context) throw new Error("The browser could not open a drawing canvas.");
     try {
       encoder = await createVideoFrameEncoder(canvas, operation.controller.signal,
-        { transport, fps, bitrate, quantizer: quality.quantizer });
+        { transport, fps, bitrate, quantizer: quality.quantizer, maxBytes: batchBytes });
     } catch (error) {
       // A codec can be advertised on the window but unavailable in a worker.
       // Fall back before starting the server job so its pipe format stays exact.
       if (transport !== "h264") throw error;
       transport = "png";
-      encoder = await createVideoFrameEncoder(canvas, operation.controller.signal, { transport, fps });
+      encoder = await createVideoFrameEncoder(canvas, operation.controller.signal, { transport, fps, maxBytes: batchBytes });
     }
     const job = await api(`/api/tracks/${track.id}/video-exports`, "POST", {
         width, height, fps, transport,
@@ -543,21 +577,36 @@ async function createVideo(event) {
         }
       }
     })();
-    const failure = upload.then(() => new Promise(() => {}));
-    failure.catch(() => {});
+    // A never-settling shared Promise.race input retains every winning result
+    // (including its frame bytes) until the whole export ends. Subscribe only
+    // while a draw/encode wait is active and release that subscription at once.
+    let uploadError = null;
+    const uploadWaiters = new Set();
+    upload.catch(error => {
+      uploadError = error;
+      for (const reject of uploadWaiters) reject(error);
+    });
+    const duringUpload = async start => {
+      if (uploadError) throw uploadError;
+      let rejectFailure;
+      const failure = new Promise((_, reject) => { rejectFailure = reject; });
+      uploadWaiters.add(rejectFailure);
+      try { return await Promise.race([start(), failure]); }
+      finally { uploadWaiters.delete(rejectFailure); }
+    };
     let lastPreview = 0;
     try {
       for (let index = 0; index < job.frames; index++) {
         if (queueFull()) {
-          await Promise.race([encoder.drain(), failure]);
-          while (queueFull()) await Promise.race([new Promise(resolve => wakeDrawer = resolve), failure]);
+          await duringUpload(() => encoder.drain());
+          while (queueFull()) await duringUpload(() => new Promise(resolve => wakeDrawer = resolve));
         }
         if (operation.cancelled) return;
         const seconds = job.source_start + index / job.fps;
         let stageStarted = performance.now();
         drawSeedArtwork(context, job.width, job.height, track.recipe.seed, seconds, motionAt(motion, seconds), appearance);
         timings.draw_seconds += (performance.now() - stageStarted) / 1000;
-        const { frame } = await Promise.race([encoder.submit(index), failure]);
+        const { frame } = await duringUpload(() => encoder.submit(index));
         frame.catch(() => {}); // The uploader reports it in frame order.
         queued.push(frame);
         if (transport === "png") frame.then(bytes => {
@@ -576,7 +625,7 @@ async function createVideo(event) {
           timings.preview_seconds += (performance.now() - stageStarted) / 1000;
         }
       }
-      await Promise.race([encoder.flush(), failure]);
+      await duringUpload(() => encoder.flush());
       await upload;
     } finally {
       stopped = true;

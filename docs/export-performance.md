@@ -266,3 +266,93 @@ do not establish quality across complete pieces. The earlier realtime Share
 trial stalled after one frame; it is retained as failed evidence and excluded
 from the table. Quality-mode draining completed every case. Independent mobile
 players, longer passages and controlled throughput/resource trials remain open.
+
+### Long PNG exports and browser backing storage
+
+The PNG worker can keep browser Blob backing data alive until garbage collection,
+including after `image.arrayBuffer()` completes and its ArrayBuffer is transferred.
+Clearing the JavaScript variable does not itself collect the Blob. In Chromium
+145 incognito, a focused 1024-square noise-frame probe left 200 PNG Blobs and
+about 776 MB live after 200 encodes. `FileReaderSync` retained the same number
+and was rejected as a fix. A long 2160-square/60 export also accumulated live
+PNG Blobs and failed; this is separate from codec throughput.
+
+Workers now retire after their cumulative PNG bytes reach the server's advertised
+batch-byte budget. Standalone encoders derive that budget from one raw RGBA frame.
+The next captured bitmap continues in a fresh worker, in order. Worker retirement
+releases the retained Blobs without depending on browser GC cadence. It does not
+limit the number of frames or duration, change PNG pixels, or change the final
+encoder. Active worker backing data may exceed the budget by one encoded frame.
+The draw/upload loop also removes upload-failure subscriptions as each wait ends;
+a shared pending race promise previously retained successful frame results until
+the export ended.
+
+Read failures preserve the browser exception name, message and one-based frame
+number. The UI suggests checking memory, temporary disk space and permissions;
+it does not infer a specific resource failure from `NotReadableError` alone.
+`tests/video-storage.mjs` forces Chromium's file transport in an isolated profile
+and denies writes only to that profile's Blob directory. This produces a real
+browser read error, checks server-job cleanup, and restores permissions before a
+fresh export. It requires an unprivileged POSIX user. It is a storage-fault test,
+not a recreation of memory pressure on an M4.
+
+Chromium documents [Blob backing storage, GC and quotas](https://chromium.googlesource.com/chromium/src.git/+/refs/heads/main/storage/browser/blob/README.md).
+Its [test transport switches](https://chromium.googlesource.com/chromium/src.git/+/refs/heads/main/storage/browser/blob/blob_storage_constants.h)
+are browser test controls, not Studio configuration.
+
+### Repeating a revision and collecting resources
+
+The current harness can measure any locally available source commit without
+changing the active checkout. Install the current harness's Node dependencies,
+then run:
+
+```sh
+RIFF_DEMO_WAV=/absolute/reference.wav RIFF_BENCH_DURATIONS=2,30 \
+  node scripts/benchmark_video_revision.mjs COMMIT /absolute/new-results-directory
+```
+
+The wrapper checks out the exact commit in a detached temporary worktree and
+runs the current harness against its server and web assets. It records both the
+source and harness revisions (and dirty state), then removes the temporary
+checkout. Refusal to remove a modified checkout preserves that work. Receipts
+and media remain in `measurements/`. For a software comparison, run revisions
+serially in alternating order on the same WAV, dimensions, durations, transport,
+upload mode and browser; compare retained decoded hashes. Shared-host observations
+must be labelled contended, even with matched inputs. A controlled-load matrix
+still requires a reserved quiet interval.
+
+The harness now uses an isolated persistent Chromium profile, like ordinary
+Studio browsing, instead of Playwright's default incognito context. All browser,
+fixture and export temporary files live below the result directory. It reports
+available disk space before running and samples temporary allocated/logical bytes,
+owned process RSS/CPU and host load every 500 ms. Linux also counts owned open
+unlinked files under that temporary directory, deduplicated by device/inode;
+other platforms report that component as unavailable. These are sampled peaks,
+include fixture WAVs and retained MP4s in the temporary library, and exclude files
+outside the directory and in-memory `memfd` allocations.
+
+NVIDIA counters, where available, are **system-wide**, include unrelated work,
+and are retained with GPU identity and browser graphics information. Software
+WebGL utilization is not inferred from them. Missing GPU samples are unavailable,
+not zero. On Apple hardware a separate platform GPU profiler is still required.
+The browser samples DOM progress and ordinary timer gaps while exporting without
+pointer input; encoder tests also cancel with keyboard input during a pending
+encode and during worker replacement.
+
+Additional controls:
+
+- `RIFF_BENCH_TRANSPORTS=png` selects the long PNG reproduction alone.
+- `RIFF_BENCH_CONTEXT=incognito` exercises the no-disk-spill Blob context.
+- `RIFF_BENCH_BLOB_INTERNALS=1` retains live `chrome://blob-internals` records
+  every five seconds. This extra profiling can affect timings.
+- `RIFF_BENCH_BROWSER_ARGS='["--blob-transport-by-file-trigger=1"]'` forces
+  Chromium's test file transport; disclose it with results.
+- `RIFF_BENCH_TIMEOUT_MS` optionally supplies a caller-selected wait timeout.
+  Export/download waits have no default duration cap. Repeat counts, injected
+  latency and streamed frame-hash output have no artificial upper limits.
+
+A supplied WAV must cover the longest passage. The built-in fixture is twelve
+seconds; use the existing two/ten-second defaults for a short matrix, or supply
+longer audio to exceed the recorded failure around frame 1521. Failures retain
+the last server job state, UI error, resource samples and Blob samples in
+`failure.json`, rather than being discarded from the evidence.

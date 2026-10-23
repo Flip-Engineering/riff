@@ -107,6 +107,52 @@ try {
   console.log("PASS Overlapped PNG submissions retain their own pixels, frame order and worker lifecycle");
 
   await fresh();
+  const retired = await page.evaluate(async () => {
+    const canvas = encoderCanvas(), context = canvas.getContext("2d");
+    const encoder = await createVideoFrameEncoder(canvas, new AbortController().signal, { maxBytes: 1 });
+    try {
+      const frames = [];
+      for (const [index, color] of ["#cad0f0", "#573450", "#121312"].entries()) {
+        context.fillStyle = color; context.fillRect(0, 0, canvas.width, canvas.height);
+        frames.push((await encoder.submit(index)).frame);
+      }
+      const bytes = await Promise.all(frames), matches = [];
+      for (const [index, color] of ["#cad0f0", "#573450", "#121312"].entries()) {
+        context.fillStyle = color; context.fillRect(0, 0, canvas.width, canvas.height);
+        matches.push(await encoderPixelsEqual(canvas, bytes[index]));
+      }
+      return matches;
+    } finally { encoder.close(); }
+  });
+  assert.deepEqual(retired, [true, true, true]);
+  assert.deepEqual(await page.evaluate(() => encoderWorkers.map(worker => worker.stopped)), [true, true, true]);
+  console.log("PASS Worker retirement at the byte budget preserves queued snapshots, exact pixels and frame order");
+
+  await fresh();
+  let workerLoads = 0;
+  await page.route(workerRoute, route => route.fulfill({ contentType: "text/javascript", body: ++workerLoads === 1
+    ? "self.onmessage=({data})=>{if(data.type==='init')self.postMessage({id:data.id,ready:true});else{const frame=new ArrayBuffer(1);self.postMessage({id:data.id,frame,retire:true},[frame]);}};"
+    : "self.onmessage=()=>{};" }));
+  await page.evaluate(async () => {
+    window.retirementController = new AbortController();
+    const encoder = await createVideoFrameEncoder(encoderCanvas(), retirementController.signal);
+    window.retirementResult = (async () => {
+      try {
+        const first = await encoder.submit(0), second = await encoder.submit(1);
+        await first.frame; await second.frame;
+        return "resolved";
+      } catch (error) { return error.name; }
+      finally { encoder.close(); }
+    })();
+  });
+  await page.waitForFunction(() => encoderWorkers.length === 2);
+  await page.evaluate(() => retirementController.abort());
+  assert.equal(await page.evaluate(() => retirementResult), "AbortError");
+  assert.deepEqual(await page.evaluate(() => encoderWorkers.map(worker => worker.stopped)), [true, true]);
+  await page.unroute(workerRoute);
+  console.log("PASS Cancellation during worker replacement releases the replacement and queued snapshot");
+
+  await fresh();
   const encoded = await page.evaluate(async () => {
     if (typeof VideoEncoder !== "function" || typeof VideoFrame !== "function") return { supported: false };
     const canvas = document.createElement("canvas"); canvas.width = 320; canvas.height = 248;
@@ -303,6 +349,32 @@ try {
   }
   console.log("PASS Explicit worker errors, crashes and failures between frames stop encoding with a useful error and no fallback replay");
 
+  // Exercise the real worker error serialization, not a fake worker reply.
+  for (const transport of ["worker", "main"]) {
+    await fresh();
+    const cause = "PNG backing store is unavailable";
+    if (transport === "worker") await page.route(workerRoute, route => route.fulfill({
+      contentType: "text/javascript", body: `Blob.prototype.arrayBuffer=async()=>{throw new DOMException(${JSON.stringify(cause)},"NotReadableError")};\n` + readFileSync("web/video-encoder.js", "utf8"),
+    }));
+    else await page.evaluate(cause => {
+      window.OffscreenCanvas = undefined;
+      Blob.prototype.arrayBuffer = async () => { throw new DOMException(cause, "NotReadableError"); };
+    }, cause);
+    const result = await page.evaluate(async () => {
+      const encoder = await createVideoFrameEncoder(encoderCanvas(), new AbortController().signal);
+      try { await encoder.encode(1521); return "accepted"; }
+      catch (error) { return { message: error.message, cause: error.cause?.name }; }
+      finally { encoder.close(); }
+    });
+    assert.match(result.message, /video frame 1522/);
+    assert.match(result.message, /NotReadableError: PNG backing store is unavailable/);
+    assert.match(result.message, /Check available memory, temporary disk space and storage permissions/);
+    assert.equal(result.cause, "NotReadableError");
+    assert(await page.evaluate(() => encoderWorkers.every(worker => worker.stopped)));
+    if (transport === "worker") await page.unroute(workerRoute);
+  }
+  console.log("PASS Worker and main-thread PNG read failures retain the browser cause and one-based frame number");
+
   await fresh();
   await page.route(workerRoute, route => route.fulfill({ contentType: "text/javascript", body:
     "self.onmessage=({data})=>self.postMessage(data.type==='init'?{id:data.id,ready:true}:{id:-1,started:true});" }));
@@ -312,11 +384,17 @@ try {
   await page.locator("#video-fps").fill("12");
   await page.locator("#video-selection").selectOption("passage");
   await page.locator("#video-end").fill("0:00.25");
-  await page.locator("#render-video").click();
+  await page.evaluate(() => {
+    window.exportPointerEvents = 0;
+    document.addEventListener("pointermove", () => exportPointerEvents++);
+    document.querySelector("#video-form").requestSubmit();
+  });
   await page.waitForFunction(() => videoExport?.id && window.encoderStarted);
   const cancelledId = await page.evaluate(() => videoExport.id);
-  await page.locator("#cancel-video").click();
+  await page.locator("#cancel-video").focus();
+  await page.keyboard.press("Enter");
   await page.waitForFunction(() => videoExport === null);
+  assert.equal(await page.evaluate(() => exportPointerEvents), 0);
   const cancelled = await (await page.request.get(`${base}/api/video-exports/${cancelledId}`)).json();
   assert.equal(cancelled.status, "cancelled"); assert.equal(cancelled.received, 0);
   assert(await page.evaluate(() => encoderWorkers.every(worker => worker.stopped)));
