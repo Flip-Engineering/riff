@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync, linkSync, openSync, unlinkSync, closeSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { chromium } from "playwright";
 import { diskSpace, resourceSample } from "../scripts/video-benchmark-resources.mjs";
 
 const root = mkdtempSync(join(tmpdir(), "riff-video-resources-"));
@@ -23,6 +24,24 @@ try {
   assert(sample.wall_time);
   assert(diskSpace(root).available_bytes > 0);
   console.log("PASS Temporary-storage sampler deduplicates inodes and includes owned unlinked files on Linux");
+  if (process.platform === "linux") {
+    const browser = await chromium.launch({ headless: true, executablePath: process.env.RIFF_BROWSER_EXECUTABLE });
+    try {
+      const page = await browser.newPage();
+      await page.evaluate(() => new Promise(resolve => {
+        const url = URL.createObjectURL(new Blob(["self.postMessage('ready');self.onmessage=()=>{};"], { type: "text/javascript" }));
+        window.resourceWorker = new Worker(url);
+        resourceWorker.onmessage = () => { URL.revokeObjectURL(url); resolve(); };
+      }));
+      const processes = resourceSample(root).processes;
+      assert(processes.some(value => value.role === "harness" && value.pid === process.pid));
+      const renderers = processes.filter(value => value.role === "renderer");
+      assert(renderers.length, "Real Chromium renderer roles must be identified");
+      assert(renderers.some(value => value.threads?.some(thread => thread.name.includes("DedicatedWorker") && thread.cpu_seconds >= 0)),
+        "Real dedicated-worker thread CPU counters must be retained");
+      console.log("PASS Chromium renderer and dedicated-worker CPU labels survive flattened process titles");
+    } finally { await browser.close(); }
+  }
 } finally {
   if (descriptor !== undefined) closeSync(descriptor);
   rmSync(root, { recursive: true, force: true });

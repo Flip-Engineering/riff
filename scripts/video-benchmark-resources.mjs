@@ -26,14 +26,16 @@ export function resourceSample(root, processId = process.pid) {
   do { previous = owned.size; for (const [pid, parent] of rows) if (owned.has(parent)) owned.add(pid); } while (previous !== owned.size);
   const processes = rows.filter(([pid, parent, , , , command]) => owned.has(pid) && !(parent === process.pid && command === "ps"))
     .map(([pid, parent, rss, cpu, cpuTime, command]) => {
-      const record = { pid, parent, command, rss_bytes: rss * 1024, cpu_percent: cpu, cpu_seconds: cpuTime, role: command, threads: null };
+      const record = { pid, parent, command, rss_bytes: rss * 1024, cpu_percent: cpu, cpu_seconds: cpuTime, role: pid === processId ? "harness" : command, threads: null };
       if (process.platform !== "linux") return record;
       try {
         // Read only this benchmark's descendants, and retain a role rather than
         // command arguments (which can contain unrelated sensitive values).
-        const args = readFileSync(`/proc/${pid}/cmdline`, "utf8").split("\0");
-        const type = args.find(arg => /^--type=[a-z-]+$/.test(arg));
-        if (type) record.role = type.slice(7);
+        const cmdline = readFileSync(`/proc/${pid}/cmdline`, "utf8");
+        // Chromium may flatten its argv into a single process-title string.
+        const type = cmdline.match(/(?:^|[\s\0])--type=([a-z-]+)(?=$|[\s\0])/);
+        if (type) record.role = type[1];
+        else if (!cmdline) record.role = null;
         else if (/chrome|chromium/i.test(command)) record.role = "browser";
         if (record.role === "renderer") {
           record.threads = [];
