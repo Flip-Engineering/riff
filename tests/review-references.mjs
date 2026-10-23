@@ -122,7 +122,7 @@ try {
   assert.deepEqual(groups, ["Generated take", "Broadside session", "Porch tape"]);
   await note.locator(".review-references-used > summary").click();
   const receipt = await note.locator(".review-reference-receipt").textContent();
-  for (const text of ["Broadside session", "https://example.org/broadside", "WAV", "Porch tape"]) assert(receipt.includes(text), text);
+  for (const text of ["Broadside session", "https://example.org/broadside", "WAV", "sent as MP3", "Porch tape"]) assert(receipt.includes(text), text);
   const saved = await page.evaluate(async (id) => (await fetch(`/api/reviews/${id}`)).text(), created.id);
   assert(!saved.includes("test-results") && !saved.includes("review-references"), "No file location reaches the page");
   assert(JSON.parse(saved).usage.seen.length === 2, "The provider double read both stored clips");

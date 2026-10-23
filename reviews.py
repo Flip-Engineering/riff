@@ -18,7 +18,7 @@ import uuid
 
 from keychain import Keychain
 from studio_core import ROOT
-from review_recipe import attribute_observations, recommended_generation, source_seed
+from review_recipe import attribute_observations, recommended_generation, sent_audio_receipt, source_seed
 
 # Defaults for the reference-clip settings in the review settings dialog and
 # POST /api/review/settings. Each is the user's choice; none is a fixed gate.
@@ -51,7 +51,7 @@ class Reviews:
             columns = {row["name"] for row in db.execute("PRAGMA table_info(reviews)")}
             if "generation" not in columns:
                 db.execute("ALTER TABLE reviews ADD COLUMN generation TEXT NOT NULL DEFAULT '{}'")
-            for name in ("attachments", "observations", "warnings"):
+            for name in ("attachments", "observations", "warnings", "sent_audio"):
                 if name not in columns:
                     db.execute(f"ALTER TABLE reviews ADD COLUMN {name} TEXT NOT NULL DEFAULT '[]'")
             db.executescript("""
@@ -125,7 +125,7 @@ class Reviews:
     @staticmethod
     def unpack(row):
         item = dict(row)
-        for name in ("source_recipe", "revision", "generation", "usage", "observations", "warnings"):
+        for name in ("source_recipe", "revision", "generation", "usage", "observations", "warnings", "sent_audio"):
             item[name] = json.loads(item[name])
         item["references"] = json.loads(item.pop("attachments"))
         # Historical recommendations may predate seed retention. Present an
@@ -456,6 +456,7 @@ class Reviews:
                     if review["references"]:
                         result["observations"], result["warnings"] = attribute_observations(
                             result.get("observations"), review["references"])
+                        result["sent_audio"] = sent_audio_receipt(result.get("sent_audio"))
         except Exception as exc:
             error = str(exc).replace(secret, "[redacted]") if secret else str(exc)
         finally:
@@ -474,10 +475,11 @@ class Reviews:
                                     if generation[key] != review["source_recipe"].get(key, "")}
                         if review["keep_lyrics"]:
                             revision.pop("lyrics", None)
-                        db.execute("UPDATE reviews SET status=?,finished=?,notes=?,summary=?,revision=?,generation=?,usage=?,observations=?,warnings=? WHERE id=?",
+                        db.execute("UPDATE reviews SET status=?,finished=?,notes=?,summary=?,revision=?,generation=?,usage=?,observations=?,warnings=?,sent_audio=? WHERE id=?",
                                    (status, time.time(), result["notes"], str(result.get("summary", "")),
                                     json.dumps(revision), json.dumps(generation), json.dumps(result.get("usage", {})),
-                                    json.dumps(result.get("observations", [])), json.dumps(result.get("warnings", [])), review["id"]))
+                                    json.dumps(result.get("observations", [])), json.dumps(result.get("warnings", [])),
+                                    json.dumps(result.get("sent_audio", [])), review["id"]))
                     else:
                         db.execute("UPDATE reviews SET status=?,finished=?,error=? WHERE id=?",
                                    (status, time.time(), error if status == "failed" else "", review["id"]))

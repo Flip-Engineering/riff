@@ -65,6 +65,7 @@ else:
    obs.append({'source':r['id'],'timestamp':'0:02','note':'Reference '+r['label']+' sits brighter in the mix.'})
   if s['focus']=='unattributed': obs.append({'source':'invented','timestamp':'','note':'Nobody said this.'})
   result['observations']=obs
+  result['sent_audio']=[{'source':x,'format':'mp3','bytes':10,'sha256':'a'*64} for x in ['generated_take']+[r['id'] for r in refs]]
   result['usage']={'cost':.01,'seen':[hashlib.sha256(Path(r['path']).read_bytes()).hexdigest() for r in refs]}
 Path(sys.argv[1]).write_text(json.dumps(result))
 """

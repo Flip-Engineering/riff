@@ -1,5 +1,6 @@
 """One direct OpenRouter listening request; credentials arrive over stdin."""
 import base64
+import hashlib
 import json
 from pathlib import Path
 import subprocess
@@ -21,7 +22,9 @@ def encode_mp3(source, folder, name, subject="the recording"):
     except subprocess.CalledProcessError:
         # The command line names a local file; keep it out of the saved error.
         raise ValueError(f"FFmpeg could not prepare {subject} for review.") from None
-    return {"data": base64.b64encode(encoded.read_bytes()).decode(), "format": "mp3"}
+    data = encoded.read_bytes()
+    return {"data": base64.b64encode(data).decode(), "format": "mp3",
+            "sent": {"format": "mp3", "bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()}}
 
 
 def reference_prompt(references):
@@ -102,14 +105,17 @@ def listen(settings):
     )
     if not shutil.which("ffmpeg"):
         raise ValueError("Install FFmpeg with brew install ffmpeg to prepare recordings for review.")
-    parts = [{"type": "text", "text": prompt}]
+    parts, sent = [{"type": "text", "text": prompt}], []
+    def audio(source, folder, name, owner, subject="the recording"):
+        # Providers take MP3 or WAV; converting is transcoding, and what was sent is recorded.
+        encoded = encode_mp3(source, folder, name, subject)
+        sent.append({"source": owner, **encoded.pop("sent")})
+        return {"type": "input_audio", "input_audio": encoded}
     with tempfile.TemporaryDirectory(prefix="riff-listen-") as folder:
-        parts.append({"type": "input_audio", "input_audio": encode_mp3(settings["audio"], folder, "recording.mp3")})
+        parts.append(audio(settings["audio"], folder, "recording.mp3", "generated_take"))
         for number, item in enumerate(references, 1):
             parts.append({"type": "text", "text": f"Reference audio {number}: id {item['id']}, labelled {item['label']!r}."})
-            parts.append({"type": "input_audio",
-                          "input_audio": encode_mp3(item["path"], folder, f"reference-{number}.mp3",
-                                                     f"the reference {item['label']!r}")})
+            parts.append(audio(item["path"], folder, f"reference-{number}.mp3", item["id"], f"the reference {item['label']!r}"))
     payload = {"model": settings["model"],
                "provider": {"require_parameters": True},
                "response_format": {"type": "json_schema", "json_schema": {
@@ -150,6 +156,7 @@ def listen(settings):
               "model": result.get("model", settings["model"]), "response_id": result.get("id", "")}
     if references:
         review["observations"] = parsed.get("observations")
+        review["sent_audio"] = sent
     return review
 
 

@@ -1184,11 +1184,32 @@ class Generator:
             if reserved:
                 self.admission.release(identity)
 
+    def with_review_references(self, recipe):
+        """Record the reference clips of the review a take was made from.
+
+        This is provenance for people and agents reading the take. It is derived here
+        from the saved review, never taken from the caller, and no generation or
+        review prompt reads it.
+        """
+        if not recipe.get("review_id"):
+            return recipe
+        with self.store.db() as db:
+            row = None
+            if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='reviews'").fetchone():
+                row = db.execute("SELECT * FROM reviews WHERE id=?", (recipe["review_id"],)).fetchone()
+        clips = json.loads(row["attachments"]) if row is not None and "attachments" in row.keys() else []
+        recipe = dict(recipe)
+        recipe.pop("review_references", None)
+        if clips:
+            recipe["review_references"] = [{key: item[key] for key in ("id", "sha256", "label")} for item in clips]
+        return recipe
+
     def submit(self, payload):
         if isinstance(payload, dict) and payload.get("acoustic_source"):
             recipe = self.store.acoustics.recipe(payload)
         else:
             recipe = self.store.prepare_performance(validate_recipe(payload))
+        recipe = self.with_review_references(recipe)
         job_id = uuid.uuid4().hex
         with self.lock:
             self._accepting()

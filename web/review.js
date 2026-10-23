@@ -290,6 +290,10 @@
       <div class="review-take-actions"><button type="button" class="secondary-button solid" data-generate-review="${review.id}">${take.acoustic_source ? "Finish audio" : take.render_mode === "plan" ? "Compose this score" : take.render_mode === "sound" ? "Create this sound" : take.render_mode === "performance" ? "Create this performance" : take.performance_source ? "Render this performance" : "Generate this take"}</button><button type="button" class="text-button" data-use-review="${review.id}">Edit in studio</button></div></section>`;
   }
 
+  function sentAs(review, item) {
+    const sent = (review.sent_audio || []).find((entry) => entry.source === item.id);
+    return sent ? ` · sent as ${esc(sent.format.toUpperCase())}` : "";
+  }
   function referencesBlock(review, open = false) {
     if (!review.references?.length) return "";
     const names = {
@@ -298,7 +302,7 @@
     };
     const clips = review.references
       .map(
-        (item) => `<li><strong>${esc(item.label)}</strong> <span class="quiet-text">${esc(formatDuration(item.duration))} · ${esc(item.format.toUpperCase())} · ${esc(megabytes(item.bytes))} · ${shortHash(item.sha256)}</span>${item.link ? `<a class="review-reference-link" href="${esc(item.link)}" target="_blank" rel="noopener noreferrer">${esc(item.link)}</a>` : ""}${item.note ? `<span class="review-reference-note">${esc(item.note)}</span>` : ""}</li>`,
+        (item) => `<li><strong>${esc(item.label)}</strong> <span class="quiet-text">${esc(formatDuration(item.duration))} · ${esc(item.format.toUpperCase())} · ${esc(megabytes(item.bytes))} · ${shortHash(item.sha256)}${sentAs(review, item)}</span>${item.link ? `<a class="review-reference-link" href="${esc(item.link)}" target="_blank" rel="noopener noreferrer">${esc(item.link)}</a>` : ""}${item.note ? `<span class="review-reference-note">${esc(item.note)}</span>` : ""}</li>`,
       )
       .join("");
     const groups = Object.keys(names)

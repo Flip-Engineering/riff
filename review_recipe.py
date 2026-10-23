@@ -150,6 +150,16 @@ def attribute_observations(value, references):
     return kept, warnings
 
 
+def sent_audio_receipt(value):
+    """Keep the record of what audio was actually sent: its owner, format, size and hash."""
+    if not isinstance(value, list):
+        return []
+    return [{"source": item["source"], "format": item["format"], "bytes": item["bytes"], "sha256": item["sha256"]}
+            for item in value
+            if isinstance(item, dict) and isinstance(item.get("source"), str) and isinstance(item.get("format"), str)
+            and type(item.get("bytes")) is int and isinstance(item.get("sha256"), str)]
+
+
 def response_schema(source, keep_lyrics, *, preserve_seed=False, references=()):
     acoustics = available_acoustics(source)
     lora_ids = {item["id"] for item in source.get("loras", [])}

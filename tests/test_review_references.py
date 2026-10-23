@@ -162,6 +162,68 @@ class AttachmentTests(ReferenceFixture):
 
 
 @MEDIA
+class BlobLifetimeTests(ReferenceFixture):
+    def blob(self, item):
+        return self.store.data_root / "review-references" / item["sha256"]
+
+    def test_a_shared_file_is_deleted_only_when_no_record_or_receipt_needs_it(self):
+        path = write_clip(self.root / "shared.wav", 1.0)
+        one = self.reviews.add_reference(path, {"label": "Same clip, first label"}, "a.wav")
+        two = self.reviews.add_reference(path, {"label": "Same clip, second label"}, "b.wav")
+        self.assertEqual(one["sha256"], two["sha256"])
+        self.assertNotEqual(one["id"], two["id"])
+        self.assertEqual(len(list((self.store.data_root / "review-references").iterdir())), 1)
+        self.reviews.remove_reference(one["id"])
+        self.assertTrue(self.blob(two).is_file(), "another pending record still uses the file")
+        self.assertEqual([item["label"] for item in self.reviews.references()["references"]], ["Same clip, second label"])
+        self.reviews.remove_reference(two["id"])
+        self.assertFalse(self.blob(two).exists())
+        self.assertEqual(list((self.store.data_root / "review-references").iterdir()), [])
+
+    def test_a_receipt_or_a_consumed_record_keeps_the_file_for_every_other_record(self):
+        path = write_clip(self.root / "kept.wav", 1.0)
+        used = self.reviews.add_reference(path, {"label": "Used"}, "a.wav")
+        review = self.review([used["id"]])
+        self.assertEqual(review["status"], "done")
+        spare = self.reviews.add_reference(path, {"label": "Unconsumed twin"}, "b.wav")
+        self.reviews.remove_reference(spare["id"])
+        self.assertTrue(self.blob(used).is_file(), "the review receipt still names it")
+        # Removing a re-attached copy of the receipt's clip also leaves the file.
+        copy = self.reviews.reuse_references(review["id"])["references"][0]
+        self.reviews.remove_reference(copy["id"])
+        self.assertTrue(self.blob(used).is_file())
+        retry = self.reviews.reuse_references(review["id"])["references"][0]
+        self.assertEqual(self.review([retry["id"]])["usage"]["seen"], [used["sha256"]])
+
+    def test_removing_an_unconsumed_clip_deletes_a_file_no_receipt_names(self):
+        first = self.clip("one.wav", seconds=1.0)
+        second = self.clip("two.wav", seconds=2.0)
+        self.review([first["id"]])
+        self.reviews.remove_reference(second["id"])
+        self.assertFalse(self.blob(second).exists())
+        self.assertTrue(self.blob(first).is_file())
+
+
+@MEDIA
+class MediaToolTests(ReferenceFixture):
+    def test_ffprobe_runs_from_an_argument_list_without_a_shell(self):
+        calls = []
+        real = subprocess.run
+        def record(command, *args, **kwargs):
+            calls.append((command, kwargs))
+            return real(command, *args, **kwargs)
+        with patch("reviews.subprocess.run", side_effect=record):
+            self.clip("probe.wav; echo unsafe.wav", label="Odd name")
+        self.assertEqual([command[0] for command, _ in calls], ["ffprobe"])
+        for command, kwargs in calls:
+            self.assertIsInstance(command, list)
+            self.assertFalse(kwargs.get("shell"))
+            # Shell metacharacters in a name stay inside one argument.
+            self.assertTrue(command[-1].endswith("probe.wav; echo unsafe.wav"))
+            self.assertEqual(sum("unsafe" in part for part in command), 1)
+
+
+@MEDIA
 class ReviewWithReferencesTests(ReferenceFixture):
     def test_receipt_keeps_labels_hashes_provenance_model_and_an_executable_recipe_without_paths(self):
         one = self.clip("one.wav", label="Broadside", link="https://example.org/one")
@@ -172,6 +234,8 @@ class ReviewWithReferencesTests(ReferenceFixture):
         self.assertEqual(review["references"], [one, two])
         # The worker handed the client the stored files, in listening order.
         self.assertEqual(review["usage"]["seen"], [one["sha256"], two["sha256"]])
+        self.assertEqual([(item["source"], item["format"]) for item in review["sent_audio"]],
+                         [(GENERATED_TAKE, "mp3"), (one["id"], "mp3"), (two["id"], "mp3")])
         self.assertEqual(validate_recipe(review["generation"])["seed"], "42")
         self.assertEqual(review["generation"]["seed"], "42")
         by_source = {item["source"]: item for item in review["observations"]}
@@ -192,7 +256,7 @@ class ReviewWithReferencesTests(ReferenceFixture):
     def test_reviews_without_references_are_unchanged(self):
         review = self.review()
         self.assertEqual(review["status"], "done")
-        self.assertEqual((review["references"], review["observations"], review["warnings"]), ([], [], []))
+        self.assertEqual((review["references"], review["observations"], review["warnings"], review["sent_audio"]), ([], [], [], []))
         self.assertEqual(review["usage"], {"cost": .01})
         for payload in ({"references": "abc"}, {"references": [3]}, {"references": ["a", "a"]}):
             with self.subTest(payload=payload), self.assertRaises(ValueError):
@@ -303,6 +367,27 @@ class ReviewWithReferencesTests(ReferenceFixture):
                              (source["seed"], self.track_id, review["id"]))
             self.assertEqual((job["recipe"]["abc"], job["recipe"]["score_source"], job["recipe"]["cot"]),
                              (review["generation"]["abc"], review["generation"]["score_source"], review["generation"]["cot"]))
+            # The clips are recorded as provenance on the take, derived from the saved review. A claim from the caller is ignored.
+            expected = [{"id": clip["id"], "sha256": clip["sha256"], "label": "Calibration"}]
+            self.assertEqual(job["recipe"]["review_references"], expected)
+            claimed = generator.submit({**review["generation"], "parent_track_id": self.track_id, "review_id": review["id"],
+                                        "review_references": [{"id": "x", "sha256": "0" * 64, "label": "forged"}]})
+            self.assertEqual(claimed["recipe"]["review_references"], expected)
+            bare = generator.submit({**review["generation"], "parent_track_id": self.track_id})
+            self.assertNotIn("review_references", bare["recipe"])
+            plain = self.review()
+            self.assertNotIn("review_references", generator.submit({**plain["generation"], "review_id": plain["id"]})["recipe"])
+            # Informing context only: neither generation nor the next review's prompt reads it.
+            from review_recipe import generation_context
+            finished = self.store.outputs / "variation.wav"
+            shutil.copyfile(self.audio, finished)
+            taken = self.store.add_track(finished, job["recipe"], {})
+            saved = self.store.track(taken)["recipe"]
+            self.assertEqual(saved["review_references"], expected)
+            self.assertEqual((saved["seed"], saved["parent_track_id"], saved["review_id"]),
+                             (source["seed"], self.track_id, review["id"]))
+            self.assertNotIn("review_references", generation_context(saved))
+            self.assertNotIn("review_references", validate_recipe(saved))
             # Writers building a variation see the clips' provenance, never the files.
             context = generator.writing_settings({**review["generation"], "parent_track_id": self.track_id,
                                                   "review_id": review["id"]})["reference"]["review"]
@@ -355,6 +440,8 @@ class ProviderRequestTests(unittest.TestCase):
                                                     "finish_reason": "stop"}], "usage": {"cost": 0}}).encode())
 
         def run(command, **kwargs):
+            self.assertIsInstance(command, list, "media tools take an argument list, never a shell string")
+            self.assertFalse(kwargs.get("shell"))
             calls.append(command[0])
             encode_capturing(encodes)(command, **kwargs)
         with patch("review_client.shutil.which", return_value="ffmpeg"), \
@@ -388,6 +475,11 @@ class ProviderRequestTests(unittest.TestCase):
         self.assertEqual(schema["properties"]["observations"]["items"]["properties"]["source"]["enum"],
                          [GENERATED_TAKE, self.references[0]["id"], self.references[1]["id"]])
         self.assertEqual(result["observations"], [{"source": GENERATED_TAKE, "timestamp": "0:01", "note": "Steady."}])
+        # The format and hash actually sent are recorded; the original's hash stays in the clip receipt.
+        sent = [(GENERATED_TAKE, b"mp3:the generated take"), (self.references[0]["id"], b"mp3:reference 0"),
+                (self.references[1]["id"], b"mp3:reference 1")]
+        self.assertEqual(result["sent_audio"], [{"source": source, "format": "mp3", "bytes": len(data),
+                                                 "sha256": hashlib.sha256(data).hexdigest()} for source, data in sent])
         self.assertEqual(len(result["generation"]), len(__import__("review_recipe").FIELDS))
 
     def test_no_transcription_service_or_second_model_is_called(self):

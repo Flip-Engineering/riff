@@ -145,6 +145,8 @@ or second model. Everything in that request goes to OpenRouter and the model's
 provider, and OpenRouter usage charges apply. The studio states this next to the
 attachment controls.
 
+Providers accept MP3 and WAV, so Riff converts every clip, and the take, to MP3 with ffmpeg before sending. That is transcoding, not transcription. The receipt keeps the original's SHA-256 and format, and `sent_audio` records the format, size and SHA-256 of what was actually sent. ffprobe and ffmpeg run from argument lists, never a shell.
+
 Clips are opaque attachments. Riff stores each one by SHA-256 in the workspace
 data directory (`review-references/`), never in Git, and records its label,
 source link or note, duration, size and format. File paths are not sent to the
@@ -153,7 +155,15 @@ model and are not returned by any endpoint. A pending clip can be edited
 `references` (attachment IDs, in listening order) copies those details into the
 review receipt and keeps the clip file while any receipt names it.
 `POST /api/review/references/reuse` attaches fresh editable copies of a receipt's
-clips for another review or a retry.
+clips for another review or a retry. A clip file is deleted only when no pending
+record and no receipt names its hash.
+
+When a take is queued with `review_id` from a review that had clips, the studio
+records `review_references` (id, sha256, label) in the take's recipe. It is
+provenance for people and agents reading the take. The studio derives it from the
+saved review, ignores any value sent by the caller, and neither generation nor
+later review prompts read it. Seed, score and `parent_track_id` lineage are
+unchanged.
 
 The response adds `observations`, each attributed to `generated_take` or a
 reference ID, next to the usual notes, summary and executable generation. If the
