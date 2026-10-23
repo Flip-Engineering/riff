@@ -18,15 +18,17 @@ path, input schema and output schema.
 - Errors are `{"error": "..."}` with 400 (invalid input), 403 (not a Studio
   request), 404 (unknown ID), 409 (idempotency conflict) or 503 (library
   unavailable).
-- Receipts and references contain opaque IDs and captured provenance. They never
-  contain filesystem paths; this installation's directories appear in text only
-  as `<library>`, `<data>` or `<riff>`.
+- Receipts and references contain opaque IDs and captured provenance, copied
+  field by field from a fixed list, so they carry no filesystem paths. Recipes and
+  other text you sent or the take produced are returned exactly as recorded and are
+  never rewritten. Error messages, which are free text, show this installation's
+  directories as `<library>`, `<data>` or `<riff>`.
 
 ## Operations
 
 | Name | Effect |
 |---|---|
-| `GET /api/v1/operations` | Recorded operations, newest first. Filters: `family`, `status`, `parent`, `since`. `limit` is the page size you choose; without it every match is returned. With it, pass the returned `next_cursor` as `cursor` for the next page. |
+| `GET /api/v1/operations` | Recorded operations, newest first. Filters: `family`, `status` (one of `queued`, `running`, `cancelling`, `done`, `planned`, `performed`, `synthesized`, `cancelled`, `interrupted`, `failed`; anything else is a 400), `parent`, `since`. `limit` is the page size you choose; without it every match is returned. With it, pass the returned `next_cursor` as `cursor` for the next page. |
 | `GET /api/v1/operations/{id}` | Poll one operation and read its receipt. Accepts an operation ID, or the ID of the job or take it queued. |
 | `recipe.validate` | Runs the submit-time validation and reference resolution on `{"recipe": {...}}` and queues nothing. Returns `valid`, and either the `effective_recipe`, `references` and `parent`, or an `error`. |
 | `references.resolve` | Verifies `score_source`, `performance_source`, `acoustic_source` and `parent_track_id`, or with `{"subject": id}` lists the references that take, job or operation offers. Each result is `verified`, `incompatible` or `unavailable`, with provenance. |

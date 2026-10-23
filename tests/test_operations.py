@@ -269,12 +269,44 @@ class IdempotencyTests(OperationFixture):
 
 
 class AtomicityTests(OperationFixture):
-    def test_failure_while_recording_leaves_no_job(self):
+    def operation_rows(self):
+        with self.store.db() as db:
+            return db.execute("SELECT COUNT(*) FROM operations").fetchone()[0]
+
+    def test_failure_before_the_transaction_leaves_nothing(self):
         with patch.object(Operations, "resolve_references", side_effect=ValueError("reference changed")):
             self.assertEqual(self.study()[0], 400)
-        self.assertEqual(self.jobs(), [])
-        with self.store.db() as db:
-            self.assertEqual(db.execute("SELECT COUNT(*) FROM operations").fetchone()[0], 0)
+        self.assertEqual((self.jobs(), self.operation_rows()), ([], 0))
+
+    def test_failure_inside_the_transaction_rolls_back_the_job_and_the_operation(self):
+        """The job row is inserted first; a failure after it must take the job back out."""
+        original = Operations.adapter_references
+        seen = []
+        def fail_after_the_job_exists(recipe):
+            with self.store.db() as db:
+                seen.append(db.execute("SELECT COUNT(*) FROM jobs").fetchone()[0])
+            raise ValueError("recording failed")
+        with patch.object(Operations, "adapter_references", staticmethod(fail_after_the_job_exists)):
+            self.assertEqual(self.study()[0], 400)
+        # Another connection cannot see the uncommitted job, and nothing remained after the rollback.
+        self.assertEqual(seen, [0])
+        self.assertEqual((self.jobs(), self.operation_rows()), ([], 0))
+        self.assertEqual(self.study()[0], 201)
+        self.assertEqual((len(self.jobs()), self.operation_rows()), (1, 1))
+        self.assertIs(Operations.adapter_references, original)
+
+    def test_a_unique_key_collision_inside_the_transaction_leaves_one_job(self):
+        first = self.study(idempotency_key="same")[1]
+        original, calls = Operations._existing, []
+        def miss_once(operations, *arguments):
+            calls.append(arguments)
+            return None if len(calls) == 1 else original(operations, *arguments)
+        # The pre-check misses, as it would for a request racing the first; the insert path must catch it.
+        with patch.object(Operations, "_existing", miss_once):
+            status, result = self.study(idempotency_key="same")
+        self.assertEqual(status, 200)
+        self.assertEqual(result["operation_id"], first["operation_id"])
+        self.assertEqual((self.jobs(), self.operation_rows()), ([first["job_id"]], 1))
 
     def test_invalid_recipe_queues_nothing_and_records_nothing(self):
         self.assertEqual(self.study(recipe=recipe(steps=0))[0], 400)
@@ -758,6 +790,84 @@ class ResumeTests(DerivedFixture):
         status, result = self.resume("c" * 32)
         self.assertEqual(status, 201, result)
         self.assertEqual((result["receipt"]["effective_recipe"]["seed"], result["receipt"]["operation"]["resumes"]), ("66", "c" * 32))
+
+
+class PublicationTests(DerivedFixture):
+    def lora(self):
+        from test_loras import adapter_bytes
+        source = self.root / "a.safetensors"
+        source.write_bytes(adapter_bytes())
+        self.addCleanup(self.store.loras.close)
+        adapter = self.store.loras.import_local([source], metadata={"name": "Folk study", "license": "CC0"})
+        capabilities = patch("run.engine_capabilities", return_value={"lora": True, "warm_engine": False, "exact_score_replay": True,
+                                                                      "acoustic_checkpoint": True, "score_format": "f", "prefix_contract": "p"})
+        capabilities.start()
+        self.addCleanup(capabilities.stop)
+        return adapter
+
+    def test_receipts_carry_no_installation_paths_in_any_reference(self):
+        adapter = self.lora()
+        take = self.source(stages=("score", "performance", "sound"))
+        status, submission = self.study(recipe=recipe(
+            cot="melody", score_source=SCORE, loras=[{"id": adapter["id"], "strength": .5}]))
+        self.assertEqual(status, 201, submission)
+        status, performance = self.derive("take.develop", source=take["job_id"], retain=["performance"])
+        self.assertEqual(status, 201, performance)
+        status, sound = self.derive("take.replay", source=take["job_id"], replay="sound")
+        self.assertEqual(status, 201, sound)
+        fields = {item["field"] for result in (submission, performance, sound) for item in result["receipt"]["references"]}
+        self.assertEqual(fields, {"score_source", "loras", "performance_source", "acoustic_source", "parent_track_id"})
+        kinds = {item["kind"] for item in submission["receipt"]["references"]}
+        self.assertIn("adapter", kinds)
+        listing = self.request("GET", "/api/v1/operations")[1]
+        resolved = self.request("POST", "/api/v1/operations/references.resolve", {"subject": take["job_id"]})[1]
+        for label, value in (("submission", submission), ("performance", performance), ("sound", sound),
+                             ("receipt", self.request("GET", f"/api/v1/operations/{submission['operation_id']}")[1]),
+                             ("list", listing), ("resolve", resolved)):
+            text = json.dumps(value)
+            for root in (self.store.data_root, self.store.outputs, Path(__file__).resolve().parents[1], self.root):
+                with self.subTest(label=label, root=str(root)):
+                    self.assertNotIn(str(root), text)
+
+    def test_recipes_and_user_text_are_never_rewritten(self):
+        text = f"[Verse]\nWalking {self.store.outputs}/riff and {self.store.data_root} at dawn"
+        body = recipe(lyrics=text, style=f"folk, field recording from {self.store.outputs}")
+        status, submission = self.study(recipe=body)
+        self.assertEqual(status, 201, submission)
+        receipt = submission["receipt"]
+        self.assertEqual(receipt["request"], {"recipe": body})
+        self.assertEqual(receipt["effective_recipe"]["lyrics"], text)
+        self.assertEqual(receipt["result_recipe"]["lyrics"], text)
+        self.assertEqual(self.store.job(submission["job_id"])["recipe"]["lyrics"], text)
+        status, draft = self.derive("take.develop", source=submission["operation_id"], enqueue=False)
+        self.assertEqual(draft["draft"]["lyrics"], text)
+        compared = self.request("POST", "/api/v1/operations/inputs.compare", {"subjects": [
+            submission["operation_id"], self.study(recipe=recipe(lyrics=text, seed="2"))[1]["operation_id"]]})[1]
+        self.assertIn(text, [item["value"] for item in compared["shared"] if item["field"] == "lyrics"])
+        # Only error messages, which are free text about this installation, are made path-free.
+        with self.store.db() as db:
+            db.execute("UPDATE jobs SET status='failed',error=? WHERE id=?",
+                       (f"Could not read {self.store.outputs}/riff/x.wav", submission["job_id"]))
+        failed = self.request("GET", f"/api/v1/operations/{submission['operation_id']}")[1]
+        self.assertEqual(failed["errors"]["job"], "Could not read <library>/riff/x.wav")
+        self.assertEqual(failed["effective_recipe"]["lyrics"], text)
+
+    def test_studio_routes_return_the_recipe_the_generator_returned(self):
+        text = f"[Verse]\n{self.store.outputs} stays as written"
+        status, queued = self.request("POST", "/api/generations", recipe(lyrics=text, seed="31"))
+        self.assertEqual(status, 201)
+        self.assertEqual(queued["recipe"], self.store.job(queued["id"])["recipe"])
+        self.assertEqual(queued["recipe"]["lyrics"], text)
+        status, plan = self.request("POST", "/api/plans", recipe(cot="melody", seed="32"))
+        self.assertEqual(plan["recipe"], self.store.job(plan["id"])["recipe"])
+        again = self.request("POST", "/api/generations", recipe(lyrics=text, seed="31"), {"Idempotency-Key": "k"})[1]
+        replay = self.request("POST", "/api/generations", recipe(lyrics=text, seed="31"), {"Idempotency-Key": "k"})[1]
+        self.assertEqual(replay["recipe"], again["recipe"])
+
+    def test_status_filter_rejects_unknown_statuses(self):
+        self.study()
+        self.assertEqual(self.request("GET", "/api/v1/operations?status=queued")[0], 200)
+        self.assertEqual(self.request("GET", "/api/v1/operations?status=quued")[0], 400)
 
 
 if __name__ == "__main__":

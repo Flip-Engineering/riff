@@ -57,6 +57,15 @@ def recipe_changes(before, after):
             if (field in before, before.get(field)) != (field in after, after.get(field))]
 
 
+SCORE_PROVENANCE = ("id", "sha256", "bytes", "token_count", "truncated")
+PERFORMANCE_PROVENANCE = ("frames", "truncated", "sha256")
+SOUND_PROVENANCE = ("artifact_id", "title", "source_job_id", "sample_rate", "channels", "duration", "seed", "steps",
+                    "solver", "guidance", "hashes")
+ADAPTER_PROVENANCE = ("id", "name", "source", "base_model", "stages", "strength", "license", "ar_scale", "nar_scale")
+ADAPTER_FILE_PROVENANCE = ("stage", "sha256", "engine_sha256", "original_name")
+RUNTIME_CAPABILITIES = ("exact_score_replay", "acoustic_checkpoint", "warm_engine", "lora", "score_format", "prefix_contract")
+JOB_STATUSES = ("queued", "running", "cancelling", "done", "planned", "performed", "synthesized", "cancelled",
+                "interrupted", "failed")
 CARRIED = ("title", "lyrics", "style", "mode", "lyrics_source", "idea_engine", "brief", "writer_tokens", "cfg_scale",
            "temperature", "energy", "texture", "theme", "max_seconds", "steps", "solver", "cot", "refinement", "loras",
            "hold_words", "hold_sound", "writer_model", "writer_summary")
@@ -97,11 +106,11 @@ def idempotency_key(value):
 def runtime_identity():
     """Identify the application and engine that accepted the work."""
     try:
-        capabilities = {key: value for key, value in engine.engine_capabilities().items()
-                        if isinstance(value, (bool, int, str))}
+        capabilities = engine.engine_capabilities()
     except Exception:
         capabilities = {}
-    return {"riff": (ROOT / "VERSION").read_text().strip(), "engine_capabilities": capabilities}
+    return {"riff": (ROOT / "VERSION").read_text().strip(),
+            "engine_capabilities": {key: capabilities[key] for key in RUNTIME_CAPABILITIES if key in capabilities}}
 
 
 class Operations:
@@ -112,30 +121,27 @@ class Operations:
 
     # -- reads ---------------------------------------------------------------
 
-    def public(self, value):
-        """Replace this installation's directories in text; receipts carry IDs and provenance, not paths."""
-        roots = sorted({str(self.store.data_root): "<data>", str(self.store.outputs): "<library>", str(ROOT): "<riff>"}.items(),
-                       key=lambda item: -len(item[0]))
-        def clean(item):
-            if isinstance(item, str):
-                for root, label in roots:
-                    item = item.replace(root, label)
-                return item
-            if isinstance(item, dict):
-                return {key: clean(child) for key, child in item.items()}
-            if isinstance(item, list):
-                return [clean(child) for child in item]
-            return item
-        return clean(value)
+    def clean_text(self, text):
+        """Error messages are free text and can name this installation's directories; the rest of a
+        receipt is built from structured fields and is never rewritten."""
+        if not isinstance(text, str):
+            return text
+        for root, label in sorted({str(self.store.data_root): "<data>", str(self.store.outputs): "<library>",
+                                   str(ROOT): "<riff>"}.items(), key=lambda item: -len(item[0])):
+            text = text.replace(root, label)
+        return text
 
-    def find(self, operation_id):
+    def find(self, operation_id, db=None):
         """The operation row for an operation, job or take ID, or None for work recorded before operations existed."""
-        with self.store.db() as db:
-            return db.execute("SELECT * FROM operations WHERE id=? OR job_id=? ORDER BY id=? DESC LIMIT 1",
-                              (operation_id, operation_id, operation_id)).fetchone()
+        query = "SELECT * FROM operations WHERE id=? OR job_id=? ORDER BY id=? DESC LIMIT 1"
+        values = (operation_id, operation_id, operation_id)
+        if db is not None:
+            return db.execute(query, values).fetchone()
+        with self.store.db() as own:
+            return own.execute(query, values).fetchone()
 
-    def require(self, operation_id):
-        row = self.find(operation_id)
+    def require(self, operation_id, db=None):
+        row = self.find(operation_id, db)
         if row is None:
             raise KeyError("Operation not found.")
         return row
@@ -168,15 +174,18 @@ class Operations:
     def _receipt(self, job, operation, request, effective, references, runtime, unrecorded, derivation):
         recipe = job["recipe"]
         terminal = job["status"] in TERMINAL
-        errors = dict(recipe.get("artifact_errors") or {})
+        errors = {name: self.clean_text(message) for name, message in (recipe.get("artifact_errors") or {}).items()}
         if job["error"]:
-            errors["job"] = job["error"]
+            errors["job"] = self.clean_text(job["error"])
         stages = self._stages(effective, recipe, job, terminal)
+        for stage in stages.values():
+            if "error" in stage:
+                stage["error"] = self.clean_text(stage["error"])
         plan = recipe.get("symbolic_plan") or {}
-        return self.public({
+        return {
             "recorded": not unrecorded, "unrecorded": unrecorded,
             "operation": operation,
-            "job": {"id": job["id"], "status": job["status"], "error": job["error"], "created": job["created"],
+            "job": {"id": job["id"], "status": job["status"], "error": self.clean_text(job["error"]), "created": job["created"],
                     "started": job["started"], "finished": job["finished"], "queue_position": job["queue_position"]},
             "request": request,
             "effective_recipe": effective,
@@ -193,7 +202,7 @@ class Operations:
             "errors": errors,
             "result_recipe": recipe,
             "terminal": terminal,
-        })
+        }
 
     @staticmethod
     def _stages(effective, recipe, job, terminal):
@@ -233,6 +242,8 @@ class Operations:
         if family is not None:
             clauses.append("o.family_id=?"); values.append(identity(family, "Family"))
         if status is not None:
+            if status not in JOB_STATUSES:
+                raise ValueError("Status must be one of: " + ", ".join(JOB_STATUSES) + ".")
             clauses.append("j.status=?"); values.append(status)
         if parent is not None:
             clauses.append("json_extract(o.parent,'$.id')=?"); values.append(identity(parent, "Parent"))
@@ -261,59 +272,67 @@ class Operations:
             rows = db.execute(query, values).fetchall()
         more = limit is not None and len(rows) > limit
         rows = rows[:limit] if limit is not None else rows
-        items = [self.public({"id": r["id"], "name": r["name"], "created": r["created"], "family_id": r["family_id"],
-                              "parent": json.loads(r["parent"]) if r["parent"] else None, "resumes": r["resumes"],
-                              "job_id": r["job_id"], "idempotency_key": r["idempotency_key"], "status": r["status"],
-                              "title": r["title"], "error": r["error"], "track_id": r["track_id"] or ""}) for r in rows]
+        items = [{"id": r["id"], "name": r["name"], "created": r["created"], "family_id": r["family_id"],
+                  "parent": json.loads(r["parent"]) if r["parent"] else None, "resumes": r["resumes"],
+                  "job_id": r["job_id"], "idempotency_key": r["idempotency_key"], "status": r["status"],
+                  "title": r["title"], "error": self.clean_text(r["error"]), "track_id": r["track_id"] or ""} for r in rows]
         token = base64.urlsafe_b64encode(json.dumps([rows[-1]["created"], rows[-1]["id"]]).encode()).decode().rstrip("=") if more else None
         return {"operations": items, "next_cursor": token}
 
     # -- references ------------------------------------------------------------
 
-    def parent_of(self, recipe, explicit=None):
-        """Name the take this one continues, from the caller or the recipe's recorded links."""
+    def parent_of(self, recipe, explicit=None, db=None):
+        """Name the take this one continues, from the caller or the recipe's recorded links.
+
+        Pass the writing transaction's ``db`` so the checks and the insert see one state."""
+        if db is None:
+            with self.store.db() as own:
+                return self.parent_of(recipe, explicit, own)
         if explicit is not None:
             kind = explicit.get("kind") if isinstance(explicit, dict) else None
             if kind not in ("track", "job", "operation") or set(explicit) != {"kind", "id"}:
                 raise ValueError("Parent must be {kind: track|job|operation, id}.")
             reference = identity(explicit["id"], "Parent ID")
-            if kind == "track":
-                self.store.track(reference)
-            elif kind == "job":
-                self.store.job(reference)
-            else:
-                self.require(reference)
+            if kind == "operation":
+                self.require(reference, db)
+            elif not db.execute("SELECT 1 FROM " + ("tracks" if kind == "track" else "jobs") + " WHERE id=?", (reference,)).fetchone():
+                raise KeyError("Recording not found." if kind == "track" else "Generation not found.")
             return {"kind": kind, "id": reference}
         for field in ("parent_track_id", "performance_source"):
             value = recipe.get(field)
             if value:
-                with self.store.db() as db:
-                    job = db.execute("SELECT 1 FROM jobs WHERE id=? AND track_id IS NULL", (value,)).fetchone()
+                job = db.execute("SELECT 1 FROM jobs WHERE id=? AND track_id IS NULL", (value,)).fetchone()
                 # A take shares its ID with the job that made it; a job with no take is still a job.
                 return {"kind": "job" if job else "track", "id": value}
         return None
 
-    def family_for(self, parent, family_id=None):
+    def family_for(self, parent, family_id=None, db=None):
+        if db is None:
+            with self.store.db() as own:
+                return self.family_for(parent, family_id, own)
         if family_id is not None:
             identity(family_id, "Family")
-            with self.store.db() as db:
-                if not db.execute("SELECT 1 FROM operations WHERE family_id=? LIMIT 1", (family_id,)).fetchone():
-                    raise KeyError("Family not found.")
+            if not db.execute("SELECT 1 FROM operations WHERE family_id=? LIMIT 1", (family_id,)).fetchone():
+                raise KeyError("Family not found.")
             return family_id
         if parent:
-            with self.store.db() as db:
-                row = db.execute("SELECT family_id FROM operations WHERE id=? OR job_id=? LIMIT 1",
-                                 (parent["id"], parent["id"])).fetchone()
+            row = db.execute("SELECT family_id FROM operations WHERE id=? OR job_id=? LIMIT 1",
+                             (parent["id"], parent["id"])).fetchone()
             if row:
                 return row["family_id"]
         return uuid.uuid4().hex
 
     def resolve_references(self, recipe):
-        """Record what each reference resolved to when the server accepted it."""
+        """What each score, performance, sound and parent reference resolved to when the work was accepted.
+
+        Provenance is copied field by field from a fixed list, so nothing else a descriptor carries,
+        such as a file location, can reach a receipt. Reads files and the control runtime, so call it
+        outside any database transaction."""
         found = []
+        pick = lambda source, keys: {key: source[key] for key in keys if key in source}
         if recipe.get("score_source"):
             found.append({"field": "score_source", "kind": "score", "id": recipe["score_source"],
-                          "provenance": dict(recipe.get("score_input") or {})})
+                          "provenance": pick(recipe.get("score_input") or {}, SCORE_PROVENANCE)})
         if recipe.get("performance_source"):
             source, _ = self.store.performance_record(recipe["performance_source"])
             with self.store.db() as db:
@@ -321,17 +340,25 @@ class Operations:
                         else "detached" if db.execute("SELECT 1 FROM detached_performances WHERE id=?", (recipe["performance_source"],)).fetchone()
                         else "job")
             found.append({"field": "performance_source", "kind": "performance", "id": recipe["performance_source"],
-                          "provenance": {"source": kind, **{key: source["recipe"].get("performance", {}).get(key)
-                                                            for key in ("frames", "truncated", "sha256")}}})
+                          "provenance": {"source": kind, **pick(source["recipe"].get("performance") or {}, PERFORMANCE_PROVENANCE)}})
         if recipe.get("acoustic_source"):
             found.append({"field": "acoustic_source", "kind": "sound", "id": recipe["acoustic_source"],
-                          "provenance": dict(recipe.get("acoustic") or {})})
+                          "provenance": pick(recipe.get("acoustic") or {}, SOUND_PROVENANCE)})
         for field in ("parent_track_id", "review_id"):
             if recipe.get(field):
                 found.append({"field": field, "kind": "track" if field == "parent_track_id" else "review",
                               "id": recipe[field], "provenance": {}})
+        return found
+
+    @staticmethod
+    def adapter_references(recipe):
+        """The pinned adapter receipts, from the bound recipe (no file access)."""
+        found = []
         for receipt in recipe.get("lora_provenance") or []:
-            found.append({"field": "loras", "kind": "adapter", "id": receipt.get("id", ""), "provenance": dict(receipt)})
+            provenance = {key: copy.deepcopy(receipt[key]) for key in ADAPTER_PROVENANCE if key in receipt}
+            provenance["files"] = [{key: item[key] for key in ADAPTER_FILE_PROVENANCE if key in item}
+                                   for item in receipt.get("files", [])]
+            found.append({"field": "loras", "kind": "adapter", "id": receipt.get("id", ""), "provenance": provenance})
         return found
 
     def references(self, payload):
@@ -349,12 +376,12 @@ class Operations:
                 found.append(self._performance_reference(subject["job_id"] or subject["id"]))
             for item in self.store.available_acoustics(recipe):
                 found.append(self._sound_reference(item))
-            return {"subject": subject["id"], "references": self.public(found)}
+            return {"subject": subject["id"], "references": found}
         for field, check in (("score_source", self._check_score), ("performance_source", self._performance_reference),
                              ("acoustic_source", self._check_sound), ("parent_track_id", self._check_parent)):
             if payload.get(field):
                 found.append(check(identity(payload[field], field) if field in ("performance_source", "parent_track_id") else payload[field]))
-        return {"subject": None, "references": self.public(found)}
+        return {"subject": None, "references": found}
 
     @staticmethod
     def _score_reference(item):
@@ -377,7 +404,7 @@ class Operations:
             return self._score_reference(self.store.artifacts.describe(reference))
         except (ValueError, KeyError, OSError) as error:
             return {"field": "score_source", "kind": "score", "id": reference, "status": "unavailable",
-                    "provenance": {}, "error": str(error.args[0])}
+                    "provenance": {}, "error": self.clean_text(str(error.args[0]))}
 
     def _check_sound(self, reference):
         try:
@@ -386,7 +413,7 @@ class Operations:
             return self._sound_reference(self.store.acoustics.describe(reference))
         except (ValueError, KeyError, OSError) as error:
             return {"field": "acoustic_source", "kind": "sound", "id": reference, "status": "unavailable",
-                    "provenance": {}, "error": str(error.args[0])}
+                    "provenance": {}, "error": self.clean_text(str(error.args[0]))}
 
     def _performance_reference(self, reference):
         try:
@@ -397,7 +424,7 @@ class Operations:
                     "provenance": {key: saved.get(key) for key in ("frames", "truncated", "sha256")}}
         except (ValueError, KeyError, OSError) as error:
             return {"field": "performance_source", "kind": "performance", "id": reference, "status": "unavailable",
-                    "provenance": {}, "error": str(error.args[0] if isinstance(error, KeyError) else error)}
+                    "provenance": {}, "error": self.clean_text(str(error.args[0] if isinstance(error, KeyError) else error))}
 
     def _check_parent(self, reference):
         try:
@@ -446,36 +473,42 @@ class Operations:
                 differences.append({"field": field, "label": label, "values": [
                     {"subject": subject["id"], "recorded": recorded, "value": value}
                     for subject, (recorded, value) in zip(subjects, observed)]})
-        return self.public({
+        return {
             "subjects": [{key: subject[key] for key in ("id", "job_id", "title", "kind", "operation_id", "family_id")}
                          for subject in subjects],
-            "shared": shared, "differences": differences, "basis": "recorded_inputs_and_captured_stage_artifacts"})
+            "shared": shared, "differences": differences, "basis": "recorded_inputs_and_captured_stage_artifacts"}
 
     # -- writes ----------------------------------------------------------------
 
     def submit(self, name, request, payload, key=None, family_id=None, parent=None, resumes=None, derivation=None):
-        """Queue one take and record its operation atomically; replay a repeated key."""
+        """Queue one take and record its operation atomically; replay a repeated key.
+
+        Everything that reads files or the control runtime (validation, reference resolution, engine
+        identity) happens before the write transaction. Inside it, the parent and family checks and the
+        inserts use the transaction's own connection."""
         key = idempotency_key(key)
         fingerprint = digest(name, request)
         if key and (existing := self._existing(name, key, fingerprint)):
             return existing
         operation_id = uuid.uuid4().hex
-
-        def record(db, job_id, recipe):
-            if key and db.execute("SELECT 1 FROM operations WHERE name=? AND idempotency_key=?", (name, key)).fetchone():
-                raise _Duplicate()
-            linked = self.parent_of(recipe, parent)
-            family = self.family_for(linked, family_id)
-            db.execute("INSERT INTO operations (id,name,surface_version,idempotency_key,request_digest,created,job_id,"
-                       "family_id,parent,resumes,request,effective_recipe,refs,runtime,derivation) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                       (operation_id, name, SURFACE_VERSION, key, fingerprint, time.time(), job_id, family,
-                        json.dumps(linked) if linked else None, resumes, json.dumps(request),
-                        json.dumps(recipe), json.dumps(self.public(self.resolve_references(recipe))), json.dumps(runtime_identity()),
-                        json.dumps(self.public(derivation)) if derivation else None))
-
         try:
             with self.admit(payload):
-                self.generator.submit(payload, operation=record)
+                recipe = self.generator.prepare(payload)
+                references, runtime = self.resolve_references(recipe), runtime_identity()
+
+                def record(db, job_id, bound):
+                    if key and db.execute("SELECT 1 FROM operations WHERE name=? AND idempotency_key=?", (name, key)).fetchone():
+                        raise _Duplicate()
+                    linked = self.parent_of(bound, parent, db)
+                    family = self.family_for(linked, family_id, db)
+                    db.execute("INSERT INTO operations (id,name,surface_version,idempotency_key,request_digest,created,job_id,"
+                               "family_id,parent,resumes,request,effective_recipe,refs,runtime,derivation)"
+                               " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                               (operation_id, name, SURFACE_VERSION, key, fingerprint, time.time(), job_id, family,
+                                json.dumps(linked) if linked else None, resumes, json.dumps(request), json.dumps(bound),
+                                json.dumps(references + self.adapter_references(bound)), json.dumps(runtime),
+                                json.dumps(derivation) if derivation else None))
+                self.generator.enqueue(recipe, operation=record)
         except _Duplicate:
             return self._existing(name, key, fingerprint)
         return {**self.submission(operation_id), "replayed": False}
@@ -686,7 +719,7 @@ class Operations:
                       "selection": self._selection_for(subject, payload.get("selection")) if name == "take.develop" else None}
         parent = self._parent_link(subject)
         if not enqueue:
-            return {"draft": self.public(draft), "derivation": self.public(derivation), "parent": parent,
+            return {"draft": draft, "derivation": derivation, "parent": parent,
                     "validation": self.validate(draft)}
         return self.submit(name, request, draft, key=payload.get("idempotency_key"), parent=parent, derivation=derivation)
 
@@ -786,8 +819,8 @@ class Operations:
             history = db.execute("SELECT * FROM selections WHERE family_id=? ORDER BY created DESC,id", (row["family_id"],)).fetchall()
         item = lambda r: {"id": r["id"], "family_id": r["family_id"], "take_job_id": r["take_job_id"],
                           "operation_id": r["operation_id"], "rationale": r["rationale"], "created": r["created"]}
-        return self.public({"selection_id": row["id"], "family_id": row["family_id"], "selection": item(row),
-                            "history": [item(r) for r in history], "current": history[0]["id"] == row["id"]})
+        return {"selection_id": row["id"], "family_id": row["family_id"], "selection": item(row),
+                "history": [item(r) for r in history], "current": history[0]["id"] == row["id"]}
 
 
 def _object(properties, required=(), description=""):
