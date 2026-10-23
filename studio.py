@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 """Launch Riff, a small local music studio for YuE2."""
 import argparse
-from contextlib import nullcontext
+from contextlib import contextmanager, nullcontext
 import fcntl
 import hashlib
 import gzip
@@ -85,7 +85,7 @@ class StudioServer(ThreadingHTTPServer):
 
     def __init__(self, address, store, generator, reviews=None, maintenance=None):
         self.store, self.generator = store, generator
-        self.operations = Operations(store, generator)
+        self.operations = Operations(store, generator, admit=self.admission)
         self.reviews = reviews
         self.maintenance = maintenance
         self.restart_requested = False
@@ -97,6 +97,18 @@ class StudioServer(ThreadingHTTPServer):
         self.video_exports = VideoExports(store)
         if maintenance:
             maintenance.video_exports = self.video_exports
+
+    @contextmanager
+    def admission(self, payload):
+        """The conditions under which new work is accepted, held while it is queued."""
+        with self.maintenance.lock if self.maintenance else nullcontext():
+            if self.restart_requested:
+                raise ValueError("Riff is restarting. Your draft is saved.")
+            if not payload.get("acoustic_source") and not platform_support.readiness()["ready"]:
+                raise ValueError("Open Studio settings to finish setting up the music engine.")
+            if self.maintenance and self.maintenance.task["status"] == "running" and self.maintenance.task.get("action") != "check":
+                raise ValueError("Setup is still running. Your draft is saved.")
+            yield
 
     def server_close(self):
         if hasattr(self, "video_exports"):
@@ -443,24 +455,14 @@ class Handler(BaseHTTPRequestHandler):
     def do_DELETE(self):
         self.mutate("DELETE")
 
-    def submit_take(self, name, request, payload, **links):
-        """The one admission path for queued takes, used by the Studio and by agents."""
-        with self.server.maintenance.lock if self.server.maintenance else nullcontext():
-            if self.server.restart_requested:
-                raise ValueError("Riff is restarting. Your draft is saved.")
-            if not payload.get("acoustic_source") and not platform_support.readiness()["ready"]:
-                raise ValueError("Open Studio settings to finish setting up the music engine.")
-            if self.server.maintenance and self.server.maintenance.task["status"] == "running" and self.server.maintenance.task.get("action") != "check":
-                raise ValueError("Setup is still running. Your draft is saved.")
-            return self.server.operations.submit(name, request, payload, **links)
-
     def invoke_operation(self, name, payload):
         operations = self.server.operations
-        allowed = {"references.resolve": {"subject", "score_source", "performance_source", "acoustic_source", "parent_track_id"},
-                   "inputs.compare": {"subjects"}, "operation.cancel": {"operation_id"}}.get(name, {"idempotency_key", "recipe", "family_id", "parent"})
-        unknown = set(payload) - allowed
-        if unknown:
+        fields = {"recipe.validate": {"recipe"}, "inputs.compare": {"subjects"}, "operation.cancel": {"operation_id"},
+                  "operation.resume": {"operation_id", "idempotency_key"},
+                  "study.create": {"idempotency_key", "recipe", "family_id", "parent"}}
+        if name in fields and (unknown := set(payload) - fields[name]):
             raise ValueError("Unknown input: " + ", ".join(sorted(unknown)))
+        key = payload["idempotency_key"] if "idempotency_key" in payload else self.headers.get("Idempotency-Key")
         if name == "recipe.validate":
             self.json_response(200, operations.validate(self.recipe_input(payload)))
         elif name == "references.resolve":
@@ -469,15 +471,24 @@ class Handler(BaseHTTPRequestHandler):
             self.json_response(200, operations.compare(payload.get("subjects")))
         elif name == "study.create":
             recipe = self.recipe_input(payload)
-            request = {key: payload[key] for key in ("recipe", "family_id", "parent") if key in payload}
-            key = payload["idempotency_key"] if "idempotency_key" in payload else self.headers.get("Idempotency-Key")
-            result = self.submit_take(name, request, recipe, key=key, family_id=payload.get("family_id"),
-                                      parent=payload.get("parent"))
+            request = {field: payload[field] for field in ("recipe", "family_id", "parent") if field in payload}
+            self.queued(operations.submit(name, request, recipe, key=key, family_id=payload.get("family_id"),
+                                          parent=payload.get("parent")))
+        elif name in ("take.replay", "take.develop"):
+            result = operations.derive(name, {**payload, **({"idempotency_key": key} if key is not None else {})})
+            self.queued(result) if "operation_id" in result else self.json_response(200, result)
+        elif name == "take.select":
+            result = operations.select({**payload, **({"idempotency_key": key} if key is not None else {})})
             self.json_response(200 if result["replayed"] else 201, result)
+        elif name == "operation.resume":
+            self.queued(operations.resume(payload.get("operation_id") or "", key))
         elif name == "operation.cancel":
             self.json_response(200, operations.cancel(payload.get("operation_id") or ""))
         else:
             raise KeyError("Operation not found.")
+
+    def queued(self, result):
+        self.json_response(200 if result["replayed"] else 201, result)
 
     @staticmethod
     def recipe_input(payload):
@@ -505,7 +516,7 @@ class Handler(BaseHTTPRequestHandler):
             elif path in ("/api/generations", "/api/plans") and method == "POST":
                 key = payload.pop("idempotency_key") if "idempotency_key" in payload else self.headers.get("Idempotency-Key")
                 recipe = {**payload, "render_mode": "plan" if path == "/api/plans" else payload.get("render_mode", "music")}
-                result = self.submit_take("generate", recipe, recipe, key=key)
+                result = self.server.operations.submit("generate", recipe, recipe, key=key)
                 # The Studio's response keeps its original shape, with the operation identity added.
                 self.json_response(200 if result["replayed"] else 201, {
                     "id": result["job_id"], "recipe": result["receipt"]["effective_recipe"], "status": result["status"],
@@ -581,6 +592,12 @@ class Handler(BaseHTTPRequestHandler):
                 elif match[2] == "cancel":
                     status = self.server.generator.cancel(match[1])
                     self.json_response(200, {"status": status})
+                elif match[2] == "retry":
+                    # The same explicit resume as operation.resume; nothing resumes without this call.
+                    result = self.server.operations.resume(match[1], self.headers.get("Idempotency-Key"))
+                    self.json_response(200 if result["replayed"] else 201, {
+                        "id": result["job_id"], "status": result["status"], "operation_id": result["operation_id"],
+                        "family_id": result["family_id"], "replayed": result["replayed"]})
                 else:
                     raise KeyError("Action not found.")
             elif (match := TRACK_ROUTE.fullmatch(path)) and not match[2] and method == "PATCH":

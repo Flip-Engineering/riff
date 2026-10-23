@@ -51,13 +51,16 @@ class OperationFixture(StudioFixture):
     def setUp(self):
         super().setUp()
         self.gate = self.root / "gate"
-        self.generator = Generator(self.store, self.command)
+        self.generator = self.make_generator()
         self.server = StudioServer(("127.0.0.1", 0), self.store, self.generator)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
         ready = patch("studio.platform_support.readiness", return_value={"ready": True})
         ready.start()
         self.addCleanup(ready.stop)
+
+    def make_generator(self):
+        return Generator(self.store, self.command)
 
     def tearDown(self):
         self.server.shutdown()
@@ -435,6 +438,326 @@ class ValidateAndCancelTests(OperationFixture):
         self.assertEqual(receipt["request"], {"recipe": recipe()})
         self.assertEqual(self.request("POST", "/api/v1/operations/operation.cancel", {"operation_id": submission["operation_id"]})[0], 400)
         self.assertEqual(self.request("POST", "/api/v1/operations/operation.cancel", {"operation_id": "d" * 32})[0], 404)
+
+
+class IdleGenerator(Generator):
+    """Queues work but never runs it, so a test can set a job's state and stage artifacts itself."""
+    def work(self):
+        self.stop.wait()
+
+
+class Scores:
+    """Saved-score service double: knows the references a test registers."""
+    def __init__(self, real):
+        self.real, self.known = real, set()
+
+    def describe(self, reference, cancelled=None):
+        if reference not in self.known:
+            raise ValueError("This saved score is not in the library.")
+        return {"id": reference, "title": "plan", "source_job_id": "s" * 32, "sha256": reference[-64:], "bytes": 10,
+                "token_count": 4, "truncated": False, "cot": "melody", "compatible": True}
+
+    def recipe(self, recipe, cancelled=None):
+        recipe = dict(recipe)
+        recipe.pop("score_input", None)
+        if recipe.get("score_source"):
+            found = self.describe(recipe["score_source"])
+            recipe["score_input"] = {key: found[key] for key in ("id", "sha256", "bytes", "token_count", "truncated")}
+        return recipe
+
+    def __getattr__(self, name):
+        return getattr(self.real, name)
+
+
+class Sounds:
+    def __init__(self, real):
+        self.real, self.known = real, set()
+
+    def describe(self, reference, cancelled=None):
+        if reference not in self.known:
+            raise ValueError("This saved sound is not in the library.")
+        return {"id": reference, "title": "sound", "source_job_id": "s" * 32, "sample_rate": 48000, "channels": 2,
+                "duration": 1.0, "seed": "42", "steps": 8, "solver": "midpoint", "hashes": {}, "compatible": True}
+
+    def recipe(self, payload, cancelled=None):
+        from studio_core import validate_recipe
+        found = self.describe(payload["acoustic_source"])
+        return {**validate_recipe(recipe(title=payload.get("title", "Finished"))), "acoustic_source": found["id"],
+                "acoustic": {"artifact_id": found["id"]}, "decoder": payload.get("decoder", {})}
+
+    def __getattr__(self, name):
+        return getattr(self.real, name)
+
+
+SCORE = "riff-score-v1:" + "a" * 64
+SOUND = "riff-acoustic-v1:" + "b" * 64
+
+
+class DerivedFixture(OperationFixture):
+    def make_generator(self):
+        generator = IdleGenerator(self.store, self.command)
+        self.scores, self.sounds = Scores(self.store.artifacts), Sounds(self.store.acoustics)
+        self.scores.known.add(SCORE)
+        self.sounds.known.add(SOUND)
+        self.store.artifacts, self.store.acoustics = self.scores, self.sounds
+        return generator
+
+    def source(self, status="done", stages=(), **updates):
+        """A queued operation moved to ``status`` with the named captured stages."""
+        submission = self.study(recipe=recipe(**{"cot": "melody", "seed": "1234", "max_seconds": 10, **updates}))
+        self.assertEqual(submission[0], 201, submission[1])
+        submission = submission[1]
+        job_id, captured = submission["job_id"], self.store.job(submission["job_id"])["recipe"]
+        if "score" in stages:
+            captured["symbolic_plan"] = {"artifact_id": SCORE, "sha256": "a" * 64, "token_count": 4, "truncated": False, "abc": "X:1"}
+        if "performance" in stages:
+            (self.store.outputs / "riff").mkdir(exist_ok=True)
+            codes = self.store.outputs / "riff" / f"{job_id}.codes.i32"
+            codes.write_bytes(bytes(40))
+            captured["performance"] = {"frames": 10, "truncated": False, "sha256": __import__("hashlib").sha256(bytes(40)).hexdigest()}
+        if "sound" in stages:
+            captured["acoustic"] = {"artifact_id": SOUND}
+        track = ""
+        if status == "done":
+            from test_studio import fixture_audio
+            (self.store.outputs / "riff").mkdir(exist_ok=True)
+            fixture_audio(self.store.outputs / "riff" / f"{job_id}.wav")
+            track = self.store.add_track(self.store.outputs / "riff" / f"{job_id}.wav", captured, {}, job_id)
+        with self.store.db() as db:
+            db.execute("UPDATE jobs SET status=?,recipe=?,track_id=?,finished=?,error=? WHERE id=?",
+                       (status, json.dumps(captured), track or None, 2.0, "It stopped." if status == "failed" else "", job_id))
+        return submission
+
+    def derive(self, operation, **body):
+        return self.request("POST", f"/api/v1/operations/{operation}", body)
+
+
+class DevelopTests(DerivedFixture):
+    def test_develop_keeps_the_seed_and_verified_score_and_records_lineage(self):
+        study = self.source(stages=("score",))
+        status, result = self.derive("take.develop", source=study["operation_id"], changes={"max_seconds": 60, "steps": 16})
+        self.assertEqual(status, 201, result)
+        conforms(result, describe()["agent_surface"]["operations"]["take.develop"]["output_schema"])
+        effective = result["receipt"]["effective_recipe"]
+        self.assertEqual((effective["seed"], effective["score_source"], effective["abc"]), ("1234", SCORE, ""))
+        self.assertEqual((effective["max_seconds"], effective["steps"]), (60.0, 16))
+        self.assertEqual(effective["parent_track_id"], study["job_id"])
+        self.assertEqual(effective["title"], "A test take — developed")
+        self.assertEqual(result["family_id"], study["family_id"])
+        self.assertEqual(result["parent"], {"kind": "operation", "id": study["operation_id"]})
+        derivation = result["receipt"]["derivation"]
+        self.assertEqual(derivation["retained"], {"seed": True, "score": True, "performance": False})
+        self.assertEqual(derivation["from"]["operation_id"], study["operation_id"])
+        self.assertEqual({item["field"] for item in derivation["changed"]} >= {"max_seconds", "steps", "score_source"}, True)
+        self.assertEqual(result["receipt"]["references"][0]["provenance"]["sha256"], "a" * 64)
+        self.assertEqual(result["receipt"]["stages"]["plan"], {"state": "reused", "from": SCORE})
+
+    def test_defaults_that_cannot_be_kept_are_noted_and_explicit_requests_fail(self):
+        direct = self.source(cot="off")
+        status, result = self.derive("take.develop", source=direct["job_id"])
+        self.assertEqual(status, 201, result)
+        self.assertEqual(result["receipt"]["derivation"]["retained"]["score"], False)
+        self.assertTrue(result["receipt"]["derivation"]["notes"])
+        self.assertEqual(self.derive("take.develop", source=direct["job_id"], retain=["score"])[0], 400)
+        unscored = self.source()
+        self.assertEqual(self.derive("take.develop", source=unscored["job_id"], retain=["score"])[0], 400)
+        self.assertEqual(self.derive("take.develop", source=unscored["job_id"], retain=["seed"])[0], 201)
+        self.assertEqual(self.derive("take.develop", source=unscored["job_id"], retain=["nonsense"])[0], 400)
+
+    def test_retained_performance_fixes_the_duration_and_is_verified(self):
+        take = self.source(stages=("score", "performance"))
+        status, result = self.derive("take.develop", source=take["job_id"], retain=["performance"])
+        self.assertEqual(status, 201, result)
+        effective = result["receipt"]["effective_recipe"]
+        self.assertEqual((effective["performance_source"], effective["max_seconds"]), (take["job_id"], 10 / 25))
+        self.assertEqual(result["receipt"]["derivation"]["retained"]["performance"], True)
+        self.assertEqual(self.derive("take.develop", source=take["job_id"], retain=["performance"], changes={"max_seconds": 60})[0], 400)
+        (self.store.outputs / "riff" / f"{take['job_id']}.codes.i32").write_bytes(b"changed")
+        self.assertEqual(self.derive("take.develop", source=take["job_id"], retain=["performance"])[0], 400)
+
+    def test_changes_cannot_name_references_or_unknown_fields(self):
+        take = self.source(stages=("score",))
+        for changes in ({"score_source": SCORE}, {"performance_source": take["job_id"]}, {"parent_track_id": take["job_id"]},
+                        {"typo_field": 1}, "text"):
+            with self.subTest(changes=changes):
+                self.assertEqual(self.derive("take.develop", source=take["job_id"], changes=changes)[0], 400)
+        self.assertEqual(self.derive("take.develop", source=take["job_id"], changes={"abc": "X:1\nK:C\nC D E"})[0], 201)
+        edited = self.store.job(self.jobs()[-1])["recipe"]
+        self.assertEqual(edited["score_source"], "")
+        self.assertIn("C D E", edited["abc"])
+
+    def test_draft_mode_queues_nothing_and_reports_validation(self):
+        take = self.source(stages=("score",))
+        before = self.jobs()
+        status, draft = self.derive("take.develop", source=take["job_id"], enqueue=False, changes={"steps": 0})
+        self.assertEqual(status, 200, draft)
+        conforms(draft, describe()["agent_surface"]["operations"]["take.develop"]["output_schema"])
+        self.assertEqual(draft["draft"]["score_source"], SCORE)
+        self.assertFalse(draft["validation"]["valid"])
+        ok = self.derive("take.develop", source=take["job_id"], enqueue=False)[1]
+        self.assertTrue(ok["validation"]["valid"])
+        self.assertEqual(self.jobs(), before)
+
+    def test_develop_is_idempotent(self):
+        take = self.source(stages=("score",))
+        first = self.derive("take.develop", source=take["job_id"], idempotency_key="grow-1")[1]
+        again = self.derive("take.develop", source=take["job_id"], idempotency_key="grow-1")
+        self.assertEqual((again[0], again[1]["replayed"], again[1]["operation_id"]), (200, True, first["operation_id"]))
+        self.assertEqual(self.derive("take.develop", source=take["job_id"], idempotency_key="grow-1", changes={"steps": 9})[0], 409)
+
+    def test_a_take_with_no_operation_record_can_still_be_developed(self):
+        from studio_core import validate_recipe
+        stored = validate_recipe(recipe(seed="88"))
+        take = self.store.add_track(self.audio, stored, {})
+        status, result = self.derive("take.develop", source=take, retain=["seed"])
+        self.assertEqual(status, 201, result)
+        self.assertEqual(result["parent"], {"kind": "track", "id": take})
+        self.assertEqual(result["receipt"]["effective_recipe"]["seed"], "88")
+
+
+class ReplayTests(DerivedFixture):
+    def test_replay_score_and_performance_are_strict(self):
+        scored = self.source(stages=("score", "performance"))
+        status, result = self.derive("take.replay", source=scored["job_id"], replay="score")
+        self.assertEqual(status, 201, result)
+        self.assertEqual(result["receipt"]["effective_recipe"]["score_source"], SCORE)
+        self.assertEqual(result["receipt"]["derivation"]["mode"], "take.replay:score")
+        status, result = self.derive("take.replay", source=scored["job_id"], replay="performance")
+        self.assertEqual(status, 201, result)
+        self.assertEqual(result["receipt"]["effective_recipe"]["performance_source"], scored["job_id"])
+        self.assertEqual(result["receipt"]["effective_recipe"]["seed"], "1234")
+        plain = self.source()
+        for replay in ("score", "performance", "sound"):
+            with self.subTest(replay=replay):
+                self.assertEqual(self.derive("take.replay", source=plain["job_id"], replay=replay)[0], 400)
+        self.assertEqual(self.derive("take.replay", source=scored["job_id"])[0], 400)
+        self.assertEqual(self.derive("take.replay", source=scored["job_id"], replay="score", retain=["seed"])[0], 400)
+
+    def test_replay_sound_finishes_the_saved_sound_with_decoder_controls(self):
+        take = self.source(stages=("sound",))
+        status, result = self.derive("take.replay", source=take["job_id"], replay="sound", changes={"decoder": {"core_frames": 5}})
+        self.assertEqual(status, 201, result)
+        effective = result["receipt"]["effective_recipe"]
+        self.assertEqual((effective["acoustic_source"], effective["decoder"]), (SOUND, {"core_frames": 5}))
+        self.assertEqual(result["receipt"]["derivation"]["retained"], {"sound": True})
+        self.assertEqual(self.derive("take.replay", source=take["job_id"], replay="sound", changes={"steps": 3})[0], 400)
+        self.assertEqual(self.derive("take.replay", source=take["job_id"], replay="sound", retain=["seed"])[0], 400)
+
+
+class SelectionTests(DerivedFixture):
+    def test_selection_is_durable_append_only_and_idempotent(self):
+        first, second = self.source(), self.source()
+        status, chosen = self.derive("take.select", take=first["job_id"], rationale="Warmer sound", idempotency_key="pick-1")
+        self.assertEqual(status, 201, chosen)
+        conforms(chosen, describe()["agent_surface"]["operations"]["take.select"]["output_schema"])
+        self.assertEqual((chosen["family_id"], chosen["selection"]["rationale"], chosen["current"]), (first["family_id"], "Warmer sound", True))
+        again = self.derive("take.select", take=first["job_id"], rationale="Warmer sound", idempotency_key="pick-1")
+        self.assertEqual((again[0], again[1]["replayed"], again[1]["selection_id"]), (200, True, chosen["selection_id"]))
+        self.assertEqual(self.derive("take.select", take=first["job_id"], rationale="Other", idempotency_key="pick-1")[0], 409)
+        # A second choice is appended; the first remains in the history.
+        later = self.derive("take.select", take=first["job_id"], rationale="Still the one")[1]
+        self.assertEqual([item["id"] for item in later["history"]], [later["selection_id"], chosen["selection_id"]])
+        self.assertEqual(self.store.job(first["job_id"])["status"], "done")
+        self.assertEqual(self.jobs(), [first["job_id"], second["job_id"]])
+
+    def test_only_completed_takes_in_a_family_can_be_selected(self):
+        running = self.source(status="queued")
+        self.assertEqual(self.derive("take.select", take=running["job_id"])[0], 400)
+        self.assertEqual(self.derive("take.select", take="9" * 32)[0], 404)
+        done = self.source()
+        other = self.source()
+        self.assertEqual(self.derive("take.select", take=done["job_id"], family_id=other["family_id"])[0], 400)
+        self.assertEqual(self.derive("take.select", take=done["job_id"], family_id="f" * 32)[0], 404)
+        self.assertEqual(self.derive("take.select", take=done["job_id"], rationale=5)[0], 400)
+        older = self.store.add_track(self.audio, recipe(), {})
+        self.assertEqual(self.derive("take.select", take=older)[0], 400)
+        self.assertEqual(self.derive("take.select", take=older, family_id=done["family_id"])[0], 201)
+
+    def test_develop_records_the_selection_it_came_from(self):
+        take = self.source(stages=("score",))
+        other = self.source()
+        self.assertIsNone(self.derive("take.develop", source=take["job_id"])[1]["receipt"]["derivation"]["selection"])
+        chosen = self.derive("take.select", take=take["job_id"], rationale="Best phrasing")[1]
+        implicit = self.derive("take.develop", source=take["job_id"])[1]
+        self.assertEqual(implicit["receipt"]["derivation"]["selection"], chosen["selection_id"])
+        explicit = self.derive("take.develop", source=take["job_id"], selection=chosen["selection_id"])
+        self.assertEqual(explicit[1]["receipt"]["derivation"]["selection"], chosen["selection_id"])
+        self.assertEqual(self.derive("take.develop", source=other["job_id"], selection=chosen["selection_id"])[0], 400)
+        self.assertEqual(self.derive("take.develop", source=take["job_id"], selection="1" * 32)[0], 404)
+
+
+class ResumeTests(DerivedFixture):
+    def resume(self, operation_id, **body):
+        return self.derive("operation.resume", operation_id=operation_id, **body)
+
+    def test_resume_continues_from_the_last_captured_stage_with_the_same_seed(self):
+        cases = (("failed", (), {}), ("interrupted", ("score",), {"score_source": SCORE}),
+                 ("cancelled", ("score", "performance"), {"performance_source": "job"}))
+        for status, stages, expected in cases:
+            with self.subTest(status=status):
+                ended = self.source(status=status, stages=stages)
+                code, result = self.resume(ended["operation_id"])
+                self.assertEqual(code, 201, result)
+                conforms(result, describe()["agent_surface"]["operations"]["operation.resume"]["output_schema"])
+                effective = result["receipt"]["effective_recipe"]
+                self.assertEqual(effective["seed"], "1234")
+                self.assertEqual(effective["title"], "A test take")
+                for field, value in expected.items():
+                    self.assertEqual(effective[field], ended["job_id"] if value == "job" else value)
+                self.assertEqual(result["receipt"]["operation"]["resumes"], ended["operation_id"])
+                self.assertEqual(result["family_id"], ended["family_id"])
+                self.assertEqual(result["status"], "queued")
+                self.assertEqual(result["receipt"]["derivation"]["mode"], "operation.resume")
+
+    def test_resume_finishes_a_captured_sound(self):
+        ended = self.source(status="interrupted", stages=("score", "performance", "sound"))
+        code, result = self.resume(ended["operation_id"])
+        self.assertEqual(code, 201, result)
+        self.assertEqual(result["receipt"]["effective_recipe"]["acoustic_source"], SOUND)
+        self.assertEqual(result["receipt"]["derivation"]["retained"]["sound"], True)
+
+    def test_resume_is_explicit_and_only_for_ended_unfinished_work(self):
+        cancelled = self.source(status="cancelled")
+        self.assertEqual(self.store.job(cancelled["job_id"])["status"], "cancelled")
+        # Nothing resumes by itself: no operation links to it until resume is called.
+        self.assertEqual(self.request("GET", "/api/v1/operations")[1]["operations"][0]["resumes"], None)
+        self.assertEqual(self.resume(self.source(status="queued")["operation_id"])[0], 400)
+        self.assertEqual(self.resume(self.source(status="done")["operation_id"])[0], 400)
+        self.assertEqual(self.resume("5" * 32)[0], 404)
+        first = self.resume(cancelled["operation_id"])
+        self.assertEqual(first[0], 201)
+        status, conflict = self.resume(cancelled["operation_id"])
+        self.assertEqual(status, 409)
+        self.assertIn(first[1]["operation_id"], conflict["error"])
+
+    def test_resume_is_idempotent_and_does_not_repeat_a_captured_requested_stage(self):
+        ended = self.source(status="failed")
+        first = self.resume(ended["operation_id"], idempotency_key="again")[1]
+        again = self.resume(ended["operation_id"], idempotency_key="again")
+        self.assertEqual((again[0], again[1]["replayed"], again[1]["operation_id"]), (200, True, first["operation_id"]))
+        planned = self.source(status="failed", stages=("score",), render_mode="plan")
+        status, error = self.resume(planned["operation_id"])
+        self.assertEqual(status, 400)
+        self.assertIn("already captured", error["error"])
+
+    def test_retry_route_is_the_same_explicit_resume(self):
+        ended = self.source(status="failed")
+        status, body = self.request("POST", f"/api/jobs/{ended['job_id']}/retry", {})
+        self.assertEqual(status, 201, body)
+        self.assertEqual(body["status"], "queued")
+        receipt = self.request("GET", f"/api/v1/operations/{body['operation_id']}")[1]
+        self.assertEqual(receipt["operation"]["resumes"], ended["operation_id"])
+        self.assertEqual(self.request("POST", f"/api/jobs/{self.source()['job_id']}/retry", {})[0], 400)
+        self.assertEqual(self.request("POST", f"/api/jobs/{'4' * 32}/retry", {})[0], 404)
+
+    def test_a_job_with_no_operation_record_can_be_resumed(self):
+        from studio_core import validate_recipe
+        with self.store.db() as db:
+            db.execute("INSERT INTO jobs (id,title,created,status,recipe,queue_position,error) VALUES (?,?,?,?,?,?,?)",
+                       ("c" * 32, "Older", 1.0, "interrupted", json.dumps(validate_recipe(recipe(seed="66"))), 1, "stopped"))
+        status, result = self.resume("c" * 32)
+        self.assertEqual(status, 201, result)
+        self.assertEqual((result["receipt"]["effective_recipe"]["seed"], result["receipt"]["operation"]["resumes"]), ("66", "c" * 32))
 
 
 if __name__ == "__main__":

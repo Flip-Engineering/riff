@@ -8,11 +8,14 @@ resolved at that moment. Live state (status, stages, outputs) is read from the
 job row, so a receipt is complete after a restart.
 """
 import base64
+import copy
 import hashlib
 import json
 import re
+import sqlite3
 import time
 import uuid
+from contextlib import nullcontext
 
 import run as engine
 from paths import ROOT
@@ -25,10 +28,16 @@ SCHEMA = """
         id TEXT PRIMARY KEY, name TEXT NOT NULL, surface_version INTEGER NOT NULL,
         idempotency_key TEXT, request_digest TEXT NOT NULL, created REAL NOT NULL,
         job_id TEXT NOT NULL UNIQUE, family_id TEXT NOT NULL, parent TEXT, resumes TEXT,
-        request TEXT NOT NULL, effective_recipe TEXT NOT NULL, refs TEXT NOT NULL, runtime TEXT NOT NULL);
+        request TEXT NOT NULL, effective_recipe TEXT NOT NULL, refs TEXT NOT NULL, runtime TEXT NOT NULL,
+        derivation TEXT);
     CREATE UNIQUE INDEX IF NOT EXISTS operations_key ON operations(name, idempotency_key)
         WHERE idempotency_key IS NOT NULL;
     CREATE INDEX IF NOT EXISTS operations_family ON operations(family_id, created);
+    CREATE TABLE IF NOT EXISTS selections (
+        id TEXT PRIMARY KEY, family_id TEXT NOT NULL, take_job_id TEXT NOT NULL, operation_id TEXT,
+        rationale TEXT NOT NULL, created REAL NOT NULL, idempotency_key TEXT, request_digest TEXT NOT NULL);
+    CREATE UNIQUE INDEX IF NOT EXISTS selections_key ON selections(idempotency_key) WHERE idempotency_key IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS selections_family ON selections(family_id, created);
 """
 
 
@@ -48,6 +57,10 @@ def recipe_changes(before, after):
             if (field in before, before.get(field)) != (field in after, after.get(field))]
 
 
+CARRIED = ("title", "lyrics", "style", "mode", "lyrics_source", "idea_engine", "brief", "writer_tokens", "cfg_scale",
+           "temperature", "energy", "texture", "theme", "max_seconds", "steps", "solver", "cot", "refinement", "loras",
+           "hold_words", "hold_sound", "writer_model", "writer_summary")
+CHANGEABLE = CARRIED + ("abc", "seed", "render_mode")
 COMPARED_RESULTS = (("composed_score", "Composed score"), ("performance_sha256", "Performance"))
 
 
@@ -92,8 +105,10 @@ def runtime_identity():
 
 
 class Operations:
-    def __init__(self, store, generator):
+    def __init__(self, store, generator, admit=None):
         self.store, self.generator = store, generator
+        # The host supplies the checks that must hold while work is accepted (restart, setup, engine readiness).
+        self.admit = admit or (lambda payload: nullcontext())
 
     # -- reads ---------------------------------------------------------------
 
@@ -135,7 +150,8 @@ class Operations:
             "id": row["id"], "name": row["name"], "surface_version": row["surface_version"], "created": row["created"],
             "idempotency_key": row["idempotency_key"], "family_id": row["family_id"],
             "parent": json.loads(row["parent"]) if row["parent"] else None, "resumes": row["resumes"]},
-            json.loads(row["request"]), effective, json.loads(row["refs"]), json.loads(row["runtime"]), [])
+            json.loads(row["request"]), effective, json.loads(row["refs"]), json.loads(row["runtime"]), [],
+            json.loads(row["derivation"]) if row["derivation"] else None)
 
     def _legacy_receipt(self, job_id):
         """A job made before operation records existed: derived from the job row, with unrecorded fields marked."""
@@ -147,9 +163,9 @@ class Operations:
         return self._receipt(job, {"id": None, "name": None, "surface_version": None, "created": job["created"],
                                    "idempotency_key": None, "family_id": None, "parent": self.parent_of(recipe),
                                    "resumes": None},
-                             None, recipe, [], {}, ["operation", "request", "effective_recipe", "references", "runtime"])
+                             None, recipe, [], {}, ["operation", "request", "effective_recipe", "references", "runtime"], None)
 
-    def _receipt(self, job, operation, request, effective, references, runtime, unrecorded):
+    def _receipt(self, job, operation, request, effective, references, runtime, unrecorded, derivation):
         recipe = job["recipe"]
         terminal = job["status"] in TERMINAL
         errors = dict(recipe.get("artifact_errors") or {})
@@ -166,6 +182,7 @@ class Operations:
             "effective_recipe": effective,
             "references": references,
             "runtime": runtime,
+            "derivation": derivation,
             "seed": effective["seed"],
             "symbolic_plan": {key: plan.get(key) for key in ("artifact_id", "sha256", "token_count", "truncated")} if plan else None,
             "stages": stages,
@@ -398,13 +415,13 @@ class Operations:
         key = row["job_id"] if row else reference
         try:
             job = self.store.job(key)
-            return {"id": reference, "job_id": job["id"], "title": job["title"], "recipe": job["recipe"],
-                    "kind": "take" if job["track_id"] else "job", "operation_id": row["id"] if row else None,
-                    "family_id": row["family_id"] if row else None}
+            return {"id": reference, "job_id": job["id"], "track_id": job["track_id"] or "", "status": job["status"],
+                    "title": job["title"], "recipe": job["recipe"], "kind": "take" if job["track_id"] else "job",
+                    "operation_id": row["id"] if row else None, "family_id": row["family_id"] if row else None}
         except KeyError:
             track = self.store.track(key)
-            return {"id": reference, "job_id": None, "title": track["title"], "recipe": track["recipe"], "kind": "take",
-                    "operation_id": None, "family_id": None}
+            return {"id": reference, "job_id": None, "track_id": track["id"], "status": "done", "title": track["title"],
+                    "recipe": track["recipe"], "kind": "take", "operation_id": None, "family_id": None}
 
     def compare(self, references):
         """Show which recorded inputs the subjects share and where they differ."""
@@ -436,7 +453,7 @@ class Operations:
 
     # -- writes ----------------------------------------------------------------
 
-    def submit(self, name, request, payload, key=None, family_id=None, parent=None, resumes=None):
+    def submit(self, name, request, payload, key=None, family_id=None, parent=None, resumes=None, derivation=None):
         """Queue one take and record its operation atomically; replay a repeated key."""
         key = idempotency_key(key)
         fingerprint = digest(name, request)
@@ -450,16 +467,23 @@ class Operations:
             linked = self.parent_of(recipe, parent)
             family = self.family_for(linked, family_id)
             db.execute("INSERT INTO operations (id,name,surface_version,idempotency_key,request_digest,created,job_id,"
-                       "family_id,parent,resumes,request,effective_recipe,refs,runtime) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                       "family_id,parent,resumes,request,effective_recipe,refs,runtime,derivation) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                        (operation_id, name, SURFACE_VERSION, key, fingerprint, time.time(), job_id, family,
                         json.dumps(linked) if linked else None, resumes, json.dumps(request),
-                        json.dumps(recipe), json.dumps(self.public(self.resolve_references(recipe))), json.dumps(runtime_identity())))
+                        json.dumps(recipe), json.dumps(self.public(self.resolve_references(recipe))), json.dumps(runtime_identity()),
+                        json.dumps(self.public(derivation)) if derivation else None))
 
         try:
-            self.generator.submit(payload, operation=record)
+            with self.admit(payload):
+                self.generator.submit(payload, operation=record)
         except _Duplicate:
             return self._existing(name, key, fingerprint)
         return {**self.submission(operation_id), "replayed": False}
+
+    def replayed(self, name, request, key):
+        """The original submission when this key was already used for this request, else None."""
+        key = idempotency_key(key)
+        return self._existing(name, key, digest(name, request)) if key else None
 
     def _existing(self, name, key, fingerprint):
         with self.store.db() as db:
@@ -491,6 +515,280 @@ class Operations:
         except (ValueError, KeyError) as error:
             return {"valid": False, "error": str(error.args[0]) if isinstance(error, KeyError) else str(error)}
 
+    # -- derived takes -----------------------------------------------------------
+
+    def _stage_reference(self, subject, stage):
+        """The verified reference a stage of this take offers, or the reason it does not."""
+        recipe = subject["recipe"]
+        if stage == "score":
+            reference = (recipe.get("symbolic_plan") or {}).get("artifact_id") or recipe.get("score_source")
+            if not reference:
+                return None, "This take has no composed score to retain."
+            check = self._check_score(reference)
+        elif stage == "performance":
+            reference = subject["track_id"] or subject["job_id"]
+            if not recipe.get("performance") or not reference:
+                return None, "This take has no saved performance to retain."
+            check = self._performance_reference(reference)
+        else:
+            reference = (recipe.get("acoustic") or {}).get("artifact_id") or recipe.get("acoustic_source")
+            if not reference:
+                return None, "This take has no saved sound to finish."
+            check = self._check_sound(reference)
+        if check["status"] != "verified":
+            return None, f"The saved {stage} is {check['status']}" + (f": {check['error']}" if check.get("error") else ".")
+        return reference, ""
+
+    def _draft(self, subject, retain, strict, changes, suffix="", render_mode="music", continuing=False):
+        """Build a recipe for a new take from a recorded one, retaining only what was asked for.
+
+        ``retain`` names what carries over: ``seed``, ``score`` (the verified composed score) and
+        ``performance`` (the verified saved phrasing). Everything the source recorded as an input is
+        carried; ``changes`` then replace individual inputs. With ``strict`` an unavailable retention
+        is an error; otherwise it is skipped and reported in ``notes``.
+        """
+        source, notes = subject["recipe"], []
+        draft = {key: copy.deepcopy(source[key]) for key in CARRIED if key in source}
+        if "lora_provenance" in source and "loras" not in changes:
+            draft["lora_provenance"] = copy.deepcopy(source["lora_provenance"])
+        base = source.get("title") or subject["title"]
+        draft["title"] = f"{base}{suffix}"
+        draft["render_mode"] = render_mode
+
+        def skip(reason):
+            if strict:
+                raise ValueError(reason)
+            notes.append(reason)
+        cot = changes.get("cot", draft.get("cot", "off"))
+        if "seed" in retain and "seed" in source:
+            draft["seed"] = source["seed"]
+        if "score" in retain:
+            if cot == "off":
+                skip("The planning mode is Direct, so there is no score to retain.")
+            elif changes.get("abc"):
+                skip("Edited notation replaces the saved score.")
+            else:
+                reference, reason = self._stage_reference(subject, "score")
+                if reference:
+                    draft["score_source"], draft["abc"] = reference, ""
+                else:
+                    skip(reason)
+        if "score_source" not in draft and cot != "off" and "abc" not in changes:
+            draft["abc"] = source.get("abc", "")
+        if "performance" in retain:
+            if "max_seconds" in changes:
+                raise ValueError("A retained performance fixes the duration. Change max_seconds only without retaining the performance.")
+            reference, reason = self._stage_reference(subject, "performance")
+            if reference:
+                draft["performance_source"] = reference
+            else:
+                skip(reason)
+        if continuing:
+            for key in ("parent_track_id", "review_id"):
+                if source.get(key):
+                    draft[key] = source[key]
+        elif subject["track_id"]:
+            draft["parent_track_id"] = subject["track_id"]
+        draft.update(copy.deepcopy(changes))
+        if "loras" in changes:
+            draft.pop("lora_provenance", None)
+        return draft, notes
+
+    def _changes(self, value, allowed=None):
+        if value is None:
+            return {}
+        allowed = CHANGEABLE if allowed is None else allowed
+        if not isinstance(value, dict):
+            raise ValueError("changes must be an object of recipe fields.")
+        unknown = set(value) - set(allowed)
+        if unknown:
+            raise ValueError("These inputs cannot be changed here: " + ", ".join(sorted(unknown)) +
+                             ". References are chosen with retain. Changeable: " + ", ".join(sorted(allowed)) + ".")
+        return value
+
+    def _retention(self, value, default):
+        if value is None:
+            return list(default), False
+        if not isinstance(value, list) or any(item not in ("seed", "score", "performance") for item in value):
+            raise ValueError("retain must be a list of seed, score and performance.")
+        return list(dict.fromkeys(value)), True
+
+    def _parent_link(self, subject):
+        if subject["operation_id"]:
+            return {"kind": "operation", "id": subject["operation_id"]}
+        if subject["track_id"]:
+            return {"kind": "track", "id": subject["track_id"]}
+        return {"kind": "job", "id": subject["job_id"]}
+
+    def _origin(self, subject):
+        return {"id": subject["id"], "operation_id": subject["operation_id"], "job_id": subject["job_id"],
+                "track_id": subject["track_id"], "family_id": subject["family_id"]}
+
+    def _selection_for(self, subject, requested):
+        """The selection a derived take comes from: the one named, or the take's latest in its family."""
+        with self.store.db() as db:
+            if requested is not None:
+                row = db.execute("SELECT * FROM selections WHERE id=?", (identity(requested, "Selection"),)).fetchone()
+                if row is None:
+                    raise KeyError("Selection not found.")
+                if row["take_job_id"] != self._take_key(subject):
+                    raise ValueError("That selection is for a different take.")
+                return row["id"]
+            if not subject["family_id"]:
+                return None
+            row = db.execute("SELECT id,take_job_id FROM selections WHERE family_id=? ORDER BY created DESC,id LIMIT 1",
+                             (subject["family_id"],)).fetchone()
+        return row["id"] if row and row["take_job_id"] == self._take_key(subject) else None
+
+    @staticmethod
+    def _take_key(subject):
+        return subject["job_id"] or subject["track_id"]
+
+    def derive(self, name, payload, replay=None):
+        """Replay or develop a recorded take. ``enqueue: false`` returns the draft and queues nothing."""
+        allowed = {"source", "retain", "changes", "idempotency_key", "enqueue"} | ({"replay"} if name == "take.replay" else {"selection"})
+        unknown = set(payload) - allowed
+        if unknown:
+            raise ValueError("Unknown input: " + ", ".join(sorted(unknown)))
+        if "source" not in payload:
+            raise ValueError("Send the take, job or operation to derive from as 'source'.")
+        enqueue = payload.get("enqueue", True)
+        if type(enqueue) is not bool:
+            raise ValueError("enqueue must be true or false.")
+        request = {key: payload[key] for key in payload if key != "idempotency_key"}
+        if enqueue and (original := self.replayed(name, request, payload.get("idempotency_key"))):
+            return original
+        subject = self._subject(payload["source"])
+        if name == "take.replay":
+            replay = payload.get("replay")
+            if replay not in ("score", "performance", "sound"):
+                raise ValueError("Choose what to replay: score, performance or sound.")
+        if replay == "sound":
+            if "retain" in payload:
+                raise ValueError("Finishing a saved sound has nothing to retain; it reuses the sound itself.")
+            changes = self._changes(payload.get("changes"), ("decoder", "title"))
+            reference, reason = self._stage_reference(subject, "sound")
+            if not reference:
+                raise ValueError(reason)
+            draft, retained, notes = {"acoustic_source": reference, **copy.deepcopy(changes)}, {"sound": True}, []
+        else:
+            changes = self._changes(payload.get("changes"))
+            default = ["seed", "score"] if replay in (None, "score") else ["seed", "performance"]
+            retain, explicit = self._retention(payload.get("retain"), default)
+            if replay in ("score", "performance") and replay not in retain:
+                raise ValueError(f"Replaying the {replay} retains it; remove it from retain or choose another replay.")
+            suffix = " — replay" if replay else " — developed"
+            draft, notes = self._draft(subject, retain, strict=bool(replay) or explicit, changes=changes, suffix=suffix)
+            retained = {"seed": draft.get("seed") == subject["recipe"].get("seed") and "seed" in draft,
+                        "score": bool(draft.get("score_source")), "performance": bool(draft.get("performance_source"))}
+        derivation = {"from": self._origin(subject), "mode": name + (f":{replay}" if replay else ""), "retained": retained,
+                      "notes": notes, "changed": recipe_changes(subject["recipe"], draft),
+                      "selection": self._selection_for(subject, payload.get("selection")) if name == "take.develop" else None}
+        parent = self._parent_link(subject)
+        if not enqueue:
+            return {"draft": self.public(draft), "derivation": self.public(derivation), "parent": parent,
+                    "validation": self.validate(draft)}
+        return self.submit(name, request, draft, key=payload.get("idempotency_key"), parent=parent, derivation=derivation)
+
+    def resume(self, operation_id, key=None):
+        """Queue a new operation that continues an ended one from its last captured stage.
+
+        Resuming is always an explicit request: an operation the user cancelled stays cancelled until
+        this is called, and the new operation links back to the one it continues.
+        """
+        if original := self.replayed("operation.resume", {"operation_id": operation_id}, key):
+            return original
+        row = self.find(operation_id)
+        job = self.store.job(row["job_id"] if row else identity(operation_id, "Operation"))
+        if job["status"] in ("queued", "running", "cancelling"):
+            raise ValueError("This operation is still active.")
+        if job["status"] in ("done", "planned", "performed", "synthesized"):
+            raise ValueError("This operation finished. Its outputs are in the receipt.")
+        subject = self._subject(job["id"])
+        recipe, mode = job["recipe"], job["recipe"].get("render_mode", "music")
+        with self.store.db() as db:
+            active = db.execute("SELECT o.id FROM operations o JOIN jobs j ON j.id=o.job_id WHERE o.resumes=? "
+                                "AND j.status IN ('queued','running','cancelling')", (row["id"] if row else job["id"],)).fetchone()
+        if active:
+            raise Conflict(f"Operation {active['id']} is already resuming this one.")
+        captured = {stage: self._stage_reference(subject, stage)[0] for stage in ("sound", "performance", "score")}
+        if mode == "music" and captured["sound"]:
+            draft, retain, reused = {"acoustic_source": captured["sound"]}, None, ["sound"]
+        else:
+            requested = {"plan": "score", "performance": "performance", "sound": "sound"}.get(mode)
+            if requested and captured[requested]:
+                raise ValueError(f"The requested {requested} was already captured. Its ID is in the receipt outputs.")
+            retain = ["seed"] + (["performance"] if mode == "music" and captured["performance"] else
+                                 ["score"] if mode != "plan" and captured["score"] and recipe.get("cot", "off") != "off" else [])
+            draft, _ = self._draft(subject, retain, strict=False, changes={}, render_mode=mode, continuing=True)
+            reused = [item for item in retain if item != "seed"]
+        derivation = {"from": self._origin(subject), "mode": "operation.resume", "retained": {"seed": retain is not None, **{
+            stage: stage in reused for stage in ("sound", "score", "performance")}}, "notes": [], "changed": [], "selection": None}
+        return self.submit("operation.resume", {"operation_id": operation_id}, draft, key=key,
+                           family_id=row["family_id"] if row else None,
+                           parent=json.loads(row["parent"]) if row and row["parent"] else None,
+                           resumes=row["id"] if row else job["id"], derivation=derivation)
+
+    # -- selections ---------------------------------------------------------------
+
+    def select(self, payload):
+        """Record that a take was chosen within its family. Append-only; queues nothing."""
+        unknown = set(payload) - {"take", "rationale", "family_id", "idempotency_key"}
+        if unknown:
+            raise ValueError("Unknown input: " + ", ".join(sorted(unknown)))
+        if "take" not in payload:
+            raise ValueError("Send the take to select as 'take'.")
+        rationale = payload.get("rationale", "")
+        if not isinstance(rationale, str):
+            raise ValueError("The rationale must be text.")
+        key = idempotency_key(payload.get("idempotency_key"))
+        fingerprint = digest("take.select", {key_: payload[key_] for key_ in payload if key_ != "idempotency_key"})
+        if key and (existing := self._existing_selection(key, fingerprint)):
+            return existing
+        subject = self._subject(payload["take"])
+        if subject["status"] not in ("done", "planned", "performed", "synthesized"):
+            raise ValueError("Only a completed take can be selected.")
+        family = subject["family_id"]
+        if payload.get("family_id") is not None:
+            wanted = self.family_for(None, payload["family_id"])
+            if family and family != wanted:
+                raise ValueError("This take belongs to a different family.")
+            family = wanted
+        if not family:
+            raise ValueError("This take predates operation records, so it has no family. Pass family_id to select it in an existing family.")
+        selection_id = uuid.uuid4().hex
+        try:
+            with self.store.db() as db:
+                db.execute("INSERT INTO selections (id,family_id,take_job_id,operation_id,rationale,created,idempotency_key,request_digest)"
+                           " VALUES (?,?,?,?,?,?,?,?)", (selection_id, family, self._take_key(subject),
+                                                       subject["operation_id"], rationale, time.time(), key, fingerprint))
+        except sqlite3.IntegrityError:
+            if key and (existing := self._existing_selection(key, fingerprint)):
+                return existing
+            raise
+        return {**self.selection(selection_id), "replayed": False}
+
+    def _existing_selection(self, key, fingerprint):
+        with self.store.db() as db:
+            row = db.execute("SELECT id,request_digest FROM selections WHERE idempotency_key=?", (key,)).fetchone()
+        if row is None:
+            return None
+        if row["request_digest"] != fingerprint:
+            raise Conflict("This idempotency key was already used for a different request. "
+                           f"Recorded request digest {row['request_digest']}, this request {fingerprint}. Nothing was recorded.")
+        return {**self.selection(row["id"]), "replayed": True}
+
+    def selection(self, selection_id):
+        with self.store.db() as db:
+            row = db.execute("SELECT * FROM selections WHERE id=?", (selection_id,)).fetchone()
+            if row is None:
+                raise KeyError("Selection not found.")
+            history = db.execute("SELECT * FROM selections WHERE family_id=? ORDER BY created DESC,id", (row["family_id"],)).fetchall()
+        item = lambda r: {"id": r["id"], "family_id": r["family_id"], "take_job_id": r["take_job_id"],
+                          "operation_id": r["operation_id"], "rationale": r["rationale"], "created": r["created"]}
+        return self.public({"selection_id": row["id"], "family_id": row["family_id"], "selection": item(row),
+                            "history": [item(r) for r in history], "current": history[0]["id"] == row["id"]})
+
 
 def _object(properties, required=(), description=""):
     schema = {"type": "object", "properties": properties, "required": list(required), "additionalProperties": False}
@@ -510,7 +808,8 @@ STAGE_SCHEMA = {"type": "object", "required": ["state"], "properties": {
     "from": {"type": "string"}, "error": {"type": "string"}}}
 RECEIPT_SCHEMA = {
     "type": "object",
-    "required": ["recorded", "unrecorded", "operation", "job", "request", "effective_recipe", "references", "runtime", "seed", "stages",
+    "required": ["recorded", "unrecorded", "operation", "job", "request", "effective_recipe", "references", "runtime",
+                 "derivation", "seed", "stages",
                  "outputs", "errors", "result_recipe", "terminal"],
     "properties": {
         "recorded": {"type": "boolean", "description": "False for a job made before operation records existed. "
@@ -522,6 +821,9 @@ RECEIPT_SCHEMA = {
         "effective_recipe": _free_object("The recipe after validation and defaults, as queued."),
         "references": {"type": "array", "items": {"type": "object", "required": ["field", "kind", "id", "provenance"]}},
         "runtime": _free_object("Riff version and engine capabilities when the work was accepted."),
+        "derivation": {"type": ["object", "null"], "description": "For replay, develop and resume: the source take, what was "
+                       "retained (seed, score, performance, sound), notes on what could not be, the input changes against "
+                       "the source, and the selection it came from. Null for other operations."},
         "seed": {"type": "string"},
         "symbolic_plan": {"type": ["object", "null"]},
         "stages": {"type": "object", "required": ["plan", "performance", "sound", "audio"],
@@ -535,6 +837,15 @@ SUBMISSION_SCHEMA = {
     "properties": {"operation_id": {"type": "string"}, "job_id": {"type": "string"}, "family_id": {"type": "string"},
                    "parent": {"anyOf": [PARENT_SCHEMA, {"type": "null"}]}, "status": {"type": "string"},
                    "replayed": {"type": "boolean"}, "receipt": RECEIPT_SCHEMA}}
+DERIVE_INPUT = {"source": {"type": "string", "description": "A take, job or operation ID."},
+                "retain": {"type": "array", "items": {"type": "string", "enum": ["seed", "score", "performance"]},
+                           "description": "What carries over. Unavailable retentions are errors when named, notes when defaulted."},
+                "changes": {"type": "object", "description": "Recipe inputs to replace: " + ", ".join(CHANGEABLE) + "."},
+                "enqueue": {"type": "boolean", "description": "False returns the draft and its validation and queues nothing."},
+                "idempotency_key": {"type": "string"}}
+DERIVE_OUTPUT = {"anyOf": [{"type": "object", "required": ["operation_id", "job_id", "family_id", "status", "receipt", "replayed"]},
+                           {"type": "object", "required": ["draft", "derivation", "parent", "validation"]}]}
+SELECTION_OUTPUT = {"type": "object", "required": ["selection_id", "family_id", "selection", "history", "current", "replayed"]}
 KEY_SCHEMA = {"type": "string", "description": "Repeating a key with the same input returns the original operation without "
                                                  "queueing again. The same key with different input is refused with 409."}
 
@@ -581,6 +892,26 @@ def catalog(recipe_schema, riff_version):
                                    "takes, jobs or operations: what they share and where they differ.",
                                    _object({"subjects": {"type": "array", "items": {"type": "string"}}}, ("subjects",)),
                                    {"type": "object", "required": ["subjects", "shared", "differences"]}, True),
+            "take.replay": post("take.replay", "Replay a take's exact score, saved performance or saved sound as a new take. "
+                                "Retains the seed by default; a stage that cannot be replayed is an error. Records parent, "
+                                "family and what was retained.",
+                                _object({**DERIVE_INPUT, "replay": {"type": "string", "enum": ["score", "performance", "sound"]}},
+                                        ("source", "replay")), DERIVE_OUTPUT, True),
+            "take.develop": post("take.develop", "Develop a take into a new one, for example a longer take from a study. Keeps "
+                                 "the seed and the verified score by default, with every recorded input editable through "
+                                 "changes. Records parent, family, what was retained and the selection it came from. This is the "
+                                 "promotion step for a chosen study.",
+                                 _object({**DERIVE_INPUT, "selection": {"type": "string"}}, ("source",)), DERIVE_OUTPUT, True),
+            "take.select": post("take.select", "Record a durable, append-only choice of a completed take within its family, with "
+                                "a rationale. Queues nothing.",
+                                _object({"take": {"type": "string"}, "rationale": {"type": "string"},
+                                         "family_id": {"type": "string", "pattern": "^[a-f0-9]{32}$"},
+                                         "idempotency_key": KEY_SCHEMA}, ("take",)), SELECTION_OUTPUT, True),
+            "operation.resume": post("operation.resume", "Queue a new operation that continues an interrupted, failed or "
+                                     "cancelled one from its last captured stage, with the same seed. Never happens "
+                                     "implicitly.",
+                                     _object({"operation_id": {"type": "string"}, "idempotency_key": KEY_SCHEMA},
+                                             ("operation_id",)), SUBMISSION_SCHEMA, True),
             "operation.cancel": post("operation.cancel", "Cancel the operation's job. Completed stages stay in the receipt.",
                                      _object({"operation_id": {"type": "string"}}, ("operation_id",)),
                                      {"type": "object", "required": ["operation_id", "job_id", "status", "receipt"]}, True),
