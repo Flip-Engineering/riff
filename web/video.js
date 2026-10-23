@@ -577,21 +577,36 @@ async function createVideo(event) {
         }
       }
     })();
-    const failure = upload.then(() => new Promise(() => {}));
-    failure.catch(() => {});
+    // A never-settling shared Promise.race input retains every winning result
+    // (including its frame bytes) until the whole export ends. Subscribe only
+    // while a draw/encode wait is active and release that subscription at once.
+    let uploadError = null;
+    const uploadWaiters = new Set();
+    upload.catch(error => {
+      uploadError = error;
+      for (const reject of uploadWaiters) reject(error);
+    });
+    const duringUpload = async start => {
+      if (uploadError) throw uploadError;
+      let rejectFailure;
+      const failure = new Promise((_, reject) => { rejectFailure = reject; });
+      uploadWaiters.add(rejectFailure);
+      try { return await Promise.race([start(), failure]); }
+      finally { uploadWaiters.delete(rejectFailure); }
+    };
     let lastPreview = 0;
     try {
       for (let index = 0; index < job.frames; index++) {
         if (queueFull()) {
-          await Promise.race([encoder.drain(), failure]);
-          while (queueFull()) await Promise.race([new Promise(resolve => wakeDrawer = resolve), failure]);
+          await duringUpload(() => encoder.drain());
+          while (queueFull()) await duringUpload(() => new Promise(resolve => wakeDrawer = resolve));
         }
         if (operation.cancelled) return;
         const seconds = job.source_start + index / job.fps;
         let stageStarted = performance.now();
         drawSeedArtwork(context, job.width, job.height, track.recipe.seed, seconds, motionAt(motion, seconds), appearance);
         timings.draw_seconds += (performance.now() - stageStarted) / 1000;
-        const { frame } = await Promise.race([encoder.submit(index), failure]);
+        const { frame } = await duringUpload(() => encoder.submit(index));
         frame.catch(() => {}); // The uploader reports it in frame order.
         queued.push(frame);
         if (transport === "png") frame.then(bytes => {
@@ -610,7 +625,7 @@ async function createVideo(event) {
           timings.preview_seconds += (performance.now() - stageStarted) / 1000;
         }
       }
-      await Promise.race([encoder.flush(), failure]);
+      await duringUpload(() => encoder.flush());
       await upload;
     } finally {
       stopped = true;
