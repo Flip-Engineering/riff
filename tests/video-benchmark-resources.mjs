@@ -18,6 +18,9 @@ try {
   assert.equal(sample.temporary_unlinked_bytes, process.platform === "linux" ? 16385 : null);
   assert(sample.temporary_allocated_bytes > 0);
   assert(sample.rss > 0 && sample.load_average.length === 3);
+  assert(sample.processes.some(value => value.pid === process.pid && value.cpu_seconds >= 0));
+  assert(!sample.processes.some(value => value.parent === process.pid && value.command === "ps"));
+  assert(sample.wall_time);
   assert(diskSpace(root).available_bytes > 0);
   console.log("PASS Temporary-storage sampler deduplicates inodes and includes owned unlinked files on Linux");
 } finally {

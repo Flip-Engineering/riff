@@ -341,6 +341,18 @@ The browser samples DOM progress and ordinary timer gaps while exporting without
 pointer input; encoder tests also cancel with keyboard input during a pending
 encode and during worker replacement.
 
+Normal batched runs observe network request/response events without intercepting
+uploads. `RIFF_BENCH_INTERCEPT=1` restores interception of capabilities and every
+upload for diagnostics; positive injected latency and single/batch comparisons
+also enable the required routes. Results disclose both routing settings.
+[Playwright routing](https://playwright.dev/docs/api/class-page#page-route) pauses
+matched requests until continued and disables HTTP cache; it is a measurement
+variable, not ordinary Studio behavior. Riff already serves these worker assets
+with `no-store`, so cache behavior alone does not establish the cause of a stall.
+Resource samples also retain cumulative CPU seconds per process and, on Linux,
+renderer and dedicated-worker thread CPU time. They exclude the transient `ps`
+query itself; older results retained that query in their aggregate percentage.
+
 Additional controls:
 
 - `RIFF_BENCH_TRANSPORTS=png` selects the long PNG reproduction alone.

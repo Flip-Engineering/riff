@@ -1,6 +1,6 @@
 // Measurements belong only to the benchmark, never to the Studio runtime.
 import { execFileSync, spawn } from "node:child_process";
-import { lstatSync, statSync, readdirSync, readlinkSync, statfsSync } from "node:fs";
+import { lstatSync, statSync, readdirSync, readlinkSync, statfsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { loadavg } from "node:os";
 
@@ -9,14 +9,48 @@ export function diskSpace(path) {
   return { available_bytes: value.bavail * value.bsize, total_bytes: value.blocks * value.bsize };
 }
 
+const clockTicks = process.platform === "linux"
+  ? Number(execFileSync("getconf", ["CLK_TCK"], { encoding: "utf8", timeout: 2000 }).trim()) : null;
+function cpuSeconds(value) {
+  const parts = value.split("-");
+  return (parts.length > 1 ? Number(parts[0]) * 86400 : 0) + parts.at(-1).split(":").reduce((n, part) => n * 60 + Number(part), 0);
+}
 export function resourceSample(root, processId = process.pid) {
-  const rows = execFileSync("ps", ["-axo", "pid=,ppid=,rss=,%cpu="], { encoding: "utf8", timeout: 2000 })
-    .trim().split("\n").map(line => line.trim().split(/\s+/).map(Number));
+  const rows = execFileSync("ps", ["-axo", "pid=,ppid=,rss=,%cpu=,time=,comm="], { encoding: "utf8", timeout: 2000 })
+    .trim().split("\n").map(line => {
+      const fields = line.trim().split(/\s+/);
+      return [...fields.slice(0, 4).map(Number), cpuSeconds(fields[4]), fields.slice(5).join(" ")];
+    });
   const owned = new Set([processId]);
   let previous;
   do { previous = owned.size; for (const [pid, parent] of rows) if (owned.has(parent)) owned.add(pid); } while (previous !== owned.size);
-  const memory = rows.filter(([pid]) => owned.has(pid)).reduce((sum, [, , rss, cpu]) =>
-    ({ rss: sum.rss + rss * 1024, cpu: sum.cpu + cpu }), { rss: 0, cpu: 0 });
+  const processes = rows.filter(([pid, parent, , , , command]) => owned.has(pid) && !(parent === process.pid && command === "ps"))
+    .map(([pid, parent, rss, cpu, cpuTime, command]) => {
+      const record = { pid, parent, command, rss_bytes: rss * 1024, cpu_percent: cpu, cpu_seconds: cpuTime, role: command, threads: null };
+      if (process.platform !== "linux") return record;
+      try {
+        // Read only this benchmark's descendants, and retain a role rather than
+        // command arguments (which can contain unrelated sensitive values).
+        const args = readFileSync(`/proc/${pid}/cmdline`, "utf8").split("\0");
+        const type = args.find(arg => /^--type=[a-z-]+$/.test(arg));
+        if (type) record.role = type.slice(7);
+        else if (/chrome|chromium/i.test(command)) record.role = "browser";
+        if (record.role === "renderer") {
+          record.threads = [];
+          for (const tid of readdirSync(`/proc/${pid}/task`)) {
+            try {
+              const name = readFileSync(`/proc/${pid}/task/${tid}/comm`, "utf8").trim();
+              if (!/DedicatedWorker|CrRendererMain|IOThread/.test(name)) continue;
+              const stat = readFileSync(`/proc/${pid}/task/${tid}/stat`, "utf8");
+              const fields = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
+              record.threads.push({ tid: Number(tid), name, cpu_seconds: (Number(fields[11]) + Number(fields[12])) / clockTicks });
+            } catch (error) { if (!["ENOENT", "ESRCH"].includes(error.code)) record.thread_error = String(error); }
+          }
+        }
+      } catch (error) { if (!["ENOENT", "ESRCH"].includes(error.code)) record.role_unavailable = String(error); }
+      return record;
+    });
+  const memory = processes.reduce((sum, value) => ({ rss: sum.rss + value.rss_bytes, cpu: sum.cpu + value.cpu_percent }), { rss: 0, cpu: 0 });
   const seen = new Set();
   let logical = 0, allocated = 0, unlinked = 0;
   const inaccessible = new Set();
@@ -64,7 +98,8 @@ export function resourceSample(root, processId = process.pid) {
       }
     }
   }
-  return { seconds: performance.now() / 1000, ...memory, load_average: loadavg(),
+  return { seconds: performance.now() / 1000, wall_time: new Date().toISOString(), ...memory, processes,
+    clock_ticks_per_second: clockTicks, load_average: loadavg(),
     temporary_logical_bytes: logical, temporary_allocated_bytes: allocated,
     temporary_unlinked_bytes: process.platform === "linux" && !inaccessible.size ? unlinked : null,
     inaccessible_descriptors: [...inaccessible],

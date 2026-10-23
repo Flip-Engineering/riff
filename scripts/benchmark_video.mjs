@@ -139,18 +139,24 @@ try {
     else await page.exposeFunction("benchmarkBlobSnapshot", sampleBlobs);
   }
   let currentUploadMode = uploadMode;
-  await page.route(`${fixture.url}/api/capabilities`, async route => {
+  const interceptFrames = latencyMs > 0 || process.env.RIFF_BENCH_INTERCEPT === "1";
+  const interceptCapabilities = uploadMode !== "batch" || process.env.RIFF_BENCH_INTERCEPT === "1";
+  if (interceptCapabilities) await page.route(`${fixture.url}/api/capabilities`, async route => {
     const response = await route.fetch(), value = await response.json();
     if (currentUploadMode === "single") delete value.video_frame_batch;
     await route.fulfill({ response, json: value });
   });
   let frameRequests = 0;
-  await page.route(/\/api\/video-exports\/[a-f0-9]+\/frames$/, async route => {
-    frameRequests++;
-    frameEvents.push({ event: "request", wall_time: new Date().toISOString(), seconds: performance.now() / 1000,
-      index: Number(route.request().headers()["x-riff-frame"]) });
+  const frameRoute = /\/api\/video-exports\/[a-f0-9]+\/frames$/;
+  if (interceptFrames) await page.route(frameRoute, async route => {
     if (latencyMs) await new Promise(resolve => setTimeout(resolve, latencyMs));
     await route.continue();
+  });
+  page.on("request", request => {
+    if (!frameRoute.test(request.url())) return;
+    frameRequests++;
+    frameEvents.push({ event: "request", wall_time: new Date().toISOString(), seconds: performance.now() / 1000,
+      index: Number(request.headers()["x-riff-frame"]) });
   });
   page.on("response", response => {
     if (!/\/api\/video-exports\/[a-f0-9]+\/frames$/.test(response.url())) return;
@@ -173,11 +179,12 @@ try {
     browser_context: incognito ? "incognito (no Blob disk spill)" : "isolated persistent profile (disk-backed Blob storage enabled)",
     browser_args: JSON.parse(process.env.RIFF_BENCH_BROWSER_ARGS || "[]"),
     browser: browser.version(), source_audio_sha256: sourceAudioHash, load_average_start: loadavg(),
-    frame_upload: uploadMode, simulated_request_latency_ms: latencyMs, resource_sampling: sampleResources,
+    frame_upload: uploadMode, frame_interception: interceptFrames, capabilities_interception: interceptCapabilities,
+    simulated_request_latency_ms: latencyMs, resource_sampling: sampleResources,
     gpu_note: "Per-run system-wide NVIDIA samples; null where unavailable. Graphics identity is not utilization.",
     temporary_note: "500 ms sampled files in the isolated browser/fixture TMPDIR, including output MP4s and WAV. Linux includes owned open unlinked files there; other platforms do not. Excludes memory-backed memfd and files outside TMPDIR.",
     memory_note: "500 ms sampled sum of descendant RSS, including shared pages; not physical footprint.",
-    cpu_note: "500 ms sampled sum of ps CPU percentages; not integrated CPU time.",
+    cpu_note: "500 ms process-lifetime ps percentages plus cumulative per-process CPU seconds; excludes the current ps query. Linux renderer/worker thread CPU seconds are sampled where accessible. Harness/sampling overhead remains included.",
     comparison: "SSIM compares decoded H.264 transport against the existing PNG/libx264 path, not lossless source frames." };
   const flush = () => writeFileSync(`${output}/results.json`, JSON.stringify({ environment, results }, null, 2) + "\n");
   flush();
@@ -262,7 +269,8 @@ try {
                 const now = performance.now();
                 benchmarkProgress.longest_task_gap_ms = Math.max(benchmarkProgress.longest_task_gap_ms, now - previous);
                 previous = now;
-                benchmarkProgress.samples.push({ milliseconds: now, progress: document.querySelector("#video-progress").value });
+                benchmarkProgress.samples.push({ milliseconds: now, progress: document.querySelector("#video-progress").value,
+                  visibility: document.visibilityState, document_has_focus: document.hasFocus() });
               }, 100);
             });
             const creation = page.waitForResponse(response => response.request().method() === "POST" && response.url().endsWith("/video-exports"));
@@ -343,7 +351,8 @@ try {
 } catch (error) {
   if (activeRun && page && !page.isClosed()) {
     activeRun.browser_state = await page.evaluate(() => ({ workers: window.benchmarkWorkers, progress: window.benchmarkProgress,
-      time_origin_ms: performance.timeOrigin, observed_ms: performance.now() })).catch(() => null);
+      time_origin_ms: performance.timeOrigin, observed_ms: performance.now(),
+      visibility: document.visibilityState, document_has_focus: document.hasFocus() })).catch(() => null);
     activeRun.ui_error = await page.locator("#video-error").textContent().catch(() => null);
     activeRun.final_job = await page.request.get(activeRun.url).then(response => response.json()).catch(() => null);
   }
