@@ -134,6 +134,47 @@ recipe to `POST /api/generations`; add `parent_track_id` and `review_id` to pres
 its ancestry, then poll the returned job ID. A `performance_source`
 is an owned library track or completed-stage job ID, never a caller-supplied filesystem path.
 
+### Reference clips in producer reviews
+
+A review can include up to a configured number of reference recordings, so the
+producer compares the generated take against recordings the artist chose. They
+are direct audio input only. Riff converts each clip to MP3 and sends it as an
+`input_audio` part in the same OpenRouter request as the generated take, to the
+review model named in the settings. It runs no transcription, speech recognition
+or second model. Everything in that request goes to OpenRouter and the model's
+provider, and OpenRouter usage charges apply. The studio states this next to the
+attachment controls.
+
+Clips are opaque attachments. Riff stores each one by SHA-256 in the workspace
+data directory (`review-references/`), never in Git, and records its label,
+source link or note, duration, size and format. File paths are not sent to the
+model and are not returned by any endpoint. A pending clip can be edited
+(`PATCH`) or removed (`DELETE`) until a review uses it. Submitting a review with
+`references` (attachment IDs, in listening order) copies those details into the
+review receipt and keeps the clip file while any receipt names it.
+`POST /api/review/references/reuse` attaches fresh editable copies of a receipt's
+clips for another review or a retry.
+
+The response adds `observations`, each attributed to `generated_take` or a
+reference ID, next to the usual notes, summary and executable generation. If the
+model leaves out a reference or returns an observation Riff cannot attribute, the
+review still finishes and lists what is missing in `warnings`. Provider errors and
+cut-off responses fail the review with the provider's message. Reviews without
+clips send the same request and return the same fields as before.
+
+The limits are review settings, saved with `POST /api/review/settings` and in the
+review settings dialog:
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `reference_max_clips` | 3 | Clips attached to one review |
+| `reference_max_seconds` | 120 | Longest accepted clip |
+| `reference_max_bytes` | 26214400 (25 MiB) | Largest accepted file |
+
+Riff accepts WAV, MP3, FLAC, Ogg, AIFF and M4A files that ffprobe reads as audio
+with a positive duration, and it applies the current limits again when a review
+is submitted or its clips are reused.
+
 The optional AI writers use the same generation contract. `POST /api/inspiration`
 accepts the current recipe, `idea_engine` (`ai`, `openrouter` or `phrases`), an
 optional `brief`, and `write_scope` (`all`, `words` or `sound`). AI responses include

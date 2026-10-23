@@ -110,7 +110,47 @@ def source_seed(source):
     return str(seed) if type(seed) in (str, int) and str(seed).strip() else None
 
 
-def response_schema(source, keep_lyrics, *, preserve_seed=False):
+GENERATED_TAKE = "generated_take"
+
+
+def observation_schema(references):
+    """Observations name their audio: the generated take or one supplied reference ID."""
+    sources = [GENERATED_TAKE, *(reference["id"] for reference in references)]
+    return {"type": "array",
+            "description": "Observations from this listening, each attributed to the audio it came from: "
+                           "generated_take or a reference ID. Include at least one for every supplied reference.",
+            "items": {"type": "object", "additionalProperties": False,
+                      "required": ["source", "timestamp", "note"],
+                      "properties": {"source": {"type": "string", "enum": sources},
+                                     "timestamp": {"type": "string",
+                                                   "description": "Time within that audio, or empty."},
+                                     "note": {"type": "string"}}}}
+
+
+def attribute_observations(value, references):
+    """Keep attributed observations the studio can name; report what is missing."""
+    labels = {reference["id"]: reference["label"] for reference in references}
+    names = {GENERATED_TAKE: "the generated take", **{key: "reference " + label for key, label in labels.items()}}
+    if not isinstance(value, list):
+        return [], ["The model did not attribute its observations to the generated take or the references."]
+    kept, warnings, dropped = [], [], False
+    for item in value:
+        if (isinstance(item, dict) and item.get("source") in names and isinstance(item.get("note"), str)
+                and item["note"].strip() and isinstance(item.get("timestamp", ""), str)):
+            kept.append({"source": item["source"], "timestamp": item.get("timestamp", ""), "note": item["note"].strip()})
+        else:
+            dropped = True
+    if dropped:
+        warnings.append("The model returned an observation the studio could not attribute and left it out.")
+    for key in names:
+        if key != GENERATED_TAKE and not any(item["source"] == key for item in kept):
+            warnings.append(f"The model gave no observations about {names[key]}.")
+    if not any(item["source"] == GENERATED_TAKE for item in kept):
+        warnings.append("The model gave no observations about the generated take.")
+    return kept, warnings
+
+
+def response_schema(source, keep_lyrics, *, preserve_seed=False, references=()):
     acoustics = available_acoustics(source)
     lora_ids = {item["id"] for item in source.get("loras", [])}
     for sound in acoustics:
@@ -164,13 +204,17 @@ def response_schema(source, keep_lyrics, *, preserve_seed=False):
     if preserve_seed and source_seed(source) is not None:
         properties["seed"].update(enum=[source_seed(source)],
                                   description="Retain this recording's original seed while refining its music. The artist can change it in the studio.")
-    return {"type": "object", "additionalProperties": False,
-            "required": ["notes", "summary", "generation"],
-            "properties": {
-                "notes": {"type": "string", "description": "Candid listening observations, with useful timestamps."},
-                "summary": {"type": "string", "description": "Brief musical intent of this recommended take."},
-                "generation": {"type": "object", "properties": properties,
-                               "required": list(FIELDS), "additionalProperties": False}}}
+    schema = {"type": "object", "additionalProperties": False,
+              "required": ["notes", "summary", "generation"],
+              "properties": {
+                  "notes": {"type": "string", "description": "Candid listening observations, with useful timestamps."},
+                  "summary": {"type": "string", "description": "Brief musical intent of this recommended take."},
+                  "generation": {"type": "object", "properties": properties,
+                                 "required": list(FIELDS), "additionalProperties": False}}}
+    if references:
+        schema["properties"]["observations"] = observation_schema(references)
+        schema["required"].insert(2, "observations")
+    return schema
 
 
 def validate_generation(value, source, keep_lyrics=False):

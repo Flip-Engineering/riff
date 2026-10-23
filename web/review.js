@@ -8,6 +8,123 @@
   let submitting = false;
   const panel = $("#producer-panel");
   $("#review-settings-open").hidden = false;
+  let attached = [];
+  const saves = new Set();
+  const headerJSON = (value) =>
+    JSON.stringify(value).replace(
+      /[\u007f-\uffff]/g,
+      (char) => "\\u" + char.charCodeAt(0).toString(16).padStart(4, "0"),
+    );
+  const megabytes = (bytes) => `${Math.round((bytes / 1048576) * 100) / 100} MB`;
+  const shortHash = (value) => String(value).slice(0, 8);
+  const sourceText = (item) => item.link || item.note || "";
+  function referenceError(message = "") {
+    errorMessage("#review-reference-error", message);
+  }
+  function describeLimits(limits) {
+    if (!limits?.reference_max_clips) return;
+    $("#review-reference-hint").textContent =
+      "Reference clips are sent with this recording to OpenRouter and the review model’s provider, where usage charges apply. Riff keeps them on this computer only. " +
+      `Up to ${limits.reference_max_clips} ${limits.reference_max_clips === 1 ? "clip" : "clips"}, ${Number(limits.reference_max_seconds)} seconds and ${megabytes(limits.reference_max_bytes)} each; change these in review settings.`;
+    $("#add-review-reference").disabled =
+      attached.length >= limits.reference_max_clips;
+  }
+  function drawReferences() {
+    $("#review-reference-list").innerHTML = attached
+      .map(
+        (item) => `<li class="review-reference" data-reference="${item.id}">
+          <label>Label<input data-reference-label value="${esc(item.label)}" maxlength="200" autocomplete="off" /></label>
+          <label>Source link or note<input data-reference-source value="${esc(sourceText(item))}" placeholder="https://… or where this came from" autocomplete="off" /></label>
+          <span class="quiet-text review-reference-meta">${esc(formatDuration(item.duration))} · ${esc(megabytes(item.bytes))} · ${esc(item.format.toUpperCase())} · ${shortHash(item.sha256)}</span>
+          <button type="button" class="text-button" data-remove-reference="${item.id}" aria-label="Remove reference ${esc(item.label)}">Remove</button>
+        </li>`,
+      )
+      .join("");
+    describeLimits(state.review_settings);
+  }
+  async function loadReferences() {
+    try {
+      const result = await api("/api/review/references");
+      attached = result.references;
+      drawReferences();
+      describeLimits(result.limits);
+    } catch (error) {
+      referenceError(error.message);
+    }
+  }
+  function saveReference(row) {
+    const id = row.dataset.reference;
+    const source = $("[data-reference-source]", row).value.trim();
+    const link = /^https?:\/\//i.test(source);
+    const task = api(`/api/review/references/${id}`, "PATCH", {
+      label: $("[data-reference-label]", row).value,
+      link: link ? source : "",
+      note: link ? "" : source,
+    })
+      .then((item) => {
+        attached = attached.map((entry) => (entry.id === id ? item : entry));
+        $("[data-remove-reference]", row)?.setAttribute("aria-label", `Remove reference ${item.label}`);
+        referenceError();
+      })
+      .catch((error) => referenceError(error.message))
+      .finally(() => saves.delete(task));
+    saves.add(task);
+    return task;
+  }
+  $("#review-reference-list").addEventListener("change", (event) => {
+    const row = event.target.closest("[data-reference]");
+    if (row) saveReference(row);
+  });
+  $("#review-reference-list").addEventListener("click", async (event) => {
+    const remove = event.target.closest("[data-remove-reference]");
+    if (!remove) return;
+    remove.disabled = true;
+    try {
+      await Promise.all(saves);
+      await api(`/api/review/references/${remove.dataset.removeReference}`, "DELETE", {});
+      attached = attached.filter((item) => item.id !== remove.dataset.removeReference);
+      referenceError();
+      drawReferences();
+      $("#add-review-reference").focus();
+    } catch (error) {
+      remove.disabled = false;
+      referenceError(error.message);
+    }
+  });
+  $("#add-review-reference").addEventListener("click", () =>
+    $("#review-reference-file").click(),
+  );
+  $("#review-reference-file").addEventListener("change", async (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+    const button = $("#add-review-reference");
+    button.disabled = true;
+    referenceError();
+    try {
+      const response = await fetch(
+        "/api/review/references?" + new URLSearchParams({ name: file.name }),
+        {
+          method: "POST",
+          headers: {
+            "X-Riff-Request": "1",
+            "Content-Type": "application/octet-stream",
+            "X-Riff-Reference-Metadata": headerJSON({}),
+          },
+          body: file,
+        },
+      );
+      const value = await response.json();
+      if (!response.ok) throw new Error(value.error);
+      attached = [...attached, value];
+      drawReferences();
+    } catch (error) {
+      referenceError(error.message);
+    } finally {
+      event.target.value = "";
+      describeLimits(state.review_settings);
+    }
+  });
+  loadReferences();
 
   function readFocus(id) {
     try {
@@ -40,6 +157,10 @@
       const connection = await api("/api/review/settings");
       $("#reviews-enabled").checked = connection.enabled;
       $("#review-model").value = connection.model;
+      $("#review-max-clips").value = connection.reference_max_clips;
+      $("#review-max-seconds").value = connection.reference_max_seconds;
+      $("#review-max-megabytes").value =
+        Math.round((connection.reference_max_bytes / 1048576) * 100) / 100;
       $("#remove-review-key").disabled = !connection.has_key;
       $("#review-key-status").textContent = connection.has_key
         ? `Your key is saved in ${connection.key_storage}.`
@@ -65,6 +186,9 @@
     const payload = {
       enabled: $("#reviews-enabled").checked,
       model: $("#review-model").value,
+      reference_max_clips: Number($("#review-max-clips").value),
+      reference_max_seconds: Number($("#review-max-seconds").value),
+      reference_max_bytes: Math.round(Number($("#review-max-megabytes").value) * 1048576),
     };
     if ($("#review-api-key").value)
       payload.api_key = $("#review-api-key").value;
@@ -122,10 +246,14 @@
     $("#request-review").disabled = true;
     errorMessage("#review-error");
     try {
+      await Promise.all(saves);
       await api(`/api/tracks/${currentTrack.id}/reviews`, "POST", {
         focus: $("#review-focus").value,
         keep_lyrics: $("#review-keep-lyrics").checked,
+        references: attached.map((item) => item.id),
       });
+      attached = [];
+      drawReferences();
       signature = "";
       await refresh();
     } catch (error) {
@@ -160,6 +288,31 @@
       ${take.abc ? `<details data-review-score="${review.id}"><summary>Score</summary><div class="review-score-preview" aria-label="Recommended score"></div></details>` : ""}
       <details><summary>Generation recipe</summary><pre class="review-recipe-json">${esc(JSON.stringify(take, null, 2))}</pre><button type="button" class="text-button" data-export-review="${review.id}">Download recipe</button></details>
       <div class="review-take-actions"><button type="button" class="secondary-button solid" data-generate-review="${review.id}">${take.acoustic_source ? "Finish audio" : take.render_mode === "plan" ? "Compose this score" : take.render_mode === "sound" ? "Create this sound" : take.render_mode === "performance" ? "Create this performance" : take.performance_source ? "Render this performance" : "Generate this take"}</button><button type="button" class="text-button" data-use-review="${review.id}">Edit in studio</button></div></section>`;
+  }
+
+  function referencesBlock(review, open = false) {
+    if (!review.references?.length) return "";
+    const names = {
+      generated_take: "Generated take",
+      ...Object.fromEntries(review.references.map((item) => [item.id, item.label])),
+    };
+    const clips = review.references
+      .map(
+        (item) => `<li><strong>${esc(item.label)}</strong> <span class="quiet-text">${esc(formatDuration(item.duration))} · ${esc(item.format.toUpperCase())} · ${esc(megabytes(item.bytes))} · ${shortHash(item.sha256)}</span>${item.link ? `<a class="review-reference-link" href="${esc(item.link)}" target="_blank" rel="noopener noreferrer">${esc(item.link)}</a>` : ""}${item.note ? `<span class="review-reference-note">${esc(item.note)}</span>` : ""}</li>`,
+      )
+      .join("");
+    const groups = Object.keys(names)
+      .map((source) => [source, (review.observations || []).filter((item) => item.source === source)])
+      .filter(([, items]) => items.length)
+      .map(
+        ([source, items]) => `<section class="review-observation-group" data-observation-source="${esc(source)}"><h4>${esc(names[source])}</h4><ul>${items
+          .map((item) => `<li>${item.timestamp ? `<span class="review-observation-time">${esc(item.timestamp)}</span> ` : ""}${esc(item.note)}</li>`)
+          .join("")}</ul></section>`,
+      )
+      .join("");
+    return `${(review.warnings || []).map((warning) => `<p class="review-warning" role="status">${esc(warning)}</p>`).join("")}
+      ${groups ? `<details class="review-observations" open><summary>Observations by recording</summary>${groups}</details>` : ""}
+      <details class="review-references-used" ${open ? "open" : ""}><summary>Reference clips · ${review.references.length}</summary><ul class="review-reference-receipt">${clips}</ul><button type="button" class="text-button" data-reuse-review="${review.id}">Use these clips in another review</button></details>`;
   }
 
   function takeRecipe(review) {
@@ -199,8 +352,8 @@
             );
             return `<article class="producer-note"><div class="producer-note-meta"><span>${esc(review.model)}</span><span>${esc(formatDate(review.created))}</span></div>${
               review.status === "done"
-                ? ` ${review.summary ? `<p class="review-summary">${esc(review.summary)}</p>` : ""}${recommendedTake(review) || `<button type="button" class="secondary-button" data-use-review="${review.id}">${icon("branch")}${Object.keys(review.revision).length ? "Use revision" : "Start another take"}</button>`}<details class="review-listening-notes"><summary>Listening notes<span aria-hidden="true">＋</span></summary><div class="review-note-text">${withCues(review.notes)}</div>${review.focus ? `<p class="review-focus-label">Review focus: ${esc(review.focus)}</p>` : ""}</details>`
-                : `<p class="review-state">${active ? '<span class="spinner" aria-hidden="true"></span>' : ""}${names[review.status] || esc(review.status)}</p>${review.error ? `<p class="form-error">${esc(review.error)}</p>` : ""}${active ? `<button type="button" class="text-button" data-cancel-review="${review.id}" ${review.status === "cancelling" ? "disabled" : ""}>Cancel review</button>` : ""}`
+                ? ` ${review.summary ? `<p class="review-summary">${esc(review.summary)}</p>` : ""}${recommendedTake(review) || `<button type="button" class="secondary-button" data-use-review="${review.id}">${icon("branch")}${Object.keys(review.revision).length ? "Use revision" : "Start another take"}</button>`}${referencesBlock(review)}<details class="review-listening-notes"><summary>Listening notes<span aria-hidden="true">＋</span></summary><div class="review-note-text">${withCues(review.notes)}</div>${review.focus ? `<p class="review-focus-label">Review focus: ${esc(review.focus)}</p>` : ""}</details>`
+                : `<p class="review-state">${active ? '<span class="spinner" aria-hidden="true"></span>' : ""}${names[review.status] || esc(review.status)}</p>${review.error ? `<p class="form-error">${esc(review.error)}</p>` : ""}${active ? `<button type="button" class="text-button" data-cancel-review="${review.id}" ${review.status === "cancelling" ? "disabled" : ""}>Cancel review</button>` : ""}${referencesBlock(review, true)}`
             }</article>`;
           })
           .join("")
@@ -227,7 +380,23 @@
     const generate = event.target.closest("[data-generate-review]");
     const download = event.target.closest("[data-export-review]");
     const cue = event.target.closest("[data-review-time]");
+    const reuse = event.target.closest("[data-reuse-review]");
     try {
+      if (reuse) {
+        reuse.disabled = true;
+        try {
+          const result = await api("/api/review/references/reuse", "POST", {
+            review_id: reuse.dataset.reuseReview,
+          });
+          attached = [...attached, ...result.references];
+          referenceError();
+          drawReferences();
+          notify("The reference clips are attached to your next review.");
+          $("#review-focus").focus();
+        } finally {
+          reuse.disabled = false;
+        }
+      }
       if (cancel) {
         cancel.disabled = true;
         await api(

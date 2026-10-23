@@ -1069,10 +1069,16 @@ class Generator:
                     review_id = checked.get("review_id")
                     clause = "AND id=?" if review_id else ""
                     params = (reference_id, review_id) if review_id else (reference_id,)
-                    review = db.execute("SELECT id,model,focus,notes,summary,generation FROM reviews "
+                    review = db.execute("SELECT * FROM reviews "
                         "WHERE track_id=? AND status='done' " + clause + " ORDER BY created DESC LIMIT 1", params).fetchone()
                     if review:
                         settings["reference"]["review"] = {key: review[key] for key in ("id", "model", "focus", "notes", "summary")}
+                        # Reference clips stay part of this review's context: identity and provenance, never files.
+                        if "attachments" in review.keys() and json.loads(review["attachments"]):
+                            settings["reference"]["review"]["references"] = [
+                                {key: item[key] for key in ("id", "sha256", "label", "link", "note", "duration", "format")}
+                                for item in json.loads(review["attachments"])]
+                            settings["reference"]["review"]["observations"] = json.loads(review["observations"])
                         settings["reference"]["review"]["generation"] = generation_context(json.loads(review["generation"]))
         offered = {value["id"]: value for value in self.store.available_scores(checked, cancelled=cancelled)}
         if reference_id:

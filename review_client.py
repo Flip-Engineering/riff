@@ -12,8 +12,38 @@ import urllib.request
 from review_recipe import FIELDS, generation_context, recommended_generation, response_schema, symbolic_context
 
 
+def encode_mp3(source, folder, name, subject="the recording"):
+    encoded = Path(folder) / name
+    try:
+        subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-protocol_whitelist", "file", "-i", str(source),
+                        "-vn", "-c:a", "libmp3lame", "-b:a", "192k", str(encoded)],
+                       check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    except subprocess.CalledProcessError:
+        # The command line names a local file; keep it out of the saved error.
+        raise ValueError(f"FFmpeg could not prepare {subject} for review.") from None
+    return {"data": base64.b64encode(encoded.read_bytes()).decode(), "format": "mp3"}
+
+
+def reference_prompt(references):
+    """Describe supplied references by identity and provenance; never by file location."""
+    described = [{"id": item["id"], "label": item["label"], "source_link": item.get("link", ""),
+                  "source_note": item.get("note", ""), "duration_seconds": item["duration"],
+                  "format": item["format"]} for item in references]
+    return (
+        "\n\nREFERENCE RECORDINGS\nThe first audio is the generated take under review. The audio that follows it "
+        "is a reference recording the artist chose for calibration, in the order listed here. A reference is "
+        "not Riff output and is not the take being revised; it shows a direction the artist is comparing against. "
+        "Compare qualities such as groove, instrumentation, arrangement, vocal approach, mix and pacing, and say "
+        "what the generated take would need to move toward them. Do not copy a reference's melody or words. "
+        "Attribute every observation in observations to generated_take or to the reference's id, and give at least "
+        "one observation for each. Timestamps in an observation are relative to that observation's own audio. "
+        "The recommended generation is still one executable Riff recipe for the generated take.\n"
+        + json.dumps(described, ensure_ascii=False, indent=2))
+
+
 def listen(settings):
     source = settings["recipe"]
+    references = settings.get("references") or []
     policy = "Riff keeps the artist's supplied lyrics in the recommended generation. Focus your changes on the music; generation.lyrics may be empty because Riff restores the original words." if settings["keep_lyrics"] else "The lyrics may be revised or translated when it serves the artist's request. Put the actual new words in generation.lyrics."
     timing = (f"\n\nRECORDING DURATION\n{settings['duration']:.2f} seconds. "
               "Use timestamps relative to the start of this supplied recording."
@@ -68,24 +98,25 @@ def listen(settings):
             generation_context(source),
             ensure_ascii=False, indent=2) +
         "\n\nSYMBOLIC REPRESENTATION\n" + json.dumps(symbolic_context(source), ensure_ascii=False, indent=2)
+        + (reference_prompt(references) if references else "")
     )
     if not shutil.which("ffmpeg"):
         raise ValueError("Install FFmpeg with brew install ffmpeg to prepare recordings for review.")
+    parts = [{"type": "text", "text": prompt}]
     with tempfile.TemporaryDirectory(prefix="riff-listen-") as folder:
-        encoded = Path(folder) / "recording.mp3"
-        subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-i", settings["audio"],
-                        "-vn", "-c:a", "libmp3lame", "-b:a", "192k", str(encoded)],
-                       check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
-        audio = base64.b64encode(encoded.read_bytes()).decode()
+        parts.append({"type": "input_audio", "input_audio": encode_mp3(settings["audio"], folder, "recording.mp3")})
+        for number, item in enumerate(references, 1):
+            parts.append({"type": "text", "text": f"Reference audio {number}: id {item['id']}, labelled {item['label']!r}."})
+            parts.append({"type": "input_audio",
+                          "input_audio": encode_mp3(item["path"], folder, f"reference-{number}.mp3",
+                                                     f"the reference {item['label']!r}")})
     payload = {"model": settings["model"],
                "provider": {"require_parameters": True},
                "response_format": {"type": "json_schema", "json_schema": {
                    "name": "riff_recommended_take", "strict": True,
-                   "schema": response_schema(source, settings["keep_lyrics"], preserve_seed=True)}},
-               "messages": [{"role": "user", "content": [
-        {"type": "text", "text": prompt},
-        {"type": "input_audio", "input_audio": {"data": audio, "format": "mp3"}},
-    ]}]}
+                   "schema": response_schema(source, settings["keep_lyrics"], preserve_seed=True,
+                                             references=references)}},
+               "messages": [{"role": "user", "content": parts}]}
     request = urllib.request.Request("https://openrouter.ai/api/v1/chat/completions",
                                      data=json.dumps(payload).encode(),
                                      headers={"Authorization": "Bearer " + settings["api_key"],
@@ -114,9 +145,12 @@ def listen(settings):
     if not isinstance(parsed, dict) or not isinstance(parsed.get("notes"), str) or not isinstance(parsed.get("summary"), str):
         raise ValueError("The review returned an incomplete recommendation. Review again to retry.")
     generation = recommended_generation(parsed.get("generation"), source, settings["keep_lyrics"])
-    return {"notes": parsed["notes"], "summary": parsed["summary"],
-            "generation": {key: generation[key] for key in FIELDS}, "usage": result.get("usage", {}),
-            "model": result.get("model", settings["model"]), "response_id": result.get("id", "")}
+    review = {"notes": parsed["notes"], "summary": parsed["summary"],
+              "generation": {key: generation[key] for key in FIELDS}, "usage": result.get("usage", {}),
+              "model": result.get("model", settings["model"]), "response_id": result.get("id", "")}
+    if references:
+        review["observations"] = parsed.get("observations")
+    return review
 
 
 if __name__ == "__main__":

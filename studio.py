@@ -38,6 +38,7 @@ JOB_ROUTE = re.compile(r"/api/jobs/([a-f0-9]{32})(?:/(cancel|retry|move))?")
 PRESET_ROUTE = re.compile(r"/api/presets/([a-z0-9-]+)")
 TRACK_REVIEWS_ROUTE = re.compile(r"/api/tracks/([a-f0-9]{32})/reviews")
 REVIEW_ROUTE = re.compile(r"/api/reviews/([a-f0-9]{32})(?:/(cancel))?")
+REFERENCE_ROUTE = re.compile(r"/api/review/references/([a-f0-9]{32})")
 LORA_ROUTE = re.compile(r"/api/loras/([a-f0-9]{64})(?:/(updates))?")
 LORA_TASK_ROUTE = re.compile(r"/api/loras/tasks/([a-f0-9]{32})(?:/(cancel))?")
 
@@ -232,6 +233,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_file(DATA / "setup.log", "text/plain; charset=utf-8")
             elif path == "/api/review/settings" and self.server.reviews:
                 self.json_response(200, self.server.reviews.connection())
+            elif path == "/api/review/references" and self.server.reviews:
+                self.json_response(200, self.server.reviews.references())
             elif path == "/api/review/models" and self.server.reviews:
                 self.json_response(200, {"models": self.server.reviews.models("refresh" in parsed.query)})
             elif (match := TRACK_REVIEWS_ROUTE.fullmatch(path)) and self.server.reviews:
@@ -347,6 +350,9 @@ class Handler(BaseHTTPRequestHandler):
         if unquote(urlsplit(self.path).path) == "/api/loras/import":
             self.receive_lora()
             return
+        if unquote(urlsplit(self.path).path) == "/api/review/references" and self.server.reviews:
+            self.receive_reference()
+            return
         match = VIDEO_ROUTE.fullmatch(unquote(urlsplit(self.path).path))
         if match and match[2] == "frames":
             self.receive_video_frame(match[1])
@@ -385,6 +391,34 @@ class Handler(BaseHTTPRequestHandler):
                         raise ValueError("The PEFT adapter configuration must be an object.")
                     (Path(temporary) / "adapter_config.json").write_text(json.dumps(config), encoding="utf-8")
                 self.json_response(201, self.server.store.loras.import_local([path], metadata=metadata))
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+        except (ValueError, OSError) as exc:
+            self.json_response(400, {"error": str(exc)})
+
+    def receive_reference(self):
+        """Stream a browser-selected clip into the review attachments; never accept host paths."""
+        if not self.safe_request(mutation=True, content_type="application/octet-stream"):
+            return
+        try:
+            name = parse_qs(urlsplit(self.path).query).get("name", [""])[0]
+            size = int(self.headers.get("Content-Length", "0"))
+            limit = self.server.reviews.settings()["reference_max_bytes"]
+            if size <= 0 or size > limit:
+                raise ValueError(f"The clip is empty or larger than the review limit of {limit} bytes. "
+                                 "Raise the limit in review settings or use a shorter clip.")
+            metadata = json.loads(self.headers.get("X-Riff-Reference-Metadata", "{}"))
+            with tempfile.TemporaryDirectory(prefix="review-reference-", dir=self.server.store.data_root) as temporary:
+                path = Path(temporary) / "clip"
+                with path.open("xb") as target:
+                    remaining = size
+                    while remaining:
+                        block = self.rfile.read(min(1024 * 1024, remaining))
+                        if not block:
+                            raise ValueError("The clip upload was interrupted.")
+                        target.write(block)
+                        remaining -= len(block)
+                self.json_response(201, self.server.reviews.add_reference(path, metadata, name))
         except (BrokenPipeError, ConnectionResetError):
             pass
         except (ValueError, OSError) as exc:
@@ -513,6 +547,11 @@ class Handler(BaseHTTPRequestHandler):
                 result = (self.server.video_exports.finish(match[1], payload.get("timings"))
                           if match[2] == "finish" else self.server.video_exports.cancel(match[1]))
                 self.json_response(200, result)
+            elif path == "/api/review/references/reuse" and method == "POST" and self.server.reviews:
+                self.json_response(201, self.server.reviews.reuse_references(payload.get("review_id")))
+            elif (match := REFERENCE_ROUTE.fullmatch(path)) and method in ("PATCH", "DELETE") and self.server.reviews:
+                self.json_response(200, self.server.reviews.update_reference(match[1], payload) if method == "PATCH"
+                                   else self.server.reviews.remove_reference(match[1]))
             elif (match := REVIEW_ROUTE.fullmatch(path)) and match[2] == "cancel" and method == "POST" and self.server.reviews:
                 self.json_response(200, self.server.reviews.cancel(match[1]))
             elif (match := PRESET_ROUTE.fullmatch(path)) and method in ("PATCH", "DELETE"):

@@ -806,6 +806,41 @@
                       checked
                     />Keep these lyrics</label
                   >
+                  <fieldset id="review-references" class="review-references">
+                    <legend>
+                      Reference recordings
+                      <span class="quiet-text">optional</span>
+                    </legend>
+                    <ul
+                      id="review-reference-list"
+                      class="review-reference-list"
+                      aria-live="polite"
+                    ></ul>
+                    <input
+                      type="file"
+                      id="review-reference-file"
+                      accept="audio/*,.wav,.mp3,.flac,.ogg,.aif,.aiff,.m4a"
+                      hidden
+                    />
+                    <button
+                      type="button"
+                      id="add-review-reference"
+                      class="text-button"
+                    >
+                      Add a reference clip
+                    </button>
+                    <p id="review-reference-hint" class="control-hint">
+                      Reference clips are sent with this recording to
+                      OpenRouter and the review model's provider, where usage
+                      charges apply. Riff keeps them on this computer only.
+                    </p>
+                    <p
+                      id="review-reference-error"
+                      class="form-error"
+                      role="alert"
+                      hidden
+                    ></p>
+                  </fieldset>
                   <button
                     type="submit"
                     id="request-review"
@@ -1106,6 +1141,34 @@
           Browse current audio models
         </button>
         <p id="review-model-status" class="quiet-text" role="status"></p>
+        <label for="review-max-clips">Reference clips per review</label
+        ><input
+          type="number"
+          id="review-max-clips"
+          min="1"
+          step="1"
+          required
+        />
+        <label for="review-max-seconds">Longest reference clip (seconds)</label
+        ><input
+          type="number"
+          id="review-max-seconds"
+          min="1"
+          step="any"
+          required
+        />
+        <label for="review-max-megabytes">Largest reference file (MB)</label
+        ><input
+          type="number"
+          id="review-max-megabytes"
+          min="0.1"
+          step="any"
+          required
+        />
+        <p class="control-hint">
+          Reference clips are uploaded to OpenRouter with the recording being
+          reviewed. Longer and larger clips cost more.
+        </p>
         <label for="review-api-key">OpenRouter API key</label
         ><input
           type="password"
