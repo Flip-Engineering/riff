@@ -12,231 +12,278 @@
   "quota_probe": [
     {
       "variant": "baseline",
-      "frames": 50,
-      "encoded_bytes": {
-        "bytes": 193913250
-      },
       "blob_count": 50,
-      "blob_bytes": 193913250
+      "blob_bytes": 193913250,
+      "sample_window_end_frame": 50,
+      "completed_frames": 50,
+      "encoded_bytes_in_window": 193913250,
+      "failed_frame": null,
+      "error": null,
+      "error_message": null
     },
     {
       "variant": "baseline",
-      "frames": 100,
-      "encoded_bytes": {
-        "bytes": 193913250
-      },
       "blob_count": 100,
-      "blob_bytes": 387826500
+      "blob_bytes": 387826500,
+      "sample_window_end_frame": 100,
+      "completed_frames": 100,
+      "encoded_bytes_in_window": 193913250,
+      "failed_frame": null,
+      "error": null,
+      "error_message": null
     },
     {
       "variant": "baseline",
-      "frames": 150,
-      "encoded_bytes": {
-        "bytes": 193913250
-      },
       "blob_count": 150,
-      "blob_bytes": 581739750
+      "blob_bytes": 581739750,
+      "sample_window_end_frame": 150,
+      "completed_frames": 150,
+      "encoded_bytes_in_window": 193913250,
+      "failed_frame": null,
+      "error": null,
+      "error_message": null
     },
     {
       "variant": "baseline",
-      "frames": 200,
-      "encoded_bytes": {
-        "bytes": 193913250
-      },
       "blob_count": 200,
-      "blob_bytes": 775653000
+      "blob_bytes": 775653000,
+      "sample_window_end_frame": 200,
+      "completed_frames": 200,
+      "encoded_bytes_in_window": 193913250,
+      "failed_frame": null,
+      "error": null,
+      "error_message": null
     },
     {
       "variant": "baseline",
-      "frames": 250,
-      "encoded_bytes": {
-        "bytes": 193913250
-      },
       "blob_count": 250,
-      "blob_bytes": 969566250
+      "blob_bytes": 969566250,
+      "sample_window_end_frame": 250,
+      "completed_frames": 250,
+      "encoded_bytes_in_window": 193913250,
+      "failed_frame": null,
+      "error": null,
+      "error_message": null
     },
     {
       "variant": "baseline",
-      "frames": 300,
-      "encoded_bytes": {
-        "bytes": 193913250
-      },
       "blob_count": 300,
-      "blob_bytes": 1163479500
+      "blob_bytes": 1163479500,
+      "sample_window_end_frame": 300,
+      "completed_frames": 300,
+      "encoded_bytes_in_window": 193913250,
+      "failed_frame": null,
+      "error": null,
+      "error_message": null
     },
     {
       "variant": "baseline",
-      "frames": 350,
-      "encoded_bytes": {
-        "bytes": 193913250
-      },
       "blob_count": 350,
-      "blob_bytes": 1357392750
+      "blob_bytes": 1357392750,
+      "sample_window_end_frame": 350,
+      "completed_frames": 350,
+      "encoded_bytes_in_window": 193913250,
+      "failed_frame": null,
+      "error": null,
+      "error_message": null
     },
     {
       "variant": "baseline",
-      "frames": 400,
-      "encoded_bytes": {
-        "bytes": 193913250
-      },
       "blob_count": 400,
-      "blob_bytes": 1551306000
+      "blob_bytes": 1551306000,
+      "sample_window_end_frame": 400,
+      "completed_frames": 400,
+      "encoded_bytes_in_window": 193913250,
+      "failed_frame": null,
+      "error": null,
+      "error_message": null
     },
     {
       "variant": "baseline",
-      "frames": 450,
-      "encoded_bytes": {
-        "bytes": 193913250
-      },
       "blob_count": 450,
-      "blob_bytes": 1745219250
+      "blob_bytes": 1745219250,
+      "sample_window_end_frame": 450,
+      "completed_frames": 450,
+      "encoded_bytes_in_window": 193913250,
+      "failed_frame": null,
+      "error": null,
+      "error_message": null
     },
     {
       "variant": "baseline",
-      "frames": 500,
-      "encoded_bytes": {
-        "bytes": 193913250
-      },
       "blob_count": 500,
-      "blob_bytes": 1939132500
+      "blob_bytes": 1939132500,
+      "sample_window_end_frame": 500,
+      "completed_frames": 500,
+      "encoded_bytes_in_window": 193913250,
+      "failed_frame": null,
+      "error": null,
+      "error_message": null
     },
     {
       "variant": "baseline",
-      "frames": 550,
-      "encoded_bytes": {
-        "bytes": 193913250
-      },
       "blob_count": 550,
-      "blob_bytes": 2133045750
+      "blob_bytes": 2133045750,
+      "sample_window_end_frame": 550,
+      "completed_frames": 550,
+      "encoded_bytes_in_window": 193913250,
+      "failed_frame": null,
+      "error": null,
+      "error_message": null
     },
     {
       "variant": "baseline",
-      "frames": 600,
-      "encoded_bytes": {
-        "bytes": 11634795,
-        "frame": 554,
-        "name": "NotReadableError",
-        "message": "The browser could not encode video frame 554 (NotReadableError: The requested file could not be read, typically due to permission problems that have occurred after a reference to a file was acquired.). The browser could not read the PNG data. Check available memory, temporary disk space and storage permissions, then try exporting again."
-      },
       "blob_count": 553,
-      "blob_bytes": 2144680545
+      "blob_bytes": 2144680545,
+      "sample_window_end_frame": 600,
+      "completed_frames": 553,
+      "encoded_bytes_in_window": 11634795,
+      "failed_frame": 554,
+      "error": "NotReadableError",
+      "error_message": "The browser could not encode video frame 554 (NotReadableError: The requested file could not be read, typically due to permission problems that have occurred after a reference to a file was acquired.). The browser could not read the PNG data. Check available memory, temporary disk space and storage permissions, then try exporting again."
     },
     {
       "variant": "retirement",
-      "frames": 50,
-      "encoded_bytes": {
-        "bytes": 193881750
-      },
       "blob_count": 0,
-      "blob_bytes": 0
+      "blob_bytes": 0,
+      "sample_window_end_frame": 50,
+      "completed_frames": 50,
+      "encoded_bytes_in_window": 193881750,
+      "failed_frame": null,
+      "error": null,
+      "error_message": null
     },
     {
       "variant": "retirement",
-      "frames": 100,
-      "encoded_bytes": {
-        "bytes": 193881750
-      },
       "blob_count": 0,
-      "blob_bytes": 0
+      "blob_bytes": 0,
+      "sample_window_end_frame": 100,
+      "completed_frames": 100,
+      "encoded_bytes_in_window": 193881750,
+      "failed_frame": null,
+      "error": null,
+      "error_message": null
     },
     {
       "variant": "retirement",
-      "frames": 150,
-      "encoded_bytes": {
-        "bytes": 193881750
-      },
       "blob_count": 0,
-      "blob_bytes": 0
+      "blob_bytes": 0,
+      "sample_window_end_frame": 150,
+      "completed_frames": 150,
+      "encoded_bytes_in_window": 193881750,
+      "failed_frame": null,
+      "error": null,
+      "error_message": null
     },
     {
       "variant": "retirement",
-      "frames": 200,
-      "encoded_bytes": {
-        "bytes": 193881750
-      },
       "blob_count": 0,
-      "blob_bytes": 0
+      "blob_bytes": 0,
+      "sample_window_end_frame": 200,
+      "completed_frames": 200,
+      "encoded_bytes_in_window": 193881750,
+      "failed_frame": null,
+      "error": null,
+      "error_message": null
     },
     {
       "variant": "retirement",
-      "frames": 250,
-      "encoded_bytes": {
-        "bytes": 193881750
-      },
       "blob_count": 0,
-      "blob_bytes": 0
+      "blob_bytes": 0,
+      "sample_window_end_frame": 250,
+      "completed_frames": 250,
+      "encoded_bytes_in_window": 193881750,
+      "failed_frame": null,
+      "error": null,
+      "error_message": null
     },
     {
       "variant": "retirement",
-      "frames": 300,
-      "encoded_bytes": {
-        "bytes": 193881750
-      },
       "blob_count": 0,
-      "blob_bytes": 0
+      "blob_bytes": 0,
+      "sample_window_end_frame": 300,
+      "completed_frames": 300,
+      "encoded_bytes_in_window": 193881750,
+      "failed_frame": null,
+      "error": null,
+      "error_message": null
     },
     {
       "variant": "retirement",
-      "frames": 350,
-      "encoded_bytes": {
-        "bytes": 193881750
-      },
       "blob_count": 0,
-      "blob_bytes": 0
+      "blob_bytes": 0,
+      "sample_window_end_frame": 350,
+      "completed_frames": 350,
+      "encoded_bytes_in_window": 193881750,
+      "failed_frame": null,
+      "error": null,
+      "error_message": null
     },
     {
       "variant": "retirement",
-      "frames": 400,
-      "encoded_bytes": {
-        "bytes": 193881750
-      },
       "blob_count": 0,
-      "blob_bytes": 0
+      "blob_bytes": 0,
+      "sample_window_end_frame": 400,
+      "completed_frames": 400,
+      "encoded_bytes_in_window": 193881750,
+      "failed_frame": null,
+      "error": null,
+      "error_message": null
     },
     {
       "variant": "retirement",
-      "frames": 450,
-      "encoded_bytes": {
-        "bytes": 193881750
-      },
       "blob_count": 0,
-      "blob_bytes": 0
+      "blob_bytes": 0,
+      "sample_window_end_frame": 450,
+      "completed_frames": 450,
+      "encoded_bytes_in_window": 193881750,
+      "failed_frame": null,
+      "error": null,
+      "error_message": null
     },
     {
       "variant": "retirement",
-      "frames": 500,
-      "encoded_bytes": {
-        "bytes": 193881750
-      },
       "blob_count": 0,
-      "blob_bytes": 0
+      "blob_bytes": 0,
+      "sample_window_end_frame": 500,
+      "completed_frames": 500,
+      "encoded_bytes_in_window": 193881750,
+      "failed_frame": null,
+      "error": null,
+      "error_message": null
     },
     {
       "variant": "retirement",
-      "frames": 550,
-      "encoded_bytes": {
-        "bytes": 193881750
-      },
       "blob_count": 0,
-      "blob_bytes": 0
+      "blob_bytes": 0,
+      "sample_window_end_frame": 550,
+      "completed_frames": 550,
+      "encoded_bytes_in_window": 193881750,
+      "failed_frame": null,
+      "error": null,
+      "error_message": null
     },
     {
       "variant": "retirement",
-      "frames": 600,
-      "encoded_bytes": {
-        "bytes": 193881750
-      },
       "blob_count": 0,
-      "blob_bytes": 0
+      "blob_bytes": 0,
+      "sample_window_end_frame": 600,
+      "completed_frames": 600,
+      "encoded_bytes_in_window": 193881750,
+      "failed_frame": null,
+      "error": null,
+      "error_message": null
     },
     {
       "variant": "retirement",
-      "frames": 650,
-      "encoded_bytes": {
-        "bytes": 193881750
-      },
       "blob_count": 0,
-      "blob_bytes": 0
+      "blob_bytes": 0,
+      "sample_window_end_frame": 650,
+      "completed_frames": 650,
+      "encoded_bytes_in_window": 193881750,
+      "failed_frame": null,
+      "error": null,
+      "error_message": null
     }
   ],
   "short_matrix": [
@@ -412,7 +459,7 @@
       "peak_summed_rss_bytes": 14508703744,
       "peak_scoped_temporary_allocated_bytes": 50970624,
       "minimum_disk_free_bytes": 557016621056,
-      "peak_live_png_blob_bytes": 0,
+      "peak_live_png_blob_bytes": null,
       "retirement_samples": 0,
       "observer_errors": [
         {
