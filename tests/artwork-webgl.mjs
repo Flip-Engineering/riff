@@ -54,6 +54,7 @@ try {
   console.log(`PASS Actual WebGL rendering, material controls, motion, resizing and seeking: ${result.renderer}`);
   for (const failure of ["unavailable", "exception"]) {
     const recovery = await browser.newPage();
+    recovery.on("console", m => console.log("PAGE:", m.text()));
     await recovery.evaluate(failure => {
       window.graphicsProbe = { blocked: true, attempts: 0, contexts: [], draws: 0, clock: 0 };
       const now = performance.now.bind(performance);
@@ -84,14 +85,25 @@ try {
         drawSeedArtwork(canvas.getContext("2d"), 880, 680, "15961", 1, [.6, .7, .5, .2, .1, .4, .3, .2]);
         return canvas.toDataURL();
       };
+      // Pin the virtual clock while graphics are unavailable so host load
+      // between evaluation rounds cannot expire the 5 s probe throttle.
+      graphicsProbe.clock -= performance.now();
       drawRecoveryFrame();
+      graphicsProbe.clock -= performance.now();
       graphicsProbe.blocked = false;
-      for (let i = 0; i < 5; i++) drawRecoveryFrame();
+      for (let i = 0; i < 5; i++) {
+        graphicsProbe.clock -= performance.now();
+        drawRecoveryFrame();
+      }
       const throttledAttempts = graphicsProbe.attempts;
+      // Expire the throttle: the retry probe runs and restores the renderer.
+      graphicsProbe.clock += 5001;
       graphicsProbe.clock += 5001;
       window.recoveryPixels = drawRecoveryFrame();
       return { throttledAttempts, attempts: graphicsProbe.attempts, draws: graphicsProbe.draws };
     });
+    const probeLog = await recovery.evaluate(() => window.__probeLog || []).catch(error => [["probe-log-read-failed", String(error)]]);
+    console.log("PROBELOG " + JSON.stringify(probeLog));
     assert.equal(recovered.throttledAttempts, 1, "Unavailable graphics are not probed on every frame");
     assert.equal(recovered.attempts, 2, "Renderer retries a temporary initialization failure");
     assert.equal(recovered.draws, 1, "GPU rendering resumes in the same page without reloading");

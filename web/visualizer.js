@@ -8,6 +8,7 @@ const quietMotion = matchMedia("(prefers-reduced-motion: reduce)");
 const motionCache = new Map();
 const settledMotion = new WeakMap();
 let soundAppearance = { ...RiffArtwork.defaults };
+let lastSoundDrawKey = null;
 try {
   const saved = JSON.parse(localStorage.getItem("riff.soundAppearance") || "{}");
   for (const [key, maximum] of [["surface", 1], ["motion", 2], ["color", 1], ["texture", 1]]) {
@@ -180,8 +181,14 @@ function drawSoundField() {
     canvas.height = height;
   }
   const seed = selected?.recipe.seed ?? "reed0f_cobalt8d82";
+  const appearance = artworkAppearance();
+  const drawKey = `${immersive}|${width}x${height}|${seed}|${audio.currentTime}|${JSON.stringify(appearance)}`;
+  if (audio.paused && drawKey === lastSoundDrawKey) return;
+  lastSoundDrawKey = drawKey;
   drawSeedArtwork(context, width, height, seed, audio.currentTime,
-    liveSound.read(audio.currentTime) || motionAt(soundMotionTrack === selected?.id ? soundMotion : null, audio.currentTime), artworkAppearance());
+    liveSound.read(audio.currentTime) || motionAt(soundMotionTrack === selected?.id ? soundMotion : null, audio.currentTime), appearance);
+  window.soundFieldDraws = (window.soundFieldDraws || 0) + 1;
+  window.soundFieldDrawnTime = audio.currentTime;
   if (!audio.paused && !quietMotion.matches) soundAnimation = requestAnimationFrame(drawSoundField);
 }
 
@@ -236,7 +243,17 @@ document.addEventListener("DOMContentLoaded", () => {
     synchronizeSoundField();
   }));
   audio.addEventListener("emptied", liveSound.reset);
-  audio.addEventListener("seeking", liveSound.reset);
+  audio.addEventListener("seeking", () => {
+    liveSound.reset();
+    // A seek can complete without firing `seeked` when the target position is
+    // not buffered yet. Redraw once the seek finishes so the analysis for the
+    // new position is drawn deterministically.
+    const poll = () => {
+      if (audio.seeking) return setTimeout(poll, 25);
+      synchronizeSoundField();
+    };
+    setTimeout(poll, 25);
+  });
   audio.addEventListener("play", () => {
     liveSound.start().then(synchronizeSoundField);
     soundSnapshotPending = quietMotion.matches;
