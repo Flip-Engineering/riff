@@ -7,16 +7,18 @@ inference run as homelab farm jobs, not in CI.
 
 ## Workflow routing
 
+Riff's Linux jobs run on `atari-homelab-riff` (label `riff-linux`), a runner dedicated to Riff on the homelab. It runs as the service user `riffci` from `/mnt/nvme4tb/ci-runners/riff-homelab`, and `riffci` is in the `baton-compile` group so native builds can use the shared compile queue. Baton's native runners (`baton2-native-linux-x64`) are not used by Riff, so Riff jobs do not wait on Baton compiles.
+
 | Workflow / job | Required labels | Execution |
 | --- | --- | --- |
-| `ci.yml` control, application, browser, native Linux CPU | `self-hosted`, `Linux`, `X64`, `baton2-native-linux-x64` | push to `main`, same-repository pull requests, `workflow_call`, `workflow_dispatch` (a dispatch runs every `ci.yml` job) |
-| `homelab-linux-validation.yml` | `self-hosted`, `Linux`, `X64`, `baton2-native-linux-x64` | manual exact-source dispatch |
+| `ci.yml` control, application, browser, native Linux CPU | `self-hosted`, `Linux`, `X64`, `riff-linux` | push to `main`, same-repository pull requests, `workflow_call`, `workflow_dispatch` (a dispatch runs every `ci.yml` job) |
+| `homelab-linux-validation.yml` | `self-hosted`, `Linux`, `X64`, `riff-linux` | manual exact-source dispatch |
 | `ci.yml` native Metal | GitHub-hosted `macos-14` (Apple Silicon) | same triggers as the Linux `ci.yml` jobs |
 | `apple-silicon-validation.yml` | GitHub-hosted `macos-15` (Apple Silicon) | manual exact-source dispatch |
 | `desktop.yml` preview | GitHub-hosted `macos-15` (Apple Silicon) | `main`/`v*` tag/manual desktop workflow |
-| `desktop.yml` publish | `self-hosted`, `Linux`, `X64`, `baton2-native-linux-x64` | tag or manual publish |
-| `pages.yml` deploy | `self-hosted`, `Linux`, `X64`, `baton2-native-linux-x64` | Pages workflow |
-| `release.yml` validate/release | `self-hosted`, `Linux`, `X64`, `baton2-native-linux-x64` | release workflow |
+| `desktop.yml` publish | `self-hosted`, `Linux`, `X64`, `riff-linux` | tag or manual publish |
+| `pages.yml` deploy | `self-hosted`, `Linux`, `X64`, `riff-linux` | Pages workflow |
+| `release.yml` validate/release | `self-hosted`, `Linux`, `X64`, `riff-linux` | release workflow |
 
 
 The native Linux CPU job retains the existing solver, CPU-tensor LoRA,
@@ -76,8 +78,11 @@ Decided by the root on 2026-10-23:
   through the farm queue and inference infrastructure, so CUDA builds and
   inference (including #24) run as farm jobs. The former `ci.yml` CUDA compile
   probe, which required a `riff-cuda` runner that does not exist, was removed.
-- **Linux CPU**: the standard workflows run on `baton2-native-linux-x64` and need
-  the runner-group workflow allowlist to include each workflow path. The runner
+- **Linux CPU**: the standard workflows run on Riff's own runner, `riff-linux`
+  (#49, PR #52). Riff is a public repository, so the runner must be in a runner
+  group that allows public repositories and selects Riff; the org Default group
+  does not, and jobs then queue with no runner assigned. The group's workflow
+  allowlist must include each workflow path. The runner
   must provide the shared compile queue; native builds fail closed without it.
   Recheck the runner inventory and allowlist before dispatch, because both change
   outside this repository.
