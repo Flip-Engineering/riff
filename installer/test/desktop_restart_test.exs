@@ -2,6 +2,10 @@ defmodule Riff.Installer.DesktopRestartTest do
   use ExUnit.Case, async: false
   alias Riff.Installer.{Desktop, Download}
 
+  # Desktop.wait_until_closed takes its own deadline. These tests are about how it retries, not about
+  # how fast a loaded host is, so give it one beyond ExUnit's test timeout and let that stop a hang.
+  @beyond_test_timeout :timer.minutes(10)
+
   test "accepted restart survives real HTTP disconnects and resets until connection refusal" do
     {url, listener} = listener([:close, :serving, :reset, :refuse])
     owner = self()
@@ -10,13 +14,13 @@ defmodule Riff.Installer.DesktopRestartTest do
              Desktop.wait_until_closed(
                url,
                fn stage, message -> send(owner, {:progress, stage, message}) end,
-               shutdown_timeout: 5_000
+               shutdown_timeout: @beyond_test_timeout
              )
 
-    assert_received {:response, ^listener, :close}
-    assert_received {:response, ^listener, :serving}
-    assert_received {:response, ^listener, :reset}
-    assert_received {:listener_closed, ^listener}
+    assert_receive {:response, ^listener, :close}
+    assert_receive {:response, ^listener, :serving}
+    assert_receive {:response, ^listener, :reset}
+    assert_receive {:listener_closed, ^listener}
     assert_received {:progress, :starting, "Finishing the current session"}
   end
 
@@ -38,21 +42,21 @@ defmodule Riff.Installer.DesktopRestartTest do
              Desktop.wait_until_closed(
                url,
                fn _, _ -> send(listener, :finish_timeout) end,
-               shutdown_timeout: 5_000
+               shutdown_timeout: @beyond_test_timeout
              )
 
-    assert_received {:response, ^listener, :timeout}
-    assert_received {:listener_closed, ^listener}
+    assert_receive {:response, ^listener, :timeout}
+    assert_receive {:listener_closed, ^listener}
   end
 
   test "a permanent HTTP refusal is an error, not shutdown confirmation" do
     {url, listener} = listener(:unauthorized)
 
     assert_raise Download.Error, ~r/could not confirm that its previous session ended/, fn ->
-      Desktop.wait_until_closed(url, fn _, _ -> :ok end, shutdown_timeout: 5_000)
+      Desktop.wait_until_closed(url, fn _, _ -> :ok end, shutdown_timeout: @beyond_test_timeout)
     end
 
-    assert_received {:response, ^listener, :unauthorized}
+    assert_receive {:response, ^listener, :unauthorized}
     assert Process.alive?(listener)
     refute_received {:listener_closed, ^listener}
   end
