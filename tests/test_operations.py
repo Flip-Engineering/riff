@@ -150,12 +150,19 @@ class IdentityTests(OperationFixture):
     def test_identity_is_returned_with_the_queued_job_before_work_starts(self):
         status, submission = self.study()
         self.assertEqual(status, 201)
-        self.assertEqual(submission["status"], "queued")
+        # The worker may claim the job before the response is read, so "queued" is not deterministic here
+        # (QueuedContractTests pins it with a worker that never claims). What is deterministic: the
+        # identity, and that nothing has been produced because the engine is held at the gate.
+        self.assertIn(submission["status"], ("queued", "running"))
         self.assertFalse(submission["replayed"])
         self.assertIsNone(submission["parent"])
         for name in ("operation_id", "job_id", "family_id"):
             self.assertRegex(submission[name], "^[a-f0-9]{32}$")
-        self.assertEqual(self.store.job(submission["job_id"])["status"], "queued")
+        row = self.store.job(submission["job_id"])
+        self.assertIn(row["status"], ("queued", "running"))
+        self.assertIsNone(row["track_id"])
+        self.assertFalse(submission["receipt"]["terminal"])
+        self.assertEqual(submission["receipt"]["outputs"]["track_id"], "")
         self.assertFalse(self.gate.exists())
         by_job = self.request("GET", f"/api/v1/operations/{submission['job_id']}")[1]
         self.assertEqual(by_job["operation"]["id"], submission["operation_id"])
@@ -254,7 +261,7 @@ class IdempotencyTests(OperationFixture):
         status, queued = self.request("POST", "/api/generations", recipe(), {"Idempotency-Key": "form-1"})
         self.assertEqual(status, 201)
         self.assertEqual(set(queued) >= {"id", "recipe", "status", "operation_id", "family_id"}, True)
-        self.assertEqual(queued["status"], "queued")
+        self.assertIn(queued["status"], ("queued", "running"))
         again = self.request("POST", "/api/generations", recipe(), {"Idempotency-Key": "form-1"})
         self.assertEqual((again[0], again[1]["id"], again[1]["replayed"]), (200, queued["id"], True))
         self.assertEqual(self.request("POST", "/api/generations", recipe(seed="3"), {"Idempotency-Key": "form-1"})[0], 409)
@@ -802,6 +809,22 @@ class ResumeTests(DerivedFixture):
         status, result = self.resume("c" * 32)
         self.assertEqual(status, 201, result)
         self.assertEqual((result["receipt"]["effective_recipe"]["seed"], result["receipt"]["operation"]["resumes"]), ("66", "c" * 32))
+
+
+class QueuedContractTests(DerivedFixture):
+    """Identity comes back from the call that queues the job, before any work: pinned with a worker that never claims."""
+    def test_the_response_the_row_and_the_receipt_all_say_queued_with_nothing_produced(self):
+        status, submission = self.study()
+        self.assertEqual(status, 201)
+        self.assertEqual(submission["status"], "queued")
+        row = self.store.job(submission["job_id"])
+        self.assertEqual((row["status"], row["track_id"], row["started"]), ("queued", None, None))
+        receipt = submission["receipt"]
+        self.assertEqual((receipt["job"]["status"], receipt["terminal"]), ("queued", False))
+        self.assertEqual(receipt["outputs"], {"track_id": "", "score_source": "", "performance_source": "", "acoustic_source": ""})
+        self.assertEqual(self.request("GET", f"/api/v1/operations/{submission['operation_id']}")[1]["job"]["status"], "queued")
+        status, legacy = self.request("POST", "/api/generations", recipe(seed="4"))
+        self.assertEqual((status, legacy["status"]), (201, "queued"))
 
 
 class PublicationTests(DerivedFixture):
