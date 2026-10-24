@@ -33,7 +33,7 @@ import platform_support
 
 WEB = ROOT / "web"
 TRACK_ROUTE = re.compile(r"/api/tracks/([a-f0-9]{32})(?:/(audio|recipe|visualization|video-exports|lineage))?")
-VIDEO_ROUTE = re.compile(r"/api/video-exports/([a-f0-9]{32})(?:/(frames|finish|cancel|download))?")
+VIDEO_ROUTE = re.compile(r"/api/video-exports/([a-f0-9]{32})(?:/(frames|finish|cancel|download|live))?")
 JOB_ROUTE = re.compile(r"/api/jobs/([a-f0-9]{32})(?:/(cancel|retry|move))?")
 PRESET_ROUTE = re.compile(r"/api/presets/([a-z0-9-]+)")
 TRACK_REVIEWS_ROUTE = re.compile(r"/api/tracks/([a-f0-9]{32})/reviews")
@@ -126,6 +126,25 @@ class Handler(BaseHTTPRequestHandler):
             self.json_response(403, {"error": "Use the studio to make this change."})
             return False
         return True
+
+    def video_producer(self, export_id):
+        """Keep the drawing page's connection open while its export accepts frames."""
+        self.server.video_exports.get(export_id)
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Accel-Buffering", "no")
+        self.send_header("Connection", "close")
+        self.end_headers()
+        self.close_connection = True
+
+        def send(data):
+            self.wfile.write(data)
+            self.wfile.flush()
+        try:
+            self.server.video_exports.producer(export_id, send)
+        except ValueError:
+            pass
 
     def json_response(self, status, value):
         body = json.dumps(value, ensure_ascii=False).encode("utf-8")
@@ -245,6 +264,8 @@ class Handler(BaseHTTPRequestHandler):
                 if match[2] == "download":
                     file, title = self.server.video_exports.download(match[1])
                     self.send_file(file, "video/mp4", title, ranged=True)
+                elif match[2] == "live":
+                    self.video_producer(match[1])
                 elif not match[2]:
                     self.json_response(200, self.server.video_exports.get(match[1]))
                 else:
