@@ -7,7 +7,7 @@ import { chromium } from "playwright";
 // Actual served studio, with tiny acoustic API responses at the browser edge.
 // Real Store/Elixir/native fixture execution is test_acoustic_integration.py.
 const server = spawn(process.env.RIFF_PYTHON || "python3", ["-B", "-u", "tests/review_browser_server.py"]);
-let diagnostics = "", browser;
+let diagnostics = "", browser, page;
 server.stderr.on("data", value => diagnostics += value);
 const fixture = await new Promise((resolve, reject) => {
   let output = "";
@@ -40,7 +40,7 @@ try {
   ];
   browser = await chromium.launch({ executablePath: process.env.RIFF_BROWSER_EXECUTABLE });
   console.log(`Browser ${browser.version()}`);
-  const page = await browser.newPage({ viewport: { width: 1280, height: 1000 }, reducedMotion: "reduce" });
+  page = await browser.newPage({ viewport: { width: 1280, height: 1000 }, reducedMotion: "reduce" });
   const errors = []; page.on("pageerror", error => { errors.push(error.message); console.error("Browser error:", error.message); });
   await page.addInitScript(value => { if (!localStorage.getItem("riff.draft")) localStorage.setItem("riff.draft", JSON.stringify(value)); }, initial);
   await page.route("**/api/state*", async route => {
@@ -273,6 +273,8 @@ try {
   console.log("PASS A changed imported recipe keeps the actual musical edit and detaches an incompatible saved-sound reference");
   assert.deepEqual(errors, []);
 } finally {
+  // The state poll can start a route handler's fetch just as the browser closes. Release handlers first.
+  await page?.unrouteAll({ behavior: "ignoreErrors" });
   await browser?.close();
   const stopped = once(server, "exit"); server.kill("SIGTERM"); await stopped;
 }
