@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { mkdirSync, readFileSync } from "node:fs";
-import { chromium } from "playwright";
+import { launch } from "./browser-launch.mjs";
 
 const server = spawn(process.env.RIFF_PYTHON || "python3", ["-u", "tests/review_browser_server.py"]);
 let diagnostics = "";
@@ -12,7 +12,7 @@ const fixture = await new Promise((resolve, reject) => {
   server.stdout.on("data", (chunk) => { output += chunk; if (output.includes("\n")) resolve(JSON.parse(output.split("\n")[0])); });
   server.once("exit", (code) => reject(new Error(`Fixture exited ${code}: ${diagnostics}`)));
 });
-const browser = await chromium.launch({ headless: true, executablePath: process.env.RIFF_BROWSER_EXECUTABLE });
+const browser = await launch({ headless: true, executablePath: process.env.RIFF_BROWSER_EXECUTABLE });
 const page = await browser.newPage({ viewport: { width: 1365, height: 1000 }, reducedMotion: "reduce" });
 const errors = [];
 page.on("pageerror", (error) => errors.push(error.message));

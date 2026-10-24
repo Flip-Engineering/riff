@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {spawn} from 'node:child_process';
 import {once} from 'node:events';
-import {chromium} from 'playwright';
+import {launch} from './browser-launch.mjs';
 const server = spawn(process.env.RIFF_PYTHON || 'python3', ['-u', 'tests/review_browser_server.py'],
   {env: {...process.env, RIFF_MULTI_TRACK_FIXTURE: '1'}});
 let browser, logs = '';
@@ -11,7 +11,7 @@ try {
     let line = ''; server.stdout.on('data', bytes => { line += bytes; if (line.includes('\n')) resolve(JSON.parse(line.split('\n')[0])); });
     server.once('exit', code => reject(new Error(`Fixture ${code}: ${logs}`)));
   });
-  browser = await chromium.launch({headless: true});
+  browser = await launch({headless: true});
   const page = await browser.newPage();
   const errors = []; page.on('pageerror', error => errors.push(error.message));
   await page.goto(`${fixture.url}/?recording=${fixture.track_id}#library`);

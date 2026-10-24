@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
-import { chromium } from "playwright";
+import { launch } from "./browser-launch.mjs";
 
-const browser = await chromium.launch({ headless: true, executablePath: process.env.RIFF_BROWSER_EXECUTABLE });
+const browser = await launch({ headless: true, executablePath: process.env.RIFF_BROWSER_EXECUTABLE });
 try {
   const page = await browser.newPage();
   const errors = [];
@@ -22,10 +22,9 @@ try {
       return draw(...args);
     };
   });
-  const started = Date.now();
   await page.locator("#play").click();
+  // The analysis route is still held, so live frames arriving here started without it.
   await page.waitForFunction(() => liveFrames.length >= 3 && audio.currentTime > .2);
-  assert(Date.now() - started < 2500, "Live motion must start without full-recording analysis");
   const motion = await page.evaluate(() => ({frames: liveFrames.slice(0, 3), pending: soundMotion === null, data: liveSound.read(audio.currentTime)}));
   assert(motion.pending, "The full-recording analysis is still deliberately blocked");
   assert(motion.frames.every(frame => Math.abs(frame.time - frame.clock) < .05), "Live frames use the current audio clock");

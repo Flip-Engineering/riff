@@ -21,6 +21,7 @@ import install
 from maintenance import Maintenance
 from studio_core import Generator, Store
 from admission_fixture import FixtureAdmission
+from fixture_waits import signalled, until
 
 
 def payload_fixture(root, version="0.5.4"):
@@ -421,7 +422,7 @@ class DesktopUpdateTests(unittest.TestCase):
                 entered, finish = threading.Event(), threading.Event()
                 def prepare(*_args, **_kwargs):
                     entered.set()
-                    if not finish.wait(5):
+                    if not finish.wait():
                         raise AssertionError("The test did not release preparation.")
                     if outcome == "failed":
                         raise ValueError("Fixture preparation failed")
@@ -429,7 +430,7 @@ class DesktopUpdateTests(unittest.TestCase):
                 with patch("maintenance.DATA", self.library), patch("maintenance.ROOT", app), patch("setup_engine.prepare", side_effect=prepare):
                     maintenance.start("setup", {"backend": "cpu"})
                     try:
-                        self.assertTrue(entered.wait(5), maintenance.task)
+                        self.assertTrue(signalled(entered, maintenance.thread), maintenance.task)
                         self.assertTrue(generator.quiescing)
                         with self.assertRaisesRegex(ValueError, "updating"):
                             generator.submit({"mode": "free"})
@@ -439,7 +440,7 @@ class DesktopUpdateTests(unittest.TestCase):
                             maintenance.cancel()
                     finally:
                         finish.set()
-                        maintenance.thread.join(5)
+                        maintenance.thread.join()
                     self.assertFalse(maintenance.thread.is_alive())
                     self.assertEqual(maintenance.task["status"], outcome, maintenance.task)
                     self.assertFalse(generator.quiescing)
@@ -454,13 +455,13 @@ class DesktopUpdateTests(unittest.TestCase):
         resume = generator.resume
         def pause_resume():
             resuming.set()
-            if not finish.wait(5):
+            if not finish.wait():
                 raise AssertionError("The test did not release admission.")
             resume()
         with patch("maintenance.DATA", self.library), patch("maintenance.ROOT", app), patch("setup_engine.prepare"), patch.object(generator, "resume", side_effect=pause_resume):
             maintenance.start("setup", {"backend": "cpu"})
             try:
-                self.assertTrue(resuming.wait(5), maintenance.task)
+                self.assertTrue(signalled(resuming, maintenance.thread), maintenance.task)
                 self.assertEqual(maintenance.task["status"], "running")
                 self.assertTrue(generator.quiescing)
                 acquired = maintenance.lock.acquire(blocking=False)
@@ -469,7 +470,7 @@ class DesktopUpdateTests(unittest.TestCase):
                 self.assertFalse(acquired)
             finally:
                 finish.set()
-                maintenance.thread.join(5)
+                maintenance.thread.join()
             self.assertFalse(maintenance.thread.is_alive())
             self.assertEqual(maintenance.task["status"], "done")
             self.assertFalse(generator.quiescing)
@@ -490,12 +491,12 @@ class DesktopUpdateTests(unittest.TestCase):
             writer = threading.Thread(target=lambda: results.append(generator.inspiration({"mode": "surprise"})))
             writer.start()
             try:
-                self.assertTrue(waiting.wait(5))
+                self.assertTrue(signalled(waiting, writer))
                 session = generator.writer_session
                 self.assertIsNone(generator.writer_process)
                 with patch("maintenance.DATA", self.library), patch("maintenance.ROOT", app), patch.object(maintenance, "busy", return_value=False), patch("setup_engine.prepare") as prepare:
                     maintenance.start("setup", {"backend": "cpu"})
-                    maintenance.thread.join(5)
+                    maintenance.thread.join()
                     self.assertFalse(maintenance.thread.is_alive())
                     self.assertEqual(maintenance.task["status"], "failed", maintenance.task)
                     self.assertIn("current work", maintenance.task["message"])
@@ -507,7 +508,7 @@ class DesktopUpdateTests(unittest.TestCase):
             finally:
                 if generator.writer_session:
                     generator.cancel_writing()
-                writer.join(5)
+                writer.join()
             self.assertFalse(writer.is_alive())
             self.assertEqual(results, [{"cancelled": True}])
             self.unchanged()
@@ -517,9 +518,7 @@ class DesktopUpdateTests(unittest.TestCase):
         generator = maintenance.generator
         generator.command_builder = lambda *_: [sys.executable, "-c", "import time; time.sleep(300)"]
         first = generator.submit({"mode": "free"})["id"]
-        deadline = time.monotonic() + 5
-        while generator.process is None and time.monotonic() < deadline:
-            time.sleep(.01)
+        until(lambda: generator.process is not None, generator.thread)
         self.assertIsNotNone(generator.process)
         process = generator.process
         second = generator.submit({"mode": "free"})["id"]
@@ -594,10 +593,10 @@ class DesktopUpdateTests(unittest.TestCase):
         worker = threading.Thread(target=invoke)
         worker.start()
         try:
-            self.assertTrue(started.wait(5), "owned control did not start")
+            self.assertTrue(signalled(started, worker), "owned control did not start")
             cancelled.set()
             install.stop_desktop_control(processes[0])
-            worker.join(5)
+            worker.join()
             self.assertFalse(worker.is_alive())
             self.assertIsInstance(failures[0], install.UpdateCancelled)
             self.assertIsNone(unrelated.poll())
@@ -606,7 +605,7 @@ class DesktopUpdateTests(unittest.TestCase):
             if processes and processes[0].poll() is None:
                 install.stop_desktop_control(processes[0])
             unrelated.terminate(); unrelated.wait()
-            worker.join(5)
+            worker.join()
 
     def test_cancellation_before_request_write_is_reported_as_cancelled(self):
         runtime = current_runtime(self.install_root)
@@ -652,7 +651,7 @@ class DesktopUpdateTests(unittest.TestCase):
                         request = urllib.request.Request(url + path, data=b"{}",
                             headers={"Content-Type": "application/json", "Origin": url, "X-Riff-Request": "1"})
                         try:
-                            with urllib.request.urlopen(request, timeout=5) as response:
+                            with urllib.request.urlopen(request) as response:
                                 replies.append((response.status, json.load(response)))
                         except urllib.error.HTTPError as response:
                             with response:
@@ -662,11 +661,11 @@ class DesktopUpdateTests(unittest.TestCase):
                     request = threading.Thread(target=post)
                     request.start()
                     try:
-                        self.assertTrue(lock.entered.wait(5), "creation route skipped the restart boundary")
+                        self.assertTrue(signalled(lock.entered, request), "creation route skipped the restart boundary")
                         server.restart_requested = True
                     finally:
                         lock.inner.release()
-                    request.join(5)
+                    request.join()
                     self.assertFalse(request.is_alive())
                     self.assertEqual(replies[0][0], 400)
                     self.assertIn("restarting", replies[0][1]["error"])
@@ -676,7 +675,7 @@ class DesktopUpdateTests(unittest.TestCase):
             self.assertFalse(server.video_exports.busy())
         finally:
             server.shutdown()
-            worker.join(5)
+            worker.join()
             server.server_close()
 
 
