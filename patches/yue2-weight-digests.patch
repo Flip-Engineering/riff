@@ -1,0 +1,254 @@
+--- a/app/cli/main.cpp
++++ b/app/cli/main.cpp
+@@ -635,7 +635,8 @@
+ // A failed backend computation can leave device state a later job must not
+ // inherit. The caller restarts the process instead of continuing.
+ bool backend_unrecoverable(const std::string & message) {
+-    return message.find("compute failed") != std::string::npos;
++    return message.find("compute failed") != std::string::npos ||
++           message.find("Yue2 source session invalid") != std::string::npos;
+ }
+ 
+ int run_job_stream(
+--- a/include/engine/models/yue2/acoustic_checkpoint.h
++++ b/include/engine/models/yue2/acoustic_checkpoint.h
+@@ -26,6 +26,22 @@
+ Digest hash_file(const std::filesystem::path & path);
+ Digest hash_i32(const std::vector<int32_t> & values);
+ Digest executable_hash();
++std::filesystem::path executable_path();
++
++struct HashStats { uint64_t hits = 0, bytes = 0; };
++// Session-owned only. A changed anchor must never be rebound to resident weights.
++class SourceFile {
++public:
++    SourceFile() = default;
++    explicit SourceFile(std::filesystem::path path, bool optional = false);
++    SourceFile(std::filesystem::path path, FileIdentity selected);
++    void require_unchanged() const;
++    Digest digest(HashStats & stats);
++private:
++    std::filesystem::path path_;
++    std::optional<FileIdentity> identity_;
++    std::optional<Digest> digest_;
++};
+ 
+ struct Metadata {
+     uint64_t frames = 0, latent_dim = 0;
+--- a/include/engine/models/yue2/assets.h
++++ b/include/engine/models/yue2/assets.h
+@@ -15,6 +15,7 @@
+     std::shared_ptr<const assets::TensorSource> model_weights;
+     std::shared_ptr<const assets::TensorSource> vae_weights;
+     checkpoint::FileIdentity model_identity, vae_identity;
++    checkpoint::SourceFile model_config_source, vae_config_source, generation_config_source, tokenizer_source;
+     checkpoint::Digest model_config_hash{}, vae_config_hash{}, generation_config_hash{};
+     bool has_model_config = false;
+     bool vae_storage_explicit = false;
+--- a/src/models/yue2/acoustic_checkpoint.cpp
++++ b/src/models/yue2/acoustic_checkpoint.cpp
+@@ -242,10 +242,13 @@
+     BY_HANDLE_FILE_INFORMATION s{};
+     if (!GetFileInformationByHandle(handle,&s) || (s.dwFileAttributes&FILE_ATTRIBUTE_DIRECTORY))
+         fail("input must be a readable regular file");
++    FILE_BASIC_INFO basic{};
++    if (!GetFileInformationByHandleEx(handle,FileBasicInfo,&basic,sizeof(basic)))
++        fail("cannot inspect source change time");
+     return {(uint64_t(s.nFileSizeHigh)<<32)|s.nFileSizeLow,s.dwVolumeSerialNumber,
+             (uint64_t(s.nFileIndexHigh)<<32)|s.nFileIndexLow,
+             (uint64_t(s.ftLastWriteTime.dwHighDateTime)<<32)|s.ftLastWriteTime.dwLowDateTime,
+-            (uint64_t(s.ftCreationTime.dwHighDateTime)<<32)|s.ftCreationTime.dwLowDateTime};
++            uint64_t(basic.ChangeTime.QuadPart)};
+ }
+ FileIdentity descriptor_identity(FILE * file) { return handle_identity(reinterpret_cast<HANDLE>(_get_osfhandle(_fileno(file)))); }
+ #endif
+@@ -357,7 +360,7 @@
+     else for (auto value:values) { uint8_t bytes[4];put(bytes,uint32_t(value),4);hash.update(bytes,4); }
+     return hash.finish();
+ }
+-Digest executable_hash() {
++std::filesystem::path executable_path() {
+     std::filesystem::path path;
+ #if defined(__APPLE__)
+     uint32_t size=0;_NSGetExecutablePath(nullptr,&size);std::vector<char> buffer(size);
+@@ -371,7 +374,38 @@
+ #else
+     path="/proc/self/exe";
+ #endif
+-    return hash_file(path);
++    return path;
++}
++Digest executable_hash() { return hash_file(executable_path()); }
++
++SourceFile::SourceFile(std::filesystem::path path,bool optional) : path_(std::move(path)) {
++    std::error_code error;
++    const auto status=std::filesystem::symlink_status(path_,error);
++    if (optional && (error==std::errc::no_such_file_or_directory ||
++                     (!error && !std::filesystem::exists(status)))) return;
++    identity_=file_identity(path_);
++}
++SourceFile::SourceFile(std::filesystem::path path,FileIdentity selected)
++    : path_(std::move(path)),identity_(selected) { require_unchanged(); }
++void SourceFile::require_unchanged() const {
++    if (path_.empty()) return; // component not selected (e.g. main in VAE-only replay)
++    if (identity_) { checkpoint::require_unchanged(path_,*identity_);return; }
++    std::error_code error;
++    const auto status=std::filesystem::symlink_status(path_,error);
++    if (error==std::errc::no_such_file_or_directory || (!error && !std::filesystem::exists(status))) return;
++    fail("an absent source file changed during the operation");
++}
++Digest SourceFile::digest(HashStats & stats) {
++    require_unchanged();
++    if (!identity_) fail("cannot hash an absent source");
++    if (!digest_) {
++        const auto value=hash_file(path_);
++        require_unchanged();
++        digest_=value;stats.bytes+=identity_->bytes;
++    } else {
++        ++stats.hits;
++    }
++    return *digest_;
+ }
+ 
+ void require_output_available(const std::filesystem::path & path) {
+--- a/src/models/yue2/assets.cpp
++++ b/src/models/yue2/assets.cpp
+@@ -116,6 +116,10 @@
+     if (!engine::io::is_existing_file(vae_config)) {
+         throw std::runtime_error("missing Yue2 VAE config: " + vae_config.string());
+     }
++    assets->model_config_source = checkpoint::SourceFile(model_config, true);
++    assets->vae_config_source = checkpoint::SourceFile(vae_config);
++    assets->generation_config_source = checkpoint::SourceFile(generation_config, true);
++    assets->tokenizer_source = checkpoint::SourceFile(assets->tiktoken_path, true);
+     // A VAE-only directory is sufficient for saved-acoustic decoding. Normal
+     // generation still requires the main config/tokenizer at stage selection.
+     assets->has_model_config = engine::io::is_existing_file(model_config);
+@@ -123,6 +127,9 @@
+         assets->config.model = parse_model_config(read_config(model_config, assets->model_config_hash));
+     assets->config.vae = parse_vae_config(read_config(vae_config, assets->vae_config_hash));
+     assets->config.generation = parse_generation_config(generation_config, assets->generation_config_hash);
++    assets->model_config_source.require_unchanged();
++    assets->vae_config_source.require_unchanged();
++    assets->generation_config_source.require_unchanged();
+     return assets;
+ }
+ 
+--- a/src/models/yue2/pipeline.cpp
++++ b/src/models/yue2/pipeline.cpp
+@@ -151,6 +151,12 @@
+         if (!this->assets) {
+             throw std::runtime_error("Yue2 pipeline requires assets");
+         }
++        if (this->assets->model_weights)
++            main_source = checkpoint::SourceFile(this->assets->model_weights->source_path(), this->assets->model_identity);
++        if (this->assets->vae_weights)
++            vae_source = checkpoint::SourceFile(this->assets->vae_weights->source_path(), this->assets->vae_identity);
++        tokenizer_source = this->assets->tokenizer_source;
++        producer_source = checkpoint::SourceFile(checkpoint::executable_path());
+         (void) this->nar_graph_arena_bytes;
+     }
+ 
+@@ -380,6 +386,7 @@
+ 
+     runtime::AudioBuffer run_request(const Yue2Request & request) {
+         validate_yue2_acoustic_input(request);
++        require_sources(!request.acoustic_latents_file.empty());
+         if (!request.acoustic_latents_file.empty()) {
+             const auto load_start = Clock::now();
+             auto saved = checkpoint::load_completed(request.acoustic_latents_file);
+@@ -390,7 +397,9 @@
+             const auto & path = assets->vae_weights->source_path();
+             checkpoint::require_unchanged(path, assets->vae_identity);
+             const auto verify_start = Clock::now();
+-            checkpoint::require_decoder(saved.metadata, assets->config.vae, checkpoint::hash_file(path));
++            checkpoint::HashStats stats;
++            checkpoint::require_decoder(saved.metadata, assets->config.vae, source_digest(vae_source, stats));
++            log_hash_stats(stats);
+             checkpoint::require_unchanged(path, assets->vae_identity);
+             engine::debug::timing_log_scalar("yue2.acoustic.verify_decoder_ms", engine::debug::elapsed_ms(verify_start));
+             const auto requested_storage = vae_weight_type;
+@@ -409,7 +418,7 @@
+             engine::debug::timing_log_scalar("yue2.acoustic.decode_halo_frames", decode_config.decode_halo_frames);
+             const auto vae_start = Clock::now();
+             auto audio = decode_audio(saved.latents, static_cast<int64_t>(saved.metadata.frames), &decode_config);
+-            checkpoint::require_unchanged(path, assets->vae_identity);
++            require_sources(true);
+             engine::debug::timing_log_scalar("yue2.vae_decode_ms", engine::debug::elapsed_ms(vae_start));
+             if (vae) vae->release_runtime_graphs();
+             return audio;
+@@ -468,8 +477,7 @@
+             // A complete result is accepted only if its frame count matches all
+             // requested semantic codes. A solver exception/partial chunk never
+             // reaches publication, and a later VAE failure leaves this file.
+-            checkpoint::require_unchanged(assets->model_weights->source_path(), assets->model_identity);
+-            checkpoint::require_unchanged(assets->vae_weights->source_path(), assets->vae_identity);
++            require_sources(false);
+             checkpoint::require_unchanged(assets->tiktoken_path, tokenizer_before);
+             if (!(tokenizer_identity == tokenizer_before))
+                 throw std::runtime_error("Tokenizer changed between conditioning and acoustic capture");
+@@ -486,6 +494,7 @@
+         if (request.acoustic_only) return {};
+         const auto vae_start = Clock::now();
+         auto audio = decode_audio(latents, frames);
++        require_sources(false);
+         engine::debug::timing_log_scalar("yue2.vae_decode_ms", engine::debug::elapsed_ms(vae_start, Clock::now()));
+         if (vae) {
+             vae->release_runtime_graphs();
+@@ -509,6 +518,34 @@
+     bool keep_resident = false;
+ 
+ private:
++    bool sources_invalid = false;
++    checkpoint::SourceFile main_source, vae_source, tokenizer_source, producer_source;
++
++    [[noreturn]] void invalidate_sources(const std::exception & error) {
++        sources_invalid = true;
++        throw std::runtime_error(std::string("Yue2 source session invalid; create a new session: ") + error.what());
++    }
++    void require_sources(bool decode_only) {
++        if (sources_invalid) throw std::runtime_error("Yue2 source session invalid; create a new session");
++        try {
++            vae_source.require_unchanged();
++            assets->vae_config_source.require_unchanged();
++            if (!decode_only) {
++                main_source.require_unchanged();
++                tokenizer_source.require_unchanged();
++                assets->model_config_source.require_unchanged();
++                assets->generation_config_source.require_unchanged();
++            }
++        } catch (const std::exception & error) { invalidate_sources(error); }
++    }
++    checkpoint::Digest source_digest(checkpoint::SourceFile & source, checkpoint::HashStats & stats) {
++        try { return source.digest(stats); }
++        catch (const std::exception & error) { invalidate_sources(error); }
++    }
++    void log_hash_stats(const checkpoint::HashStats & stats) {
++        engine::debug::timing_log_scalar("yue2.acoustic.source_digest_hits", stats.hits);
++        engine::debug::timing_log_scalar("yue2.acoustic.source_hash_bytes", stats.bytes);
++    }
+     const Yue2TextTokenizer & get_tokenizer() {
+         if (!text_tokenizer) {
+             tokenizer_identity = checkpoint::file_identity(assets->tiktoken_path);
+@@ -531,14 +568,17 @@
+         m.seed = request.seed; m.ode_steps = request.generation.ode_steps;
+         m.ode_method = request.generation.ode_method; m.context = request.generation.context;
+         m.guidance = request_guidance_scale(request);
+-        m.model = checkpoint::hash_file(assets->model_weights->source_path());
+-        m.decoder = checkpoint::hash_file(assets->vae_weights->source_path());
++        checkpoint::HashStats stats;
++        m.model = source_digest(main_source, stats);
++        m.decoder = source_digest(vae_source, stats);
+         checkpoint::require_unchanged(assets->model_weights->source_path(), assets->model_identity);
+         checkpoint::require_unchanged(assets->vae_weights->source_path(), assets->vae_identity);
+         m.model_config = assets->model_config_hash; m.decoder_config = assets->vae_config_hash;
+         m.generation_config = assets->generation_config_hash;
+-        m.tokenizer = checkpoint::hash_file(assets->tiktoken_path);
+-        m.producer_binary = checkpoint::executable_hash();
++        m.tokenizer = source_digest(tokenizer_source, stats);
++        m.producer_binary = source_digest(producer_source, stats);
++        require_sources(false);
++        log_hash_stats(stats);
+         return m;
+     }
+ 

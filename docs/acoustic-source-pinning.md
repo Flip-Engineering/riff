@@ -1,17 +1,18 @@
-# Acoustic source pinning: investigation and proposed design
+# Acoustic source pinning: guarded digest reuse
 
 Investigation for [#60](https://github.com/Flip-Engineering/riff/issues/60),
-2026-10-24 UTC. **Design awaiting review; no native patches changed.**
+2026-10-24 UTC. Implementation authorized by the root after the investigation.
 
-The recurring cost is a full native SHA-256 pass over roughly 2.94 GB before
-every acoustic capture. Warm model residency does not cache these digests.
+The baseline recurring cost was a full native SHA-256 pass over roughly 2.94 GB before
+every acoustic capture. Warm model residency did not cache these digests.
 On this Linux host, hashing consumes almost all of that time even with every
 page resident. Cache verified digests within the session, while checking source
 identities before every take; never simply skip verification after the first take.
+The implementation adds `patches/yue2-weight-digests.patch` to do this.
 
-## What runs
+## Baseline trace
 
-At runtime `fbe3eedbf6c504e45189e2cdcf1b257740a28863` with the 14 patches in
+Before this change: runtime `fbe3eedbf6c504e45189e2cdcf1b257740a28863` with the 14 baseline patches in
 [sources.json](../sources.json):
 
 - [`yue2-vae-checkpoint.patch`](../patches/yue2-vae-checkpoint.patch) adds
@@ -100,39 +101,42 @@ one busy host, load average roughly 47–61 during isolated measurements, one
 sample per cache/file cell and two short takes; it is not a throughput acceptance
 matrix. Metal and CUDA remain unmeasured.
 
-## Proposed implementation, subject to review
+## Implementation
 
-1. Add a session-owned verified-source set for main, VAE, tokenizer and actual
-   executable. Entries bind digest to stable source identity. Populate misses
-   with the existing guarded full hash, checking identity before/after. Cache
-   only request-independent digests; rebuild seed, solver, guidance, storage and
-   other checkpoint metadata for every request. No persistent digest sidecar or
-   Python-supplied hash substitutes for native verification.
-2. Before planning or any retained-weight use on **every** take, compare all
-   selected source identities with their session anchors. Reuse a digest only
-   on an exact match. Anchor parsed config bytes and tokenizer construction to
-   their file identities too, including an absent generation-config state.
-   Retain the existing post-NAR checks before publishing a checkpoint; check
-   VAE identity around decoding before accepting its audio output too.
-3. If an anchored source changes, fail the take and invalidate the session;
-   open and fully hash sources in a fresh session. Merely rehashing the changed
-   pathname and attaching its new digest to already uploaded old weights would
-   misstate provenance. Add ctime to `warm_engine.engine_key`, which currently
-   includes size/mtime/device/inode but omits ctime, so the application restarts
-   proactively for same-size edits whose mtime was restored.
-4. Enable metadata reuse only where file identity is trustworthy. Linux/macOS
-   already expose nanosecond ctime. The current Windows helper records creation
-   time as `changed`, which is insufficient: require actual change time from
-   `FileBasicInfo` before enabling reuse there. Otherwise rehash and compare
-   with the session's original digest on every take, or reject reuse. Unknown
-   or unreliable filesystem identity must take the full-verification path.
-5. Preserve format and launch-receipt comparisons. Add hit/miss/hash-byte timing
-   evidence; test unchanged reuse, inode replacement, in-place same-size edits
-   with restored mtime, symlink replacement, deletion, config/tokenizer changes,
-   mutation during hashing/computation, retry after failure and decode-only
-   ownership. Qualify repeated real captures with identical header digests and
-   output before claiming the saving. No arbitrary work or cache-size limit is
-   needed: the set lives with the session's selected sources.
+The fifteenth pinned patch, [`yue2-weight-digests.patch`](../patches/yue2-weight-digests.patch),
+adds session-owned `SourceFile` entries for the main GGUF, VAE, tokenizer and
+running executable. Each entry binds a lazy full guarded SHA-256 to its original
+`(device, inode, size, mtime, ctime)` identity. Unchanged captures reuse those
+digests. Seed, solver, guidance, storage and other request metadata are rebuilt
+for every capture; the checkpoint format and Python launch comparison stay intact.
+There is no persistent cache and no trusted Python-supplied substitute digest.
+
+Before every take, including one without checkpoint capture, the engine checks
+selected model/VAE/tokenizer/config identities before planning or retained-weight
+use. Config anchors surround the original parsing too; an absent generation
+config remains an anchored absence. Changed sources invalidate the session.
+The CLI marks that failure fatal in the warm protocol, requiring a new process
+rather than attaching a new pathname's digest to old uploaded weights.
+`warm_engine.engine_key` now includes ctime, so a same-size edit with restored
+mtime also restarts the engine proactively.
+
+Post-NAR checks still precede checkpoint publication. VAE identity is checked
+around decoding; a later decode failure keeps the previously validated NAR
+checkpoint. VAE-only replay caches its independent VAE digest and checks only
+its selected decoder sources, without requiring main-model assets. Windows now
+queries actual `FileBasicInfo.ChangeTime` rather than creation time, failing
+closed when that information cannot be obtained. File identities remain local
+guards and are never serialized as paths or metadata cache keys.
+
+Native tests exercise hit/miss byte accounting, in-place same-size edits with
+restored mtime, equal-size inode replacement, symlink substitution, deletion,
+config appearance, source changes between warm takes, invalid-session retirement,
+fresh-session recovery and VAE mutation during decoding. Real capture validation
+also checks digest counters, output equality and checkpoint integrity.
+
+## Fixed-engine validation
+
+FIXED_RESULTS_PENDING
 
 This removes repeated full reads for unchanged warm sessions; the first capture
 still pays the hash cost. Fresh processes gain little from a session-only cache.

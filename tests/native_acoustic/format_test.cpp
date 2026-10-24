@@ -166,6 +166,26 @@ int main(int argc,char ** argv) {
         const auto stamp=cp::file_identity(path);cp::require_unchanged(path,stamp);
         fs::rename(path,root/"original-roundtrip.yac");write(path,bytes);
         rejects("replaced equal-sized source identity",[&]{cp::require_unchanged(path,stamp);});
+        const auto source=root/"cached-source.bin";write(source,bytes);
+        cp::SourceFile cached(source);cp::HashStats stats;
+        const auto expected=cp::hash_file(source);
+        check(cached.digest(stats)==expected && stats.bytes==bytes.size() && stats.hits==0,"initial digest verification");
+        check(cached.digest(stats)==expected && stats.bytes==bytes.size() && stats.hits==1,"unchanged digest was rehashed");
+        pass("session digest hit keeps the verified hash without rereading bytes");
+        const auto modified=fs::last_write_time(source);auto changed=bytes;changed.back()^=1;
+        write(source,changed);fs::last_write_time(source,modified);
+        rejects("cached source rejects same-size edit with restored mtime",[&]{cached.digest(stats);});
+        cp::SourceFile replacement(source);replacement.digest(stats);
+        fs::rename(source,root/"old-cache-source.bin");write(source,changed);fs::last_write_time(source,modified);
+        rejects("cached source rejects equal-size inode replacement",[&]{replacement.digest(stats);});
+        cp::SourceFile deleted(source);deleted.digest(stats);fs::remove(source);
+        rejects("cached source rejects deletion",[&]{deleted.digest(stats);});
+        cp::SourceFile absent(root/"optional-config.json",true);absent.require_unchanged();
+        write(root/"optional-config.json",{});
+        rejects("absent configuration anchor rejects a newly created file",[&]{absent.require_unchanged();});
+        fs::create_symlink(root/"old-cache-source.bin",source);cp::SourceFile link(source);link.digest(stats);
+        fs::remove(source);fs::create_symlink(path,source);
+        rejects("cached source rejects symlink target substitution",[&]{link.digest(stats);});
 #if !defined(_WIN32)
         check(::mkfifo((root/"input.fifo").c_str(),0600)==0,"FIFO fixture");
         rejects("nonregular FIFO input rejects without waiting for a writer",[&]{(void)cp::load_completed(root/"input.fifo");});
