@@ -11,6 +11,7 @@ from unittest.mock import patch
 from model_admission import AdmissionCancelled, ModelAdmission, SchedulerNotInstalled, SchedulerUnavailable, resource_inputs
 import platform_support
 from studio_core import Generator
+from fixture_waits import signalled, until
 
 
 PORT_FIXTURE = r'''
@@ -61,13 +62,8 @@ class Observation:
         return {"host": {"available": 8192, "pressure": "normal"}, "devices": {}, "device_processes": {}}
 
 
-def arrived(predicate):
-    deadline = time.monotonic() + 5
-    while time.monotonic() < deadline:
-        if predicate():
-            return
-        time.sleep(.01)
-    raise AssertionError("Expected admission state did not arrive")
+def arrived(predicate, *producers):
+    until(predicate, *producers)
 
 
 class AdmissionBridgeTests(unittest.TestCase):
@@ -100,16 +96,16 @@ class AdmissionBridgeTests(unittest.TestCase):
         thread = threading.Thread(target=write)
         thread.start()
         try:
-            self.assertTrue(waiting.wait(5))
+            self.assertTrue(signalled(waiting, thread))
             self.assertFalse(admitted.is_set())
             self.assertTrue(self.admission.entries["music"]["admitted"])
             self.assertIs(self.admission.process, original)
             self.admission.release("music")
-            self.assertTrue(admitted.wait(5))
+            self.assertTrue(signalled(admitted, thread))
             self.assertNotEqual(self.admission.process.pid, original.pid)
         finally:
             cancel.set()
-            thread.join(5)
+            thread.join()
             self.admission.release("writer")
 
     def test_waiting_cancellation_removes_only_its_reservation(self):
@@ -123,9 +119,9 @@ class AdmissionBridgeTests(unittest.TestCase):
                 result.append("cancelled")
         thread = threading.Thread(target=write)
         thread.start()
-        self.assertTrue(waiting.wait(5))
+        self.assertTrue(signalled(waiting, thread))
         cancel.set()
-        thread.join(5)
+        thread.join()
         self.assertEqual(result, ["cancelled"])
         self.assertEqual(list(self.admission.entries), ["music"])
         self.admission.release("music")
@@ -143,14 +139,14 @@ class AdmissionBridgeTests(unittest.TestCase):
             thread = threading.Thread(target=write)
             thread.start()
             try:
-                self.assertTrue(waiting.wait(5))
+                self.assertTrue(signalled(waiting, thread))
                 self.assertFalse(admitted.is_set())
                 self.assertIsNone(legacy.process)
                 legacy.release("music")
-                self.assertTrue(admitted.wait(5))
+                self.assertTrue(signalled(admitted, thread))
             finally:
                 cancel.set()
-                thread.join(5)
+                thread.join()
                 legacy.release("writer")
 
     def test_explicit_bundled_runtime_and_writer_paths_take_priority(self):
@@ -224,7 +220,7 @@ class ArtifactBridgeTests(unittest.TestCase):
         thread = threading.Thread(target=prepare)
         thread.start()
         try:
-            self.assertTrue(waiting.wait(5))
+            self.assertTrue(signalled(waiting, thread))
             original = self.control.process
             # This must complete while the file operation is still pending.
             self.assertEqual(self.control.estimate({}), {"host_peak": 1024})
@@ -232,7 +228,7 @@ class ArtifactBridgeTests(unittest.TestCase):
             self.assertTrue(self.control.entries["writer"]["admitted"])
             self.assertTrue(thread.is_alive())
             cancel.set()
-            thread.join(5)
+            thread.join()
             self.assertFalse(thread.is_alive())
             self.assertEqual(results, ["cancelled"])
             self.assertIs(self.control.process, original)
@@ -240,7 +236,7 @@ class ArtifactBridgeTests(unittest.TestCase):
             self.assertEqual(self.control._exchange({"op": "status"})["operations"], [])
         finally:
             cancel.set()
-            thread.join(5)
+            thread.join()
             self.control.release("writer")
 
     def test_shutdown_does_not_restart_a_control_for_cancel_cleanup(self):
@@ -253,10 +249,10 @@ class ArtifactBridgeTests(unittest.TestCase):
                 results.append("closed")
         thread = threading.Thread(target=prepare)
         thread.start()
-        self.assertTrue(waiting.wait(5))
+        self.assertTrue(signalled(waiting, thread))
         original = self.control.process
         self.control.close()
-        thread.join(5)
+        thread.join()
         self.assertFalse(thread.is_alive())
         self.assertEqual(results, ["closed"])
         self.assertIsNone(self.control.process)
