@@ -18,6 +18,7 @@ import sqlite3
 import sys
 import threading
 import tempfile
+import traceback
 from urllib.parse import parse_qs, quote, unquote, urlsplit
 import webbrowser
 
@@ -325,6 +326,9 @@ class Handler(BaseHTTPRequestHandler):
                 if file.suffix == ".webmanifest":
                     content_type = "application/manifest+json"
                 self.send_file(file, content_type)
+        except (sqlite3.ProgrammingError, sqlite3.InterfaceError):
+            # A value in the request that SQLite cannot bind. Never drop the connection for it.
+            self.json_response(400, {"error": "The request contained a value the studio could not use."})
         except sqlite3.OperationalError:
             self.json_response(503, {"error": "Riff could not access its library. Check available disk space and try again."})
         except KeyError as exc:
@@ -333,6 +337,9 @@ class Handler(BaseHTTPRequestHandler):
             pass
         except (ValueError, OSError) as exc:
             self.json_response(400, {"error": str(exc)})
+        except Exception:
+            traceback.print_exc()
+            self.json_response(500, {"error": "The studio could not complete this request."})
 
     def send_file(self, file, content_type, download=None, ranged=False):
         size = file.stat().st_size
@@ -613,6 +620,9 @@ class Handler(BaseHTTPRequestHandler):
                     self.json_response(200, self.server.store.delete_track(match[1]))
             else:
                 raise KeyError("Action not found.")
+        except (sqlite3.ProgrammingError, sqlite3.InterfaceError):
+            # A value in the request that SQLite cannot bind. Never drop the connection for it.
+            self.json_response(400, {"error": "The request contained a value the studio could not use."})
         except sqlite3.OperationalError:
             self.json_response(503, {"error": "Riff could not access its library. Check available disk space and try again."})
         except KeyError as exc:
@@ -623,6 +633,9 @@ class Handler(BaseHTTPRequestHandler):
             self.json_response(409, {"error": str(exc)})
         except (ValueError, OSError) as exc:
             self.json_response(400, {"error": str(exc)})
+        except Exception:
+            traceback.print_exc()
+            self.json_response(500, {"error": "The studio could not complete this request."})
 
 
 def main():

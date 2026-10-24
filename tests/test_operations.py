@@ -2,6 +2,7 @@
 import http.client
 import json
 from pathlib import Path
+import sqlite3
 import sys
 import threading
 import unittest
@@ -879,6 +880,148 @@ class PublicationTests(DerivedFixture):
         self.study()
         self.assertEqual(self.request("GET", "/api/v1/operations?status=queued")[0], 200)
         self.assertEqual(self.request("GET", "/api/v1/operations?status=quued")[0], 400)
+
+
+class ConcurrencyAndHardeningTests(DerivedFixture):
+    def race(self, send, count=6):
+        barrier, results = threading.Barrier(count), []
+        def go():
+            barrier.wait()
+            results.append(send())
+        threads = [threading.Thread(target=go) for _ in range(count)]
+        for thread in threads: thread.start()
+        for thread in threads: thread.join()
+        return results
+
+    def test_concurrent_resumes_without_a_key_queue_exactly_one_job(self):
+        ended = self.source(status="failed")
+        before = len(self.jobs())
+        results = self.race(lambda: self.derive("operation.resume", operation_id=ended["operation_id"]))
+        self.assertEqual(sorted(status for status, _ in results), [201] + [409] * 5)
+        self.assertEqual(len(self.jobs()), before + 1)
+        for status, body in results:
+            if status == 409:
+                self.assertIn("already resuming", body["error"])
+
+    def test_concurrent_retries_without_a_key_queue_exactly_one_job(self):
+        ended = self.source(status="failed")
+        before = len(self.jobs())
+        results = self.race(lambda: self.request("POST", f"/api/jobs/{ended['job_id']}/retry", {}))
+        self.assertEqual(sorted(status for status, _ in results), [201] + [409] * 5)
+        self.assertEqual(len(self.jobs()), before + 1)
+
+    def test_a_resume_of_a_resume_is_still_allowed_once_the_first_has_ended(self):
+        ended = self.source(status="failed")
+        first = self.derive("operation.resume", operation_id=ended["operation_id"])[1]
+        with self.store.db() as db:
+            db.execute("UPDATE jobs SET status='failed' WHERE id=?", (first["job_id"],))
+        self.assertEqual(self.derive("operation.resume", operation_id=ended["operation_id"])[0], 201)
+
+    def test_reference_fields_are_type_checked_and_answer_400(self):
+        resolve = lambda body: self.request("POST", "/api/v1/operations/references.resolve", body)
+        for field in ("subject", "score_source", "performance_source", "acoustic_source", "parent_track_id"):
+            for value in ([], {}, 5, True, None, [1], {"a": 1}, "", "not-a-reference", 1.5):
+                with self.subTest(field=field, value=value):
+                    status, body = resolve({field: value})
+                    self.assertEqual(status, 400, body)
+                    self.assertIn("error", body)
+        # The server still answers afterwards.
+        self.assertEqual(resolve({"subject": self.source()["job_id"]})[0], 200)
+
+    def test_every_operation_refuses_values_of_the_wrong_type_without_dropping_the_connection(self):
+        take = self.source(stages=("score",))["job_id"]
+        bad = ([], {}, 5, True, [1], {"a": 1})
+        cases = []
+        for value in bad:
+            cases += [("operation.cancel", {"operation_id": value}), ("operation.resume", {"operation_id": value}),
+                      ("take.select", {"take": value}), ("take.develop", {"source": value}),
+                      ("take.replay", {"source": value, "replay": "score"}), ("inputs.compare", {"subjects": [value, take]}),
+                      ("study.create", {"recipe": recipe(), "family_id": value}),
+                      ("study.create", {"recipe": recipe(), "parent": {"kind": "track", "id": value}}),
+                      ("take.develop", {"source": take, "selection": value}),
+                      ("take.select", {"take": take, "family_id": value})]
+        for name, body in cases:
+            with self.subTest(name=name, body=body):
+                status, answer = self.derive(name, **body)
+                self.assertIn(status, (400, 404), answer)
+                self.assertIn("error", answer)
+        self.assertEqual(self.request("GET", "/api/v1/operations?family=%5B1%5D")[0], 400)
+
+    def test_a_sqlite_binding_error_from_request_input_is_a_400_not_a_dropped_connection(self):
+        with patch.object(Operations, "compare", side_effect=sqlite3.ProgrammingError("Error binding parameter 1")):
+            status, body = self.derive("inputs.compare", subjects=["a" * 32, "b" * 32])
+        self.assertEqual(status, 400)
+        self.assertIn("value the studio could not use", body["error"])
+        with patch.object(Operations, "receipt", side_effect=sqlite3.InterfaceError("bad")):
+            self.assertEqual(self.request("GET", "/api/v1/operations/" + "c" * 32)[0], 400)
+
+    def test_an_unexpected_error_is_a_500_with_a_message_and_the_server_keeps_serving(self):
+        with patch.object(Operations, "validate", side_effect=RuntimeError("boom")):
+            status, body = self.derive("recipe.validate", recipe=recipe())
+        self.assertEqual(status, 500)
+        self.assertEqual(body["error"], "The studio could not complete this request.")
+        with patch.object(Operations, "list", side_effect=RuntimeError("boom")):
+            self.assertEqual(self.request("GET", "/api/v1/operations")[0], 500)
+        self.assertEqual(self.request("GET", "/api/v1/operations")[0], 200)
+
+
+class FakeMaintenance:
+    def __init__(self, task):
+        self.lock, self.task = threading.RLock(), task
+
+
+class AdmissionRefusalTests(DerivedFixture):
+    """Work refused for the Studio's routes is refused identically on the agent routes."""
+    def refusals(self):
+        return {"restart": ("Riff is restarting. Your draft is saved.", lambda: setattr(self.server, "restart_requested", True),
+                            lambda: setattr(self.server, "restart_requested", False)),
+                "setup": ("Setup is still running. Your draft is saved.",
+                          lambda: setattr(self.server, "maintenance", FakeMaintenance({"status": "running", "action": "setup"})),
+                          lambda: setattr(self.server, "maintenance", None)),
+                "engine": ("Open Studio settings to finish setting up the music engine.", lambda: None, lambda: None)}
+
+    def routes(self, sources):
+        develop, replay, ended = sources
+        return {"studio generations": lambda: self.request("POST", "/api/generations", recipe(seed="5")),
+                "studio plans": lambda: self.request("POST", "/api/plans", recipe(cot="melody", seed="5")),
+                "study.create": lambda: self.derive("study.create", recipe=recipe(seed="6")),
+                "take.develop": lambda: self.derive("take.develop", source=develop),
+                "take.replay": lambda: self.derive("take.replay", source=replay, replay="performance"),
+                "operation.resume": lambda: self.derive("operation.resume", operation_id=ended),
+                "retry route": lambda: self.request("POST", f"/api/jobs/{ended}/retry", {})}
+
+    def test_refusals_are_the_same_on_every_route(self):
+        sources = (self.source(stages=("score",))["job_id"], self.source(stages=("performance",))["job_id"],
+                   self.source(status="failed")["operation_id"])
+        routes = self.routes(sources)
+        before = self.jobs()
+        for name, (message, apply, undo) in self.refusals().items():
+            for label, send in routes.items():
+                with self.subTest(refusal=name, route=label):
+                    apply()
+                    try:
+                        if name == "engine":
+                            with patch("studio.platform_support.readiness", return_value={"ready": False}):
+                                status, body = send()
+                        else:
+                            status, body = send()
+                    finally:
+                        undo()
+                    self.assertEqual((status, body["error"]), (400, message))
+        self.assertEqual(self.jobs(), before)
+        # With the refusal lifted the same routes queue work again.
+        self.assertEqual(routes["study.create"]()[0], 201)
+
+    def test_finishing_a_saved_sound_needs_no_engine_but_still_respects_restart_and_setup(self):
+        take = self.source(stages=("sound",))["job_id"]
+        with patch("studio.platform_support.readiness", return_value={"ready": False}):
+            self.assertEqual(self.derive("take.replay", source=take, replay="sound")[0], 201)
+        self.server.restart_requested = True
+        try:
+            status, body = self.derive("take.replay", source=take, replay="sound")
+        finally:
+            self.server.restart_requested = False
+        self.assertEqual((status, body["error"]), (400, "Riff is restarting. Your draft is saved."))
 
 
 if __name__ == "__main__":

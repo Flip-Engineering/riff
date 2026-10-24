@@ -16,8 +16,11 @@ path, input schema and output schema.
 - Invoke an operation with `POST /api/v1/operations/{name}` and a JSON body.
   Unknown input fields are refused.
 - Errors are `{"error": "..."}` with 400 (invalid input), 403 (not a Studio
-  request), 404 (unknown ID), 409 (idempotency conflict) or 503 (library
-  unavailable).
+  request, including a reference or ID of the wrong type), 404 (unknown ID), 409
+  (idempotency conflict, or a second `operation.resume` of an operation that is
+  already being resumed, decided inside the write transaction so concurrent calls
+  queue exactly one job), 500 (an unexpected failure, with a message) or 503 (library
+  unavailable). A request never ends by dropping the connection.
 - Receipts and references contain opaque IDs and captured provenance, copied
   field by field from a fixed list, so they carry no filesystem paths. Recipes and
   other text you sent or the take produced are returned exactly as recorded and are
