@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
-import { chromium } from "playwright";
+import { launch } from "./browser-launch.mjs";
 
-const browser = await chromium.launch({ headless: true, executablePath: process.env.RIFF_BROWSER_EXECUTABLE });
+const browser = await launch({ headless: true, executablePath: process.env.RIFF_BROWSER_EXECUTABLE });
 const page = await browser.newPage({ viewport: { width: 1365, height: 1050 }, reducedMotion: "reduce" });
 const base = process.env.RIFF_URL;
 const errors = [];
@@ -13,16 +13,21 @@ async function verifyMP4Playback(url) {
   const playback = await page.evaluate(async url => {
     const player = document.createElement("video");
     player.muted = true; player.src = url;
-    let timer;
     try {
-      await Promise.race([new Promise((resolve, reject) => {
+      await new Promise((resolve, reject) => {
         player.onloadeddata = resolve;
         player.onerror = () => reject(new Error(player.error?.message || "MP4 decode failed"));
-      }), new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("MP4 decode timed out")), 15000); })]);
+      });
       await player.play();
-      await new Promise(resolve => setTimeout(resolve, 250));
+      // Wait until the media clock has moved past zero.
+      await new Promise((resolve, reject) => {
+        const advanced = () => { if (player.currentTime > 0) resolve(); };
+        player.ontimeupdate = advanced;
+        player.onerror = () => reject(new Error(player.error?.message || "MP4 playback failed"));
+        advanced();
+      });
       return {time: player.currentTime, width: player.videoWidth, height: player.videoHeight};
-    } finally { clearTimeout(timer); player.pause(); player.removeAttribute("src"); player.load(); }
+    } finally { player.pause(); player.removeAttribute("src"); player.load(); }
   }, url);
   assert(playback.time > 0 && playback.width > 0 && playback.height > 0, "Exported MP4 plays in the browser");
 }

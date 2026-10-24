@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { mkdirSync } from "node:fs";
-import { chromium } from "playwright";
+import { launch } from "./browser-launch.mjs";
 
 const server = spawn(process.env.RIFF_PYTHON || "python3", ["-u", "tests/review_browser_server.py"]);
 let diagnostics = "", browser, page;
@@ -28,7 +28,7 @@ let performanceFixture = null;
 const performanceJobId = "7".repeat(32);
 
 try {
-  browser = await chromium.launch({ headless: true, executablePath: process.env.RIFF_BROWSER_EXECUTABLE });
+  browser = await launch({ headless: true, executablePath: process.env.RIFF_BROWSER_EXECUTABLE });
   page = await browser.newPage({ viewport: { width: 1365, height: 1000 }, reducedMotion: "reduce" });
   const errors = []; page.on("pageerror", error => errors.push(error.message));
   await page.addInitScript(recipe => {

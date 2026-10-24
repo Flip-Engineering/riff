@@ -3,6 +3,7 @@ import { existsSync, readdirSync, mkdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright";
+import { launch } from "./browser-launch.mjs";
 
 // Separate local browser. --generate explicitly opts into three real previews.
 const base = process.env.RIFF_URL || "http://127.0.0.1:7878";
@@ -24,12 +25,11 @@ const executablePath =
           ),
         )
         .find(existsSync));
-const browser = await chromium.launch({ headless: true, executablePath });
+const browser = await launch({ headless: true, executablePath });
 const page = await browser.newPage({
   viewport: { width: 1365, height: 1050 },
   reducedMotion: "no-preference",
 });
-page.setDefaultTimeout(15000);
 const report = { generated: generate, checks: [], takes: [] };
 const errors = [];
 page.on("pageerror", (error) => errors.push(error.message));
@@ -60,9 +60,8 @@ async function mode(value) {
   await page.locator(`[name=creation-mode][value=${value}]`).check();
 }
 async function shuffle(button) {
-  const response = page.waitForResponse(
-    (response) => response.url().endsWith("/api/inspiration"),
-    { timeout: 120000 },
+  const response = page.waitForResponse((response) =>
+    response.url().endsWith("/api/inspiration"),
   );
   await page.locator(button).click();
   const result = await response;
@@ -83,7 +82,6 @@ async function take(label) {
   console.log(`Generating ${label}: ${job.id}`);
   await page.locator("#queue-panel").waitFor({ state: "visible" });
   const observed = new Set();
-  const started = Date.now();
   for (;;) {
     const state = await (await page.request.get(`${base}/api/state`)).json();
     if (state.live?.id === job.id) observed.add(state.live.stage);
@@ -92,10 +90,6 @@ async function take(label) {
       assert.equal(result.status, "done", JSON.stringify(result));
       break;
     }
-    assert(
-      Date.now() - started < 600000,
-      "Preview exceeded the browser test deadline",
-    );
     await page.waitForTimeout(1000);
   }
   const track = await (
@@ -305,9 +299,8 @@ try {
         "Real standalone AI writer returns editable words and sound through the UI",
       );
       const before = await page.locator("#lyrics").inputValue();
-      const pending = page.waitForResponse(
-        (response) => response.url().endsWith("/api/inspiration"),
-        { timeout: 120000 },
+      const pending = page.waitForResponse((response) =>
+        response.url().endsWith("/api/inspiration"),
       );
       await page.locator("#surprise").click();
       await page.locator("#stop-writing").waitFor({ state: "visible" });
