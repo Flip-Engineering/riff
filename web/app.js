@@ -110,7 +110,7 @@ function errorMessage(id, message = "") {
   $(id).hidden = !message;
 }
 async function api(path, method = "GET", data, fetchOptions = {}) {
-  const options = { ...fetchOptions, method, headers: { "X-Riff-Request": "1" } };
+  const options = { ...fetchOptions, method, headers: { ...fetchOptions.headers, "X-Riff-Request": "1" } };
   if (data !== undefined) {
     options.headers["Content-Type"] = "application/json";
     options.body = JSON.stringify(data);
@@ -122,6 +122,25 @@ async function api(path, method = "GET", data, fetchOptions = {}) {
       result.error || "The studio could not complete this action.",
     );
   return result;
+}
+// Every queued take goes through the same server operation as an agent's, with an idempotency key.
+// A response lost on the way back (the request threw before any answer) keeps its key, so asking
+// again for the same recipe returns the take already queued instead of queueing a second one.
+const unansweredKeys = new Map();
+// getRandomValues, unlike randomUUID, also exists on pages served over plain http from another device.
+const submissionKey = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) => byte.toString(16).padStart(2, "0")).join("");
+async function queueTake(path, recipe) {
+  const request = path + JSON.stringify(recipe);
+  const key = unansweredKeys.get(request) || submissionKey();
+  try {
+    const job = await api(path, "POST", recipe, { headers: { "Idempotency-Key": key } });
+    unansweredKeys.delete(request);
+    return job;
+  } catch (error) {
+    if (error instanceof TypeError) unansweredKeys.set(request, key);
+    else unansweredKeys.delete(request);
+    throw error;
+  }
 }
 function showView(view, scroll = true) {
   const library = view === "library";
@@ -1156,7 +1175,7 @@ $("#generation-form").addEventListener("submit", async (event) => {
   try {
     const submitted = formRecipe();
     window.RiffAcoustics?.validate();
-    const job = await api("/api/generations", "POST", submitted);
+    const job = await queueTake("/api/generations", submitted);
     if (JSON.stringify(formRecipe()) === JSON.stringify(submitted)) {
       fillRecipe({
         ...submitted,
