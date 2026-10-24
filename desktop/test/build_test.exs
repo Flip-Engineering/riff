@@ -6,7 +6,12 @@ defmodule Riff.Desktop.BuildTest do
   alias Riff.Desktop.Build, as: B
 
   setup do
-    root = Path.join(System.tmp_dir!(), "riff-payload-test-#{System.unique_integer([:positive])}")
+    root =
+      Path.join(
+        System.tmp_dir!(),
+        "riff-payload-test-" <> Base.url_encode64(:crypto.strong_rand_bytes(12), padding: false)
+      )
+
     File.mkdir!(root)
     on_exit(fn -> File.rm_rf!(root) end)
     {:ok, root: root}

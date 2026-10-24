@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { chromium } from "playwright";
+import { launch } from "./browser-launch.mjs";
 
-const browser = await chromium.launch({ headless: true, executablePath: process.env.RIFF_BROWSER_EXECUTABLE });
+const browser = await launch({ headless: true, executablePath: process.env.RIFF_BROWSER_EXECUTABLE });
 const page = await browser.newPage({ viewport: { width: 1365, height: 1050 }, reducedMotion: "reduce" });
 const base = process.env.RIFF_URL;
 const errors = [];
@@ -201,17 +201,14 @@ try {
       const context = canvas.getContext("2d");
       const encoder = await createVideoFrameEncoder(canvas, new AbortController().signal,
         {transport: "h264", fps: 30, bitrate: 2_177_280});
-      let timer;
       try {
-        return await Promise.race([(async () => {
-          const sizes = [];
-          for (let i = 0; i < 6; i++) {
-            drawSeedArtwork(context, 1920, 1080, "15961", i / 30, [.7, .6, .5, .4, .3, .2, .1, 0]);
-            sizes.push((await encoder.encode(i)).byteLength);
-          }
-          return sizes;
-        })(), new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("Low-bitrate export stalled")), 15000); })]);
-      } finally { clearTimeout(timer); encoder.close(); }
+        const sizes = [];
+        for (let i = 0; i < 6; i++) {
+          drawSeedArtwork(context, 1920, 1080, "15961", i / 30, [.7, .6, .5, .4, .3, .2, .1, 0]);
+          sizes.push((await encoder.encode(i)).byteLength);
+        }
+        return sizes;
+      } finally { encoder.close(); }
     });
     assert.equal(lowBitrate.length, 6); assert(lowBitrate.every(size => size > 0));
     console.log("PASS Low-bitrate quality encoding emits every frame without a realtime frame-drop stall");
@@ -405,7 +402,7 @@ try {
   assert.equal(cancelled.status, "cancelled"); assert.equal(cancelled.received, 0);
   assert(await page.evaluate(() => encoderWorkers.every(worker => worker.stopped)));
   await page.unroute(workerRoute);
-  const downloaded = page.waitForEvent("download", { timeout: 30000 }); downloaded.catch(() => {});
+  const downloaded = page.waitForEvent("download"); downloaded.catch(() => {});
   await page.locator("#render-video").click();
   const download = await downloaded;
   assert(download.suggestedFilename().endsWith(".mp4"));

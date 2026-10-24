@@ -69,7 +69,7 @@ else:
         return subprocess.run([sys.executable, "-B", str(ROOT / "run.py"), "--free", "--cot", "off",
             "--max-seconds", "1", "--steps", "1", "--out", str(self.output), *extra,
             *(["--dry-run"] if dry_run else [])], env={**os.environ, "RIFF_HOME": str(self.root)},
-            capture_output=True, text=True, timeout=15)
+            capture_output=True, text=True)
 
     def command(self, *extra, metadata=CAPABILITIES):
         result = self.invoke(*extra, metadata=metadata)

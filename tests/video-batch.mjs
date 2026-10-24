@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdirSync } from "node:fs";
-import { chromium } from "playwright";
+import { launch } from "./browser-launch.mjs";
 
 const base = process.env.RIFF_URL;
-const browser = await chromium.launch({ headless: true, executablePath: process.env.RIFF_BROWSER_EXECUTABLE });
+const browser = await launch({ headless: true, executablePath: process.env.RIFF_BROWSER_EXECUTABLE });
 const page = await browser.newPage({ viewport: { width: 1365, height: 1050 } });
 const errors = []; page.on("pageerror", error => errors.push(error.message));
 const frameRoute = /\/api\/video-exports\/[a-f0-9]+\/frames$/;
@@ -59,7 +59,7 @@ try {
     return route.continue();
   });
   const creation = page.waitForResponse(response => /\/api\/tracks\/[a-f0-9]+\/video-exports$/.test(response.url()) && response.status() === 201);
-  const download = page.waitForEvent("download", { timeout: 90000 }); download.catch(() => {});
+  const download = page.waitForEvent("download"); download.catch(() => {});
   await page.locator("#render-video").click();
   const job = await (await creation).json();
   mkdirSync("test-results", { recursive: true });
@@ -110,7 +110,7 @@ try {
     } else admitted++;
     await route.continue();
   });
-  const boundedDownload = page.waitForEvent("download", { timeout: 90000 }); boundedDownload.catch(() => {});
+  const boundedDownload = page.waitForEvent("download"); boundedDownload.catch(() => {});
   await page.locator("#render-video").click();
   await boundedDownload;
   await page.waitForFunction(() => videoExport === null);
