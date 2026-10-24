@@ -13,7 +13,7 @@ from unittest.mock import patch
 from urllib.parse import parse_qs, unquote, urlsplit
 
 import lora_format
-from loras import Cancelled, HuggingFace, LoRALibrary, hf_url, hub_path, repository, resolve_url, revision
+from loras import canonical, Cancelled, HuggingFace, LoRALibrary, hf_url, hub_path, repository, resolve_url, revision
 
 
 COMMIT = "a" * 40
@@ -188,6 +188,28 @@ class FormatTests(LoRAFixture):
         directory = self.library.root / installed["id"]
         (directory / installed["files"][0]["engine_file"]).unlink()
         self.assertEqual(self.library.get(installed["id"])["bytes"], installed["bytes"])
+
+    def test_receipt_bytes_never_follow_a_name_outside_the_installed_entry(self):
+        installed = self.library.import_local([self.adapter(style="comfyui", combined=True)])
+        directory = self.library.root / installed["id"]
+        outside = self.library.root / "outside.bin"
+        outside.write_bytes(b"x" * 999)
+        base = {"original_file": installed["files"][0]["original_file"], "engine_file": "ar.safetensors", "config_file": None}
+        for name in ("../outside.bin", "../../outside.bin", "/etc/hostname", "sub/../../outside.bin"):
+            with self.subTest(name=name), self.assertRaises(ValueError):
+                self.library._payload_bytes(directory, [{**base, "engine_file": name}])
+        (directory / "linked.safetensors").symlink_to(outside)
+        with self.assertRaisesRegex(ValueError, "symbolic links"):
+            self.library._payload_bytes(directory, [{**base, "config_file": "linked.safetensors"}])
+        # A manifest whose identity is consistent but whose descriptor names an outside file keeps its stored size.
+        manifest = json.loads((directory / "manifest.json").read_text())
+        manifest["files"][0]["engine_file"] = "../outside.bin"
+        manifest["bytes"] = 4242
+        manifest["id"] = hashlib.sha256(canonical(self.library._identity(manifest)).encode()).hexdigest()
+        forged = self.library.root / manifest["id"]
+        forged.mkdir()
+        (forged / "manifest.json").write_text(json.dumps(manifest))
+        self.assertEqual(self.library.get(manifest["id"])["bytes"], 4242)
 
     def test_full_deltas_are_not_silently_changed_to_replacements(self):
         for mode in ("delta", "replacement"):

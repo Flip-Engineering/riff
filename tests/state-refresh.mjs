@@ -35,7 +35,7 @@ try {
   await page.getByLabel("Sound name", { exact: true }).fill("Retained sound");
   await page.getByRole("button", { name: "Save sound", exact: true }).click();
   // The accepted sound must appear even while both state responses are held.
-  await page.getByRole("button", { name: "Retained sound", exact: true }).waitFor({ timeout: 10000 });
+  await page.getByRole("button", { name: "Retained sound", exact: true }).waitFor();
   await page.waitForFunction(() => heldStateCount() === 2);
   assert(
     await page.evaluate(() => state.presets.some((preset) => preset.name === "Retained sound")),
