@@ -250,7 +250,7 @@ class LoRAHTTP(LoRAFixture):
         self.server.shutdown(); self.server.server_close(); self.thread.join()
 
     def request(self, path, method="GET", data=None, raw=False):
-        connection = http.client.HTTPConnection("127.0.0.1", self.server.server_port, timeout=15)
+        connection = http.client.HTTPConnection("127.0.0.1", self.server.server_port)
         headers = {"X-Riff-Request": "1"}
         if data is not None:
             headers["Content-Type"] = "application/octet-stream" if raw else "application/json"
