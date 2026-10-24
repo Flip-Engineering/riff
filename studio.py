@@ -234,7 +234,10 @@ class Handler(BaseHTTPRequestHandler):
             elif path == "/api/review/settings" and self.server.reviews:
                 self.json_response(200, self.server.reviews.connection())
             elif path == "/api/review/references" and self.server.reviews:
-                self.json_response(200, self.server.reviews.references())
+                track_id = parse_qs(parsed.query).get("track_id", [""])[0]
+                if track_id and not re.fullmatch(r"[a-f0-9]{32}", track_id):
+                    raise ValueError("Choose a recording to estimate against.")
+                self.json_response(200, self.server.reviews.references(track_id))
             elif path == "/api/review/models" and self.server.reviews:
                 self.json_response(200, {"models": self.server.reviews.models("refresh" in parsed.query)})
             elif (match := TRACK_REVIEWS_ROUTE.fullmatch(path)) and self.server.reviews:
@@ -403,10 +406,8 @@ class Handler(BaseHTTPRequestHandler):
         try:
             name = parse_qs(urlsplit(self.path).query).get("name", [""])[0]
             size = int(self.headers.get("Content-Length", "0"))
-            limit = self.server.reviews.settings()["reference_max_bytes"]
-            if size <= 0 or size > limit:
-                raise ValueError(f"The clip is empty or larger than the review limit of {limit} bytes. "
-                                 "Raise the limit in review settings or use a shorter clip.")
+            if size <= 0:
+                raise ValueError("The clip is empty.")
             metadata = json.loads(self.headers.get("X-Riff-Reference-Metadata", "{}"))
             with tempfile.TemporaryDirectory(prefix="review-reference-", dir=self.server.store.data_root) as temporary:
                 path = Path(temporary) / "clip"
@@ -547,6 +548,8 @@ class Handler(BaseHTTPRequestHandler):
                 result = (self.server.video_exports.finish(match[1], payload.get("timings"))
                           if match[2] == "finish" else self.server.video_exports.cancel(match[1]))
                 self.json_response(200, result)
+            elif path == "/api/review/references/cancel" and method == "POST" and self.server.reviews:
+                self.json_response(200, self.server.reviews.cancel_probes())
             elif path == "/api/review/references/reuse" and method == "POST" and self.server.reviews:
                 self.json_response(201, self.server.reviews.reuse_references(payload.get("review_id")))
             elif (match := REFERENCE_ROUTE.fullmatch(path)) and method in ("PATCH", "DELETE") and self.server.reviews:

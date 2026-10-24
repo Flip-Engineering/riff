@@ -21,13 +21,20 @@
   function referenceError(message = "") {
     errorMessage("#review-reference-error", message);
   }
-  function describeLimits(limits) {
-    if (!limits?.reference_max_clips) return;
+  function describeEstimate(estimate) {
     $("#review-reference-hint").textContent =
-      "Reference clips are sent with this recording to OpenRouter and the review model’s provider, where usage charges apply. Riff keeps them on this computer only. " +
-      `Up to ${limits.reference_max_clips} ${limits.reference_max_clips === 1 ? "clip" : "clips"}, ${Number(limits.reference_max_seconds)} seconds and ${megabytes(limits.reference_max_bytes)} each; change these in review settings.`;
-    $("#add-review-reference").disabled =
-      attached.length >= limits.reference_max_clips;
+      "Reference clips are sent with this recording to OpenRouter and the review model’s provider, where usage charges apply. Riff keeps them on this computer only.";
+    if (!estimate) return;
+    const notices = (estimate.notices || []).join(" ");
+    $("#review-reference-estimate").textContent = estimate.clips
+      ? `This review would send about ${megabytes(estimate.estimated_sent_bytes)} of audio, ${formatDuration(estimate.audio_seconds)} in all, as MP3. ${notices}`
+      : "";
+  }
+  async function refreshEstimate() {
+    if (!currentTrack) return;
+    try {
+      describeEstimate((await api(`/api/review/references?track_id=${currentTrack.id}`)).estimate);
+    } catch {}
   }
   function drawReferences() {
     $("#review-reference-list").innerHTML = attached
@@ -40,14 +47,14 @@
         </li>`,
       )
       .join("");
-    describeLimits(state.review_settings);
+    refreshEstimate();
   }
   async function loadReferences() {
     try {
       const result = await api("/api/review/references");
       attached = result.references;
       drawReferences();
-      describeLimits(result.limits);
+      describeEstimate(result.estimate);
     } catch (error) {
       referenceError(error.message);
     }
@@ -94,17 +101,25 @@
   $("#add-review-reference").addEventListener("click", () =>
     $("#review-reference-file").click(),
   );
+  let checking = null;
+  $("#cancel-review-reference").addEventListener("click", () => {
+    checking?.abort();
+    api("/api/review/references/cancel", "POST", {}).catch(() => {});
+  });
   $("#review-reference-file").addEventListener("change", async (event) => {
     const file = event.target.files[0];
     if (!file) return;
     const button = $("#add-review-reference");
     button.disabled = true;
+    $("#cancel-review-reference").hidden = false;
     referenceError();
+    checking = new AbortController();
     try {
       const response = await fetch(
         "/api/review/references?" + new URLSearchParams({ name: file.name }),
         {
           method: "POST",
+          signal: checking.signal,
           headers: {
             "X-Riff-Request": "1",
             "Content-Type": "application/octet-stream",
@@ -118,10 +133,12 @@
       attached = [...attached, value];
       drawReferences();
     } catch (error) {
-      referenceError(error.message);
+      referenceError(error.name === "AbortError" ? "Checking this clip was cancelled." : error.message);
     } finally {
+      checking = null;
       event.target.value = "";
-      describeLimits(state.review_settings);
+      button.disabled = false;
+      $("#cancel-review-reference").hidden = true;
     }
   });
   loadReferences();
@@ -157,10 +174,7 @@
       const connection = await api("/api/review/settings");
       $("#reviews-enabled").checked = connection.enabled;
       $("#review-model").value = connection.model;
-      $("#review-max-clips").value = connection.reference_max_clips;
-      $("#review-max-seconds").value = connection.reference_max_seconds;
-      $("#review-max-megabytes").value =
-        Math.round((connection.reference_max_bytes / 1048576) * 100) / 100;
+      $("#review-probe-seconds").value = connection.reference_probe_seconds;
       $("#remove-review-key").disabled = !connection.has_key;
       $("#review-key-status").textContent = connection.has_key
         ? `Your key is saved in ${connection.key_storage}.`
@@ -186,9 +200,7 @@
     const payload = {
       enabled: $("#reviews-enabled").checked,
       model: $("#review-model").value,
-      reference_max_clips: Number($("#review-max-clips").value),
-      reference_max_seconds: Number($("#review-max-seconds").value),
-      reference_max_bytes: Math.round(Number($("#review-max-megabytes").value) * 1048576),
+      reference_probe_seconds: Number($("#review-probe-seconds").value),
     };
     if ($("#review-api-key").value)
       payload.api_key = $("#review-api-key").value;
@@ -462,6 +474,7 @@
         hasLyrics && (draft?.keep_lyrics ?? true);
       errorMessage("#review-error");
       drawNotes();
+      refreshEstimate();
     } else currentTrack = track;
     $("#review-parent").hidden = !track.recipe.parent_track_id;
     if (track.recipe.parent_track_id)

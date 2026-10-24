@@ -73,16 +73,14 @@ try {
   await page.getByRole("button", { name: "Review settings", exact: true }).click();
   await page.locator("#reviews-enabled").check();
   await page.locator("#review-api-key").fill("browser-fixture-secret");
-  assert.equal(await page.locator("#review-max-clips").inputValue(), "3");
-  assert.equal(await page.locator("#review-max-seconds").inputValue(), "120");
-  assert.equal(await page.locator("#review-max-megabytes").inputValue(), "25");
+  assert.equal(await page.locator("#review-probe-seconds").inputValue(), "60");
   await page.getByRole("button", { name: "Save review settings", exact: true }).click();
   await page.locator("#review-settings-dialog").waitFor({ state: "hidden" });
   await page.waitForFunction(() => !document.querySelector("#request-review").disabled);
   const hint = await page.locator("#review-reference-hint").textContent();
-  for (const text of ["OpenRouter", "provider", "usage charges", "on this computer only", "Up to 3 clips, 120 seconds and 25 MB"])
+  for (const text of ["OpenRouter", "provider", "usage charges", "on this computer only"])
     assert(hint.includes(text), `Disclosure must say: ${text}`);
-  check("Reference limits are settings with their defaults, and the network and privacy disclosure is shown");
+  check("The clip check timeout is a setting with its default, and the network and privacy disclosure is shown");
 
   await attach(clips["Broadside"]);
   assert.equal(await list.first().locator("[data-reference-label]").inputValue(), "Broadside");
@@ -94,10 +92,29 @@ try {
   assert.equal(await list.count(), 2, "A rejected clip is never attached");
   check("Attach clips, and reject a file that is not audio with a clear message");
 
+  // A check in progress can be cancelled from the form.
+  let release;
+  await page.route("**/api/review/references?*", async (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    await new Promise((resolve) => { release = resolve; });
+    await route.abort().catch(() => {});
+  });
+  const cancelled = page.waitForRequest((request) => request.url().endsWith("/api/review/references/cancel") && request.method() === "POST");
+  await page.locator("#review-reference-file").setInputFiles(clips["Porch tape"]);
+  await page.getByRole("button", { name: "Cancel checking this clip", exact: true }).click();
+  await cancelled;
+  await page.locator("#review-reference-error", { hasText: "Checking this clip was cancelled." }).waitFor();
+  assert.equal(await list.count(), 2, "A cancelled check attaches nothing");
+  assert(await page.locator("#add-review-reference").isEnabled());
+  assert(await page.locator("#cancel-review-reference").isHidden());
+  release?.();
+  await page.unroute("**/api/review/references?*");
+
   await describe(list.nth(0), "Broadside session", "https://example.org/broadside");
   await describe(list.nth(1), "Hall mix", "Recorded live in 1974");
   await attach(clips["Porch tape"]);
-  assert(await page.locator("#add-review-reference").isDisabled(), "The configured clip count disables adding more");
+  assert(await page.locator("#add-review-reference").isEnabled(), "No clip count stops another clip");
+  await page.waitForFunction(() => /would send about .* MB of audio, .* in all, as MP3/.test(document.querySelector("#review-reference-estimate").textContent));
   await page.getByRole("button", { name: "Remove reference Hall mix", exact: true }).click();
   await page.waitForFunction(() => document.querySelectorAll("#review-reference-list > li").length === 2);
   assert(await page.locator("#add-review-reference").isEnabled());
@@ -105,7 +122,7 @@ try {
     await page.locator("[data-reference-label]").evaluateAll((inputs) => inputs.map((input) => input.value)),
     ["Broadside session", "Porch tape"]);
   assert.equal(await list.first().locator("[data-reference-source]").inputValue(), "https://example.org/broadside");
-  check("Edit label, link and note, hit the clip limit, and remove an attachment before submission");
+  check("Edit label, link and note, see the size estimate, and remove an attachment before submission");
 
   await noOverflow("review-references-desktop");
   await page.locator("#review-focus").fill("Match the room on the reference.");

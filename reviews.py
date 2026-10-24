@@ -18,12 +18,15 @@ import uuid
 
 from keychain import Keychain
 from studio_core import ROOT
-from review_recipe import attribute_observations, recommended_generation, sent_audio_receipt, source_seed
+from review_recipe import attribute_observations, recommended_generation, send_estimate, sent_audio_receipt, source_seed
 
-# Defaults for the reference-clip settings in the review settings dialog and
-# POST /api/review/settings. Each is the user's choice; none is a fixed gate.
-REFERENCE_DEFAULTS = {"reference_max_clips": 3, "reference_max_seconds": 120, "reference_max_bytes": 25 * 1024 * 1024}
-# ffprobe container names that carry audio the providers accept after Riff's MP3 conversion.
+# Review setting with a documented default (docs/capabilities.md). It bounds only how
+# long Riff waits for ffprobe to read an uploaded clip: ffprobe reads a clip's header, and
+# it took about 0.1 s for an 86 MB MP3 and a 576 MB WAV on the homelab host (2026-10-24).
+# The default leaves a large margin for slow or network storage, and a check can be cancelled.
+REFERENCE_DEFAULTS = {"reference_probe_seconds": 60}
+# ffprobe container names Riff accepts. OpenRouter lists WAV, MP3, AIFF, AAC, OGG Vorbis, FLAC and M4A
+# (https://openrouter.ai/docs/features/multimodal/audio, read 2026-10-23); Riff converts every clip to MP3.
 REFERENCE_FORMATS = (("wav", "wav"), ("mp3", "mp3"), ("flac", "flac"), ("ogg", "ogg"),
                      ("aiff", "aiff"), ("mp4", "m4a"))
 REFERENCE_FIELDS = ("id", "sha256", "label", "link", "note", "duration", "bytes", "format")
@@ -37,6 +40,7 @@ class Reviews:
         self.lock = threading.RLock()
         self.wake, self.stop = threading.Event(), threading.Event()
         self.process = None
+        self.probes, self.cancelled_probes = set(), set()
         self.models_cache = None
         with store.db() as db:
             db.executescript("""
@@ -88,9 +92,8 @@ class Reviews:
         limits = {}
         for key in REFERENCE_DEFAULTS:
             value = payload.get(key, current[key])
-            whole = key != "reference_max_seconds"
-            if (type(value) is not int and (whole or type(value) is not float)) or not math.isfinite(value) or value <= 0:
-                raise ValueError("Reference clip limits must be positive numbers; clip count and size are whole numbers.")
+            if type(value) not in (int, float) or not math.isfinite(value) or value <= 0:
+                raise ValueError("The reference clip check timeout must be a positive number of seconds.")
             limits[key] = value
         if "api_key" in payload:
             self.keychain.set(payload["api_key"])
@@ -186,7 +189,7 @@ class Reviews:
                 if not row:
                     raise ValueError("A reference clip was removed or already belongs to a review. Attach it again.")
                 snapshot.append(self._public(row))
-            self._check_references(snapshot, settings)
+            self._check_references(snapshot)
             db.execute("INSERT INTO reviews(id,track_id,created,status,model,focus,keep_lyrics,source_recipe,attachments) VALUES(?,?,?,?,?,?,?,?,?)",
                        (review_id, track_id, time.time(), "queued", settings["model"], focus.strip(), int(keep), json.dumps(source),
                         json.dumps(snapshot)))
@@ -199,17 +202,9 @@ class Reviews:
     def _public(row):
         return {key: row[key] for key in REFERENCE_FIELDS}
 
-    def _check_references(self, items, settings):
-        """Apply the configured clip limits to clips about to be sent."""
-        if len(items) > settings["reference_max_clips"]:
-            raise ValueError(f"Attach at most {settings['reference_max_clips']} reference clips, or raise the limit in review settings.")
+    def _check_references(self, items):
+        """Refuse a clip whose file is gone. Size and duration are reported, never enforced."""
         for item in items:
-            if item["bytes"] > settings["reference_max_bytes"]:
-                raise ValueError(f"The reference clip {item['label']!r} is larger than the review limit of "
-                                 f"{settings['reference_max_bytes']} bytes. Raise the limit in review settings or use a shorter clip.")
-            if item["duration"] > settings["reference_max_seconds"]:
-                raise ValueError(f"The reference clip {item['label']!r} is longer than the review limit of "
-                                 f"{settings['reference_max_seconds']:g} seconds. Raise the limit in review settings or use a shorter clip.")
             if not self.reference_path(item["sha256"]).is_file():
                 raise ValueError(f"The reference clip {item['label']!r} is no longer stored. Attach it again.")
 
@@ -232,28 +227,31 @@ class Reviews:
             raise ValueError("Reference clip identity is invalid.")
         return self.store.data_root / "review-references" / digest
 
-    def references(self):
-        """Clips attached for the next review, oldest first. Local paths are never returned."""
+    def references(self, track_id=None):
+        """Clips attached for the next review, oldest first, with an estimate of what a review would send.
+
+        Local paths are never returned. The estimate is a report: it never blocks a review.
+        """
         with self.store.db() as db:
             rows = db.execute("SELECT * FROM review_references WHERE status='pending' ORDER BY rowid").fetchall()
-        return {"references": [self._public(row) for row in rows], "limits": {key: self.settings()[key] for key in REFERENCE_DEFAULTS}}
+        items = [self._public(row) for row in rows]
+        seconds = 0.0
+        if track_id:
+            seconds = float(self.store.track(track_id)["audio"]["duration"] or 0)
+        return {"references": items, "settings": {key: self.settings()[key] for key in REFERENCE_DEFAULTS},
+                "estimate": send_estimate(items, seconds, self.settings()["model"])}
 
     @staticmethod
-    def _text(payload, name, limit, default=""):
-        value = payload.get(name, default)
+    def _text(payload, name):
+        value = payload.get(name, "")
         if not isinstance(value, str):
             raise ValueError(f"The reference {name} must be text.")
-        value = value.strip()
-        if len(value) > limit:
-            raise ValueError(f"The reference {name} must be at most {limit} characters.")
-        return value
+        return value.strip()
 
     def _details(self, payload, current=None):
         current = dict(current or {})
         payload = {**{key: current[key] for key in ("label", "link", "note") if key in current}, **payload}
-        label = self._text(payload, "label", 200)
-        link = self._text(payload, "link", 2048)
-        note = self._text(payload, "note", 2000)
+        label, link, note = (self._text(payload, name) for name in ("label", "link", "note"))
         if not label:
             raise ValueError("Give the reference clip a label.")
         if link:
@@ -262,16 +260,37 @@ class Reviews:
                 raise ValueError("A reference source link must be an http or https address. Put other notes in the note.")
         return label, link, note
 
-    @staticmethod
-    def _probe(path):
+    def _probe(self, path):
+        """Read a clip's container and duration with ffprobe, from an argument list and never a shell."""
         if not shutil.which("ffprobe"):
             raise ValueError("Install FFmpeg with brew install ffmpeg to check reference clips.")
+        timeout = self.settings()["reference_probe_seconds"]
+        process = subprocess.Popen(["ffprobe", "-v", "error", "-protocol_whitelist", "file", "-show_entries",
+                                    "format=format_name,duration:stream=codec_type:stream_disposition=attached_pic",
+                                    "-of", "json", str(path)], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                   start_new_session=True)
+        with self.lock:
+            self.probes.add(process)
         try:
-            result = subprocess.run(["ffprobe", "-v", "error", "-protocol_whitelist", "file", "-show_entries",
-                                     "format=format_name,duration:stream=codec_type:stream_disposition=attached_pic",
-                                     "-of", "json", str(path)], capture_output=True, check=True, timeout=60)
-            probe = json.loads(result.stdout)
-        except (OSError, subprocess.SubprocessError, ValueError):
+            output, _ = process.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            self._kill(process)
+            process.communicate()
+            raise ValueError(f"Riff stopped checking this clip after {timeout:g} seconds. Try again, or raise "
+                             "reference_probe_seconds in review settings for slow storage.") from None
+        finally:
+            with self.lock:
+                self.probes.discard(process)
+        with self.lock:
+            cancelled = process in self.cancelled_probes
+            self.cancelled_probes.discard(process)
+        if cancelled:
+            raise ValueError("Checking this clip was cancelled.")
+        try:
+            if process.returncode:
+                raise ValueError()
+            probe = json.loads(output)
+        except ValueError:
             raise ValueError("Riff could not read this file as audio. Choose a WAV, MP3, FLAC, Ogg, AIFF or M4A clip.") from None
         names = str(probe.get("format", {}).get("format_name", "")).split(",")
         streams = probe.get("streams", [])
@@ -286,34 +305,39 @@ class Reviews:
             raise ValueError("This file is not a supported audio clip. Choose a WAV, MP3, FLAC, Ogg, AIFF or M4A clip.")
         return audio_format, duration
 
+    @staticmethod
+    def _kill(process):
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            pass
+
+    def cancel_probes(self):
+        """Stop every clip check in progress; each reports that it was cancelled."""
+        with self.lock:
+            running = [process for process in self.probes if process.poll() is None]
+            self.cancelled_probes.update(running)
+        for process in running:
+            self._kill(process)
+        return {"cancelled": len(running)}
+
     def add_reference(self, source, metadata=None, name=""):
         """Keep an uploaded clip as an opaque, content-addressed attachment."""
         metadata = metadata or {}
         if not isinstance(metadata, dict):
             raise ValueError("Reference clip details must be an object.")
-        settings = self.settings()
         source = Path(source)
         size = source.stat().st_size
         if size <= 0:
             raise ValueError("This reference clip is empty.")
-        if size > settings["reference_max_bytes"]:
-            raise ValueError(f"This clip is larger than the review limit of {settings['reference_max_bytes']} bytes. "
-                             "Raise the limit in review settings or use a shorter clip.")
         label, link, note = self._details({"label": Path(name).stem, **metadata})
         audio_format, duration = self._probe(source)
-        if duration > settings["reference_max_seconds"]:
-            raise ValueError(f"This clip is longer than the review limit of {settings['reference_max_seconds']:g} seconds. "
-                             "Raise the limit in review settings or use a shorter clip.")
         digest = hashlib.sha256()
         with source.open("rb") as handle:
             while chunk := handle.read(1024 * 1024):
                 digest.update(chunk)
         sha = digest.hexdigest()
         with self.lock:
-            with self.store.db() as db:
-                count = db.execute("SELECT COUNT(*) FROM review_references WHERE status='pending'").fetchone()[0]
-            if count >= settings["reference_max_clips"]:
-                raise ValueError(f"Attach at most {settings['reference_max_clips']} reference clips, or raise the limit in review settings.")
             blob = self.reference_path(sha)
             if not blob.is_file():
                 blob.parent.mkdir(parents=True, exist_ok=True)
@@ -367,14 +391,9 @@ class Reviews:
             raise ValueError("Choose the review whose reference clips to attach again.")
         with self.lock:
             review = self.get(review_id)
-            settings = self.settings()
-            with self.store.db() as db:
-                pending = db.execute("SELECT COUNT(*) FROM review_references WHERE status='pending'").fetchone()[0]
             if not review["references"]:
                 raise ValueError("This review had no reference clips.")
-            if pending + len(review["references"]) > settings["reference_max_clips"]:
-                raise ValueError("Remove a reference clip first, or raise the clip limit in review settings.")
-            self._check_references(review["references"], settings)
+            self._check_references(review["references"])
             created = []
             with self.store.db() as db:
                 for item in review["references"]:

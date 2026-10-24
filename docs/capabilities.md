@@ -136,7 +136,7 @@ is an owned library track or completed-stage job ID, never a caller-supplied fil
 
 ### Reference clips in producer reviews
 
-A review can include up to a configured number of reference recordings, so the
+A review can include reference recordings, so the
 producer compares the generated take against recordings the artist chose. They
 are direct audio input only. Riff converts each clip to MP3 and sends it as an
 `input_audio` part in the same OpenRouter request as the generated take, to the
@@ -172,18 +172,42 @@ review still finishes and lists what is missing in `warnings`. Provider errors a
 cut-off responses fail the review with the provider's message. Reviews without
 clips send the same request and return the same fields as before.
 
-The limits are review settings, saved with `POST /api/review/settings` and in the
-review settings dialog:
+Riff does not limit how many clips, how long or how large they are. It reports
+them instead. `GET /api/review/references` (add `?track_id=` to include that
+recording) returns an `estimate` of what a review would send: the number of
+clips, total audio seconds, source bytes, and the size after conversion to MP3
+(192 kbps) and base64. The review form shows the same figure. A provider can still
+refuse a request, and then its own message is shown on the review.
+
+`notices` in the estimate cite the only documented provider limits Riff knows,
+and only for `google/*` review models. Google documents, for Gemini audio input
+(<https://ai.google.dev/gemini-api/docs/audio>, read 2026-10-23): "Maximum request
+size is 20 MB total (including prompts and all files)" for inline data, and "Max
+length: 9.5 hours of audio per prompt." OpenRouter's audio page
+(<https://openrouter.ai/docs/features/multimodal/audio>, read 2026-10-23) lists the
+accepted formats and requires base64, and documents no size, duration or clip-count
+limit, and says supported formats vary by provider. Riff therefore warns and lets
+the review run. The 20 MB figure is Google's direct API; the provider behind
+OpenRouter may apply a different one. Riff has not made a live request to check
+(see the pull request, "Not verified").
+
+One setting applies, saved with `POST /api/review/settings` and in the review
+settings dialog:
 
 | Setting | Default | Meaning |
 |---|---|---|
-| `reference_max_clips` | 3 | Clips attached to one review |
-| `reference_max_seconds` | 120 | Longest accepted clip |
-| `reference_max_bytes` | 26214400 (25 MiB) | Largest accepted file |
+| `reference_probe_seconds` | 60 | How long Riff waits for ffprobe to read an uploaded clip before it stops it |
+
+ffprobe reads a clip's header, and it took about 0.1 s for an 86 MB MP3 and a
+576 MB WAV on the homelab host (2026-10-24), so the default is a wide margin for
+slow or network storage. It is not a provider limit. A check that stalls reports
+that Riff stopped it and names the setting. `POST /api/review/references/cancel`
+stops every check in progress, and the form's "Cancel checking this clip" button
+calls it.
 
 Riff accepts WAV, MP3, FLAC, Ogg, AIFF and M4A files that ffprobe reads as audio
-with a positive duration, and it applies the current limits again when a review
-is submitted or its clips are reused.
+with a positive duration and no video stream. These are among the formats
+OpenRouter lists, and every clip is converted to MP3 before sending.
 
 The optional AI writers use the same generation contract. `POST /api/inspiration`
 accepts the current recipe, `idea_engine` (`ai`, `openrouter` or `phrases`), an

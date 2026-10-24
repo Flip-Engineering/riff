@@ -10,14 +10,14 @@ import tempfile
 import urllib.error
 import urllib.request
 
-from review_recipe import FIELDS, generation_context, recommended_generation, response_schema, symbolic_context
+from review_recipe import FIELDS, MP3_BITRATE, generation_context, recommended_generation, response_schema, symbolic_context
 
 
 def encode_mp3(source, folder, name, subject="the recording"):
     encoded = Path(folder) / name
     try:
         subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-protocol_whitelist", "file", "-i", str(source),
-                        "-vn", "-c:a", "libmp3lame", "-b:a", "192k", str(encoded)],
+                        "-vn", "-c:a", "libmp3lame", "-b:a", str(MP3_BITRATE), str(encoded)],
                        check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
     except subprocess.CalledProcessError:
         # The command line names a local file; keep it out of the saved error.

@@ -829,6 +829,15 @@
                     >
                       Add a reference clip
                     </button>
+                    <button
+                      type="button"
+                      id="cancel-review-reference"
+                      class="text-button"
+                      hidden
+                    >
+                      Cancel checking this clip
+                    </button>
+                    <p id="review-reference-estimate" class="control-hint" role="status"></p>
                     <p id="review-reference-hint" class="control-hint">
                       Reference clips are sent with this recording to
                       OpenRouter and the review model's provider, where usage
@@ -1141,33 +1150,20 @@
           Browse current audio models
         </button>
         <p id="review-model-status" class="quiet-text" role="status"></p>
-        <label for="review-max-clips">Reference clips per review</label
+        <label for="review-probe-seconds"
+          >Reference clip check timeout (seconds)</label
         ><input
           type="number"
-          id="review-max-clips"
+          id="review-probe-seconds"
           min="1"
-          step="1"
-          required
-        />
-        <label for="review-max-seconds">Longest reference clip (seconds)</label
-        ><input
-          type="number"
-          id="review-max-seconds"
-          min="1"
-          step="any"
-          required
-        />
-        <label for="review-max-megabytes">Largest reference file (MB)</label
-        ><input
-          type="number"
-          id="review-max-megabytes"
-          min="0.1"
           step="any"
           required
         />
         <p class="control-hint">
-          Reference clips are uploaded to OpenRouter with the recording being
-          reviewed. Longer and larger clips cost more.
+          How long Riff waits to read a reference clip before it stops. Raise
+          it for very slow storage. Clip size and length are reported before
+          you submit, never limited. Clips are uploaded to OpenRouter with the
+          recording being reviewed, and longer clips cost more.
         </p>
         <label for="review-api-key">OpenRouter API key</label
         ><input

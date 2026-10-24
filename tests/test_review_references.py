@@ -1,7 +1,9 @@
 """Reference clips for producer reviews: mocked providers only, no paid calls."""
 import array
 import base64
+import contextlib
 import hashlib
+import io
 from io import BytesIO
 import json
 from pathlib import Path
@@ -10,13 +12,15 @@ import shutil
 import subprocess
 import sys
 import threading
+import time
 import unittest
 import wave
 from unittest.mock import patch
 from urllib.parse import quote
 
 from review_client import listen
-from review_recipe import GENERATED_TAKE, attribute_observations
+from review_recipe import (GENERATED_TAKE, GEMINI_INLINE_REQUEST_BYTES, MP3_BITRATE, attribute_observations,
+                           send_estimate)
 from reviews import REFERENCE_DEFAULTS, Reviews
 from studio import StudioServer
 from studio_core import Generator, validate_recipe
@@ -103,43 +107,97 @@ class AttachmentTests(ReferenceFixture):
         self.assertEqual(self.reviews.references()["references"], [])
         self.assertFalse((self.store.data_root / "review-references").exists())
 
-    def test_oversize_overlong_and_excess_clips_follow_the_settings(self):
-        clip = write_clip(self.root / "long.wav", 2.0)
-        size = clip.stat().st_size
-        self.reviews.configure({"reference_max_bytes": size - 1})
-        with self.assertRaisesRegex(ValueError, "larger than the review limit"):
-            self.reviews.add_reference(clip, {}, "long.wav")
-        self.reviews.configure({"reference_max_bytes": size, "reference_max_seconds": 1.5})
-        with self.assertRaisesRegex(ValueError, "longer than the review limit"):
-            self.reviews.add_reference(clip, {}, "long.wav")
-        self.reviews.configure({"reference_max_seconds": 2.5, "reference_max_clips": 1})
-        added = self.reviews.add_reference(clip, {}, "long.wav")
-        with self.assertRaisesRegex(ValueError, "at most 1 reference clips"):
-            self.reviews.add_reference(clip, {}, "again.wav")
-        # Raising a limit is enough; no code change gates the work.
-        self.reviews.configure({"reference_max_clips": 2})
-        self.assertEqual(len(self.reviews.references()["references"]), 1)
-        self.reviews.add_reference(clip, {}, "again.wav")
-        # Limits are checked again when the review is submitted.
-        self.reviews.configure({"reference_max_seconds": 1})
-        with self.assertRaisesRegex(ValueError, "longer than the review limit"):
-            self.reviews.submit(self.track_id, {"references": [added["id"]]})
-        self.assertEqual(self.reviews.list(), [])
+    def test_size_duration_and_count_are_reported_never_enforced(self):
+        # Four clips, one of them long: all attach, and the review would send them all.
+        clips = [self.clip(f"clip-{number}.wav", seconds=1.0 + number) for number in range(4)]
+        listing = self.reviews.references(self.track_id)
+        self.assertEqual(len(listing["references"]), 4)
+        estimate = listing["estimate"]
+        take = self.store.track(self.track_id)["audio"]["duration"]
+        seconds = take + sum(item["duration"] for item in clips)
+        self.assertEqual(estimate["clips"], 4)
+        self.assertAlmostEqual(estimate["audio_seconds"], seconds)
+        self.assertEqual(estimate["source_bytes"], sum(item["bytes"] for item in clips))
+        self.assertEqual(estimate["estimated_sent_bytes"], int(seconds * MP3_BITRATE / 8 * 4 / 3))
+        self.assertEqual(estimate["notices"], [])
+        review = self.review([item["id"] for item in clips])
+        self.assertEqual(review["status"], "done")
+        self.assertEqual(len(review["references"]), 4)
 
-    def test_limits_are_documented_settings_with_validation(self):
+    def test_notices_cite_documented_gemini_limits_only_for_google_models_and_never_block(self):
+        long_clip = [{"duration": 700.0, "bytes": 1}]
+        google = send_estimate(long_clip, 30, "google/gemini-3.8-flash")
+        self.assertGreater(google["estimated_sent_bytes"], GEMINI_INLINE_REQUEST_BYTES)
+        self.assertEqual(len(google["notices"]), 1)
+        self.assertIn("ai.google.dev/gemini-api/docs/audio", google["notices"][0])
+        self.assertIn("You can still submit", google["notices"][0])
+        self.assertEqual(send_estimate(long_clip, 30, "custom/audio-model")["notices"], [])
+        hours = send_estimate([{"duration": 10 * 3600.0, "bytes": 1}], 0, "google/gemini-3.8-flash")
+        self.assertEqual(len(hours["notices"]), 2)
+        self.assertIn("9.5 hours", hours["notices"][1])
+        # The studio reports the same notice for the connected model and still accepts the review.
+        self.reviews.configure({"model": "google/gemini-3.8-flash"})
+        with patch("reviews.send_estimate", wraps=send_estimate) as spy:
+            self.clip("short.wav")
+            self.reviews.references(self.track_id)
+        self.assertEqual(spy.call_args.args[2], "google/gemini-3.8-flash")
+
+    def test_probe_timeout_is_a_documented_setting_with_validation(self):
         self.assertEqual({key: self.reviews.settings()[key] for key in REFERENCE_DEFAULTS}, REFERENCE_DEFAULTS)
         docs = (Path(__file__).resolve().parent.parent / "docs/capabilities.md").read_text()
         for key, value in REFERENCE_DEFAULTS.items():
             self.assertRegex(docs, rf"\| `{key}` \| {value}\b")
-        changed = self.reviews.configure({"reference_max_clips": 5, "reference_max_seconds": 30.5, "reference_max_bytes": 4096})
-        self.assertEqual((changed["reference_max_clips"], changed["reference_max_seconds"], changed["reference_max_bytes"]),
-                         (5, 30.5, 4096))
-        self.assertEqual(self.reviews.connection()["reference_max_clips"], 5)
-        for bad in ({"reference_max_clips": 0}, {"reference_max_clips": 1.5}, {"reference_max_seconds": -1},
-                    {"reference_max_bytes": True}, {"reference_max_seconds": float("nan")}, {"reference_max_bytes": "9"}):
+        self.assertEqual(self.reviews.configure({"reference_probe_seconds": 2.5})["reference_probe_seconds"], 2.5)
+        self.assertEqual(self.reviews.connection()["reference_probe_seconds"], 2.5)
+        for bad in (0, -1, True, "9", float("nan"), float("inf"), None):
             with self.subTest(bad=bad), self.assertRaises(ValueError):
-                self.reviews.configure(bad)
-        self.assertEqual(self.reviews.settings()["reference_max_clips"], 5)
+                self.reviews.configure({"reference_probe_seconds": bad})
+        self.assertEqual(self.reviews.settings()["reference_probe_seconds"], 2.5)
+        # The removed gates are gone from the settings.
+        self.assertFalse({"reference_max_clips", "reference_max_seconds", "reference_max_bytes"} & set(self.reviews.settings()))
+
+    def hanging_probe(self):
+        """Replace ffprobe with a process that never finishes, to model a stalled read."""
+        real, started = subprocess.Popen, []
+        def hang(command, *args, **kwargs):
+            process = real(["sleep", "300"], *args, **kwargs)
+            started.append(process)
+            return process
+        return patch("reviews.subprocess.Popen", side_effect=hang), started
+
+    def test_a_hung_probe_times_out_clearly_and_is_killed(self):
+        self.reviews.configure({"reference_probe_seconds": 0.3})
+        patcher, started = self.hanging_probe()
+        began = time.monotonic()
+        with patcher, self.assertRaisesRegex(ValueError, r"stopped checking this clip after 0\.3 seconds.*reference_probe_seconds"):
+            self.clip("stalled.wav")
+        self.assertLess(time.monotonic() - began, 10)
+        self.assertEqual(len(started), 1)
+        self.assertIsNotNone(started[0].poll(), "the probe process is gone")
+        self.assertEqual(self.reviews.references()["references"], [])
+        self.assertEqual(self.reviews.probes, set())
+
+    def test_a_check_in_progress_can_be_cancelled(self):
+        patcher, started = self.hanging_probe()
+        outcome = []
+        def upload():
+            try:
+                self.clip("slow.wav")
+            except ValueError as error:
+                outcome.append(str(error))
+        with patcher:
+            thread = threading.Thread(target=upload)
+            thread.start()
+            wait_until(lambda: self.reviews.probes)
+            self.assertEqual(self.reviews.cancel_probes(), {"cancelled": 1})
+            thread.join(10)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(outcome, ["Checking this clip was cancelled."])
+        self.assertIsNotNone(started[0].poll())
+        self.assertEqual(self.reviews.references()["references"], [])
+        self.assertEqual(self.reviews.cancel_probes(), {"cancelled": 0})
+        # Nothing is left over: the next clip checks normally.
+        self.assertEqual(self.clip("fine.wav")["format"], "wav")
 
     def test_details_are_edited_and_removed_until_a_review_uses_them(self):
         item = self.clip(label="Original label")
@@ -208,11 +266,11 @@ class BlobLifetimeTests(ReferenceFixture):
 class MediaToolTests(ReferenceFixture):
     def test_ffprobe_runs_from_an_argument_list_without_a_shell(self):
         calls = []
-        real = subprocess.run
+        real = subprocess.Popen
         def record(command, *args, **kwargs):
             calls.append((command, kwargs))
             return real(command, *args, **kwargs)
-        with patch("reviews.subprocess.run", side_effect=record):
+        with patch("reviews.subprocess.Popen", side_effect=record):
             self.clip("probe.wav; echo unsafe.wav", label="Odd name")
         self.assertEqual([command[0] for command, _ in calls], ["ffprobe"])
         for command, kwargs in calls:
@@ -349,10 +407,6 @@ class ReviewWithReferencesTests(ReferenceFixture):
         self.assertEqual(self.reviews.get(first["id"])["references"], [one, two])
         with self.assertRaisesRegex(ValueError, "no reference clips"):
             self.reviews.reuse_references(self.review()["id"])
-        self.reviews.configure({"reference_max_clips": 1})
-        self.reviews.add_reference(write_clip(self.root / "room.wav"), {}, "room.wav")
-        with self.assertRaisesRegex(ValueError, "Remove a reference clip first"):
-            self.reviews.reuse_references(second["id"])
 
     def test_variation_keeps_seed_score_and_review_lineage_with_the_references(self):
         source = self.store.track(self.track_id)["recipe"]
@@ -521,6 +575,32 @@ class ProviderRequestTests(unittest.TestCase):
 
 
 @MEDIA
+class LiveCheckScriptTests(unittest.TestCase):
+    """The opt-in live check is exercised here against a mocked provider, never the network."""
+
+    def test_script_sends_three_audio_parts_in_one_request_and_reports_attribution(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("live_check", Path(__file__).resolve().parent.parent / "scripts/check_reference_audio_live.py")
+        live = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(live)
+        seen = []
+        def respond(request, **kwargs):
+            body = json.loads(request.data)
+            seen.append((request.full_url, body))
+            ids = [part["text"].split("id ")[1][:32] for part in body["messages"][0]["content"] if part["type"] == "text"][1:]
+            take = validate_recipe({"title": "Live check", "lyrics": "", "style": "A single sustained tone", "mode": "instrumental",
+                                    "max_seconds": 3, "steps": 8, "seed": "1", "cot": "off", "abc": ""})
+            answer = {"notes": "n", "summary": "s", "generation": {key: take[key] for key in __import__("review_recipe").FIELDS},
+                      "observations": [{"source": source, "timestamp": "", "note": "heard"} for source in [GENERATED_TAKE, *ids]]}
+            return BytesIO(json.dumps({"choices": [{"message": {"content": json.dumps(answer)}, "finish_reason": "stop"}]}).encode())
+        with patch("review_client.urllib.request.urlopen", side_effect=respond), contextlib.redirect_stdout(io.StringIO()):
+            self.assertTrue(live.check("custom/audio-model", "key"))
+        self.assertEqual(len(seen), 1)
+        parts = seen[0][1]["messages"][0]["content"]
+        self.assertEqual(sum(part["type"] == "input_audio" for part in parts), 3)
+
+
+@MEDIA
 class ReferenceHttpTests(ReferenceFixture):
     request = test_studio.HttpTests.request
 
@@ -549,7 +629,14 @@ class ReferenceHttpTests(ReferenceFixture):
         self.assertEqual((item["label"], item["link"], item["sha256"]), ("Mix", "https://example.org/mix", hashlib.sha256(data).hexdigest()))
         listing = json.loads(self.request("GET", "/api/review/references")[2])
         self.assertEqual(listing["references"], [item])
-        self.assertEqual(listing["limits"], {key: REFERENCE_DEFAULTS[key] for key in REFERENCE_DEFAULTS})
+        self.assertEqual(listing["settings"], REFERENCE_DEFAULTS)
+        self.assertEqual(listing["estimate"]["clips"], 1)
+        with_take = json.loads(self.request("GET", f"/api/review/references?track_id={self.track_id}")[2])["estimate"]
+        self.assertGreater(with_take["audio_seconds"], listing["estimate"]["audio_seconds"])
+        self.assertEqual(self.request("GET", "/api/review/references?track_id=nope")[0], 400)
+        status, _, body = self.request("POST", "/api/review/references/cancel", "{}", HEADERS)
+        self.assertEqual((status, json.loads(body)), (200, {"cancelled": 0}))
+        self.assertEqual(self.request("POST", "/api/review/references/cancel", "{}", {"Content-Type": "application/json"})[0], 403)
         patched = json.loads(self.request("PATCH", f"/api/review/references/{item['id']}",
                                           json.dumps({"label": "Mix v2", "note": "Take two"}), HEADERS)[2])
         self.assertEqual((patched["label"], patched["note"]), ("Mix v2", "Take two"))
@@ -572,11 +659,6 @@ class ReferenceHttpTests(ReferenceFixture):
         self.assertEqual(self.request("POST", "/api/review/references/reuse", json.dumps({"review_id": "0" * 32}), HEADERS)[0], 404)
 
     def test_upload_errors_are_clear_and_nothing_is_stored(self):
-        self.reviews.configure({"reference_max_bytes": 5000})
-        data = write_clip(self.root / "big.wav", 1.0).read_bytes()
-        status, error = self.upload(data)
-        self.assertEqual(status, 400)
-        self.assertIn("larger than the review limit of 5000 bytes", error["error"])
         status, error = self.upload(b"")
         self.assertEqual(status, 400)
         status, error = self.upload(b"plain text, not audio")
@@ -605,7 +687,7 @@ class ReferenceHttpTests(ReferenceFixture):
         self.assertEqual(status, 200)
         operations = json.loads(body)["operations"]
         for name in ("review_references", "review_reference_add", "review_reference_edit",
-                     "review_reference_remove", "review_reference_reuse"):
+                     "review_reference_remove", "review_reference_reuse", "review_reference_cancel"):
             self.assertIn(name, operations)
         self.assertIn("references", operations["review"]["body"])
         settings = json.loads(self.request("GET", "/api/review/settings")[2])

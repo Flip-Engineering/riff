@@ -111,6 +111,31 @@ def source_seed(source):
 
 
 GENERATED_TAKE = "generated_take"
+# Riff converts every audio part it sends to MP3 at this bitrate.
+MP3_BITRATE = 192000
+# Figures the Google Gemini API documents for audio input (https://ai.google.dev/gemini-api/docs/audio,
+# read 2026-10-23). They only produce a notice for google/* models and never block a review:
+# OpenRouter documents no audio size or duration limit, and its provider may apply another.
+GEMINI_INLINE_REQUEST_BYTES = 20 * 1000 * 1000
+GEMINI_PROMPT_AUDIO_SECONDS = 9.5 * 3600
+
+
+def send_estimate(references, take_seconds, model):
+    """Report what a review would send. Estimates and notices only; nothing here refuses a review."""
+    seconds = float(take_seconds) + sum(item["duration"] for item in references)
+    # MP3 bytes at the sending bitrate, then base64 (4 bytes for every 3).
+    sent = int(seconds * MP3_BITRATE / 8 * 4 / 3)
+    notices = []
+    if str(model).startswith("google/"):
+        if sent > GEMINI_INLINE_REQUEST_BYTES:
+            notices.append(f"This review sends about {sent / 1e6:.1f} MB of audio. Google documents a "
+                           f"{GEMINI_INLINE_REQUEST_BYTES // 1000000} MB limit on the whole inline request for Gemini audio "
+                           "(ai.google.dev/gemini-api/docs/audio), so the provider may refuse it. You can still submit.")
+        if seconds > GEMINI_PROMPT_AUDIO_SECONDS:
+            notices.append(f"Google documents {GEMINI_PROMPT_AUDIO_SECONDS / 3600:g} hours of audio per Gemini prompt, "
+                           "and this review sends more. The provider may refuse it. You can still submit.")
+    return {"clips": len(references), "audio_seconds": seconds, "source_bytes": sum(item["bytes"] for item in references),
+            "estimated_sent_bytes": sent, "notices": notices}
 
 
 def observation_schema(references):
