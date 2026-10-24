@@ -478,6 +478,11 @@ class LoRALibrary:
             raise ValueError("Adapter file escapes its installed library entry.")
         return path
 
+    def _payload_bytes(self, directory, files):
+        """Total size of the distinct files that the manifest descriptors reference, inside their entry."""
+        names = {name for file in files for name in (file["original_file"], file["engine_file"], file["config_file"]) if name}
+        return sum(lora_format.regular_file(self._file(Path(directory), name))[1] for name in names)
+
     def _identity(self, value):
         files = value["files"]
         return {"schema": value["schema"], "base_model": value["base_model"], "stages": value["stages"],
@@ -496,6 +501,13 @@ class LoRALibrary:
                     raise ValueError("Installed LoRA provenance has changed; import the adapter again.")
             except (KeyError, TypeError, OSError) as exc:
                 raise ValueError("Installed LoRA is missing or its manifest is invalid.") from exc
+            # Earlier versions stored the size of everything in the staging
+            # directory. Report the referenced payload size; `bytes` is not part
+            # of the identity, and a missing file keeps the stored value.
+            try:
+                manifest["bytes"] = self._payload_bytes(path.parent, manifest["files"])
+            except (KeyError, TypeError, ValueError):
+                pass
             return manifest
 
     def list(self):
@@ -599,7 +611,7 @@ class LoRALibrary:
             if not manifest["name"]:
                 raise ValueError("Give the adapter a name.")
             manifest["id"] = hashlib.sha256(canonical(self._identity(manifest)).encode()).hexdigest()
-            manifest["bytes"] = sum(p.stat().st_size for p in staging.iterdir() if p.is_file())
+            manifest["bytes"] = self._payload_bytes(staging, files)
             manifest["adapter_bytes"] = sum(f["adapter_bytes"] for f in files)
             manifest["merge_scratch_bytes"] = max(f["merge_scratch_bytes"] for f in files)
             _atomic_json(staging / "manifest.json", manifest)

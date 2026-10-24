@@ -13,7 +13,7 @@ from unittest.mock import patch
 from urllib.parse import parse_qs, unquote, urlsplit
 
 import lora_format
-from loras import Cancelled, HuggingFace, LoRALibrary, hf_url, hub_path, repository, resolve_url, revision
+from loras import canonical, Cancelled, HuggingFace, LoRALibrary, hf_url, hub_path, repository, resolve_url, revision
 
 
 COMMIT = "a" * 40
@@ -148,6 +148,68 @@ class FormatTests(LoRAFixture):
             info = lora_format.inspect_header(header)
             self.assertEqual(info["stage"], file["stage"])
         self.assertEqual(installed["files"][1]["projection_mode"], ["delta"])
+
+    def test_receipt_bytes_count_each_referenced_file_once(self):
+        source = self.adapter(style="comfyui", combined=True)
+        installed = self.library.import_local([source])
+        directory = self.library.root / installed["id"]
+        referenced = {installed["files"][0]["original_file"], *(f["engine_file"] for f in installed["files"])}
+        self.assertEqual(len(referenced), 3)
+        self.assertEqual(installed["bytes"], sum((directory / name).stat().st_size for name in referenced))
+        self.assertEqual(installed["bytes"], source.stat().st_size + sum(f["engine_bytes"] for f in installed["files"]))
+        self.assertEqual(self.library.get(installed["id"])["bytes"], installed["bytes"])
+
+    def test_receipt_bytes_ignore_unreferenced_files_in_staging(self):
+        source = self.adapter(style="comfyui", combined=True)
+        expected = self.library.import_local([source])["bytes"]
+        self.library.delete(self.library.list()[0]["id"])
+        normalize = lora_format.normalize
+        def normalize_with_scratch(source, destination, *args, **kwargs):
+            result = normalize(source, destination, *args, **kwargs)
+            Path(destination).with_name("scratch-" + Path(destination).name).write_bytes(b"\0" * 4096)
+            return result
+        with patch.object(lora_format, "normalize", normalize_with_scratch):
+            installed = self.library.import_local([source])
+        self.assertTrue(list((self.library.root / installed["id"]).glob("scratch-*")))
+        self.assertEqual(installed["bytes"], expected)
+
+    def test_existing_receipt_with_inflated_bytes_reads_back_corrected(self):
+        installed = self.library.import_local([self.adapter(style="comfyui", combined=True)])
+        path = self.library.root / installed["id"] / "manifest.json"
+        stored = json.loads(path.read_text())
+        stored["bytes"] += 16 * 1024 * 1024
+        path.write_text(json.dumps(stored))
+        self.assertEqual(self.library.get(installed["id"])["bytes"], installed["bytes"])
+        self.assertEqual({item["id"]: item["bytes"] for item in self.library.list()}, {installed["id"]: installed["bytes"]})
+        self.assertEqual(json.loads(path.read_text())["bytes"], stored["bytes"])
+
+    def test_missing_referenced_file_keeps_stored_receipt_bytes(self):
+        installed = self.library.import_local([self.adapter(style="comfyui", combined=True)])
+        directory = self.library.root / installed["id"]
+        (directory / installed["files"][0]["engine_file"]).unlink()
+        self.assertEqual(self.library.get(installed["id"])["bytes"], installed["bytes"])
+
+    def test_receipt_bytes_never_follow_a_name_outside_the_installed_entry(self):
+        installed = self.library.import_local([self.adapter(style="comfyui", combined=True)])
+        directory = self.library.root / installed["id"]
+        outside = self.library.root / "outside.bin"
+        outside.write_bytes(b"x" * 999)
+        base = {"original_file": installed["files"][0]["original_file"], "engine_file": "ar.safetensors", "config_file": None}
+        for name in ("../outside.bin", "../../outside.bin", "/etc/hostname", "sub/../../outside.bin"):
+            with self.subTest(name=name), self.assertRaises(ValueError):
+                self.library._payload_bytes(directory, [{**base, "engine_file": name}])
+        (directory / "linked.safetensors").symlink_to(outside)
+        with self.assertRaisesRegex(ValueError, "symbolic links"):
+            self.library._payload_bytes(directory, [{**base, "config_file": "linked.safetensors"}])
+        # A manifest whose identity is consistent but whose descriptor names an outside file keeps its stored size.
+        manifest = json.loads((directory / "manifest.json").read_text())
+        manifest["files"][0]["engine_file"] = "../outside.bin"
+        manifest["bytes"] = 4242
+        manifest["id"] = hashlib.sha256(canonical(self.library._identity(manifest)).encode()).hexdigest()
+        forged = self.library.root / manifest["id"]
+        forged.mkdir()
+        (forged / "manifest.json").write_text(json.dumps(manifest))
+        self.assertEqual(self.library.get(manifest["id"])["bytes"], 4242)
 
     def test_full_deltas_are_not_silently_changed_to_replacements(self):
         for mode in ("delta", "replacement"):
