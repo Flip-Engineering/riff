@@ -7,7 +7,12 @@ defmodule Riff.Installer.OtpRuntimeTest do
   alias Riff.Installer.OtpRuntime
 
   setup do
-    root = Path.join(System.tmp_dir!(), "riff-erts-input-#{System.unique_integer([:positive])}")
+    root =
+      Path.join(
+        System.tmp_dir!(),
+        "riff-erts-input-" <> Base.url_encode64(:crypto.strong_rand_bytes(12), padding: false)
+      )
+
     source = Path.join(root, "selected")
     runtime = Path.join(root, "runtime")
     relative = "erts-16.0.2/bin/beam.smp"
