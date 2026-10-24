@@ -222,7 +222,7 @@ defmodule Riff.Installer.PayloadUpdateTest do
       )
 
     assert {:ok, %{state: :installing}} = Session.install(first)
-    assert_receive {:awaiting_readiness, worker}, 10_000
+    assert_receive {:awaiting_readiness, worker}
     assert Session.status(first).state == :installing
     assert {:ok, %{state: :error, error: message}} = Session.install(second)
     assert message =~ "Another Riff setup window"
@@ -266,7 +266,7 @@ defmodule Riff.Installer.PayloadUpdateTest do
       )
 
     Session.install(session)
-    assert_receive :awaiting_readiness, 10_000
+    assert_receive :awaiting_readiness
     assert {:error, _} = Lock.acquire_operation(context.root)
     Session.cancel(session)
     assert wait_session(session).state == :cancelled
@@ -382,14 +382,13 @@ defmodule Riff.Installer.PayloadUpdateTest do
     end
   end
 
-  defp wait_session(session, deadline \\ nil) do
-    deadline = deadline || System.monotonic_time(:millisecond) + 10_000
+  # No deadline: ExUnit's test timeout stops a session that never settles.
+  defp wait_session(session) do
     state = Session.status(session)
 
     if state.state in [:installing, :cancelling] do
-      assert System.monotonic_time(:millisecond) < deadline, inspect(state)
       Process.sleep(5)
-      wait_session(session, deadline)
+      wait_session(session)
     else
       state
     end
