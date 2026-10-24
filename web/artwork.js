@@ -288,14 +288,19 @@ const RiffArtwork = (() => {
     };
   }
 
-  function drawSurface(context, g, scale) {
+  // True when WebGL can paint. A temporary context allocation failure must not
+  // pin this tab to the CPU renderer forever, so a failed probe repeats, but
+  // no more often than every 5 s while graphics remain unavailable.
+  function surfaceAvailable() {
     if (surfaceRenderer === undefined || (surfaceRenderer === null && performance.now() >= surfaceRetryAt)) {
-      // A temporary context allocation failure must not pin this tab to the
-      // CPU renderer forever. Limit probes while graphics remain unavailable.
       surfaceRetryAt = performance.now() + 5000;
       try { surfaceRenderer = createSurfaceRenderer(); } catch { surfaceRenderer = null; }
     }
-    return surfaceRenderer?.(context, g, scale) || false;
+    return !!surfaceRenderer;
+  }
+
+  function drawSurface(context, g, scale) {
+    return surfaceAvailable() && surfaceRenderer(context, g, scale) || false;
   }
 
   function bendingField(trace) {
@@ -376,9 +381,11 @@ const RiffArtwork = (() => {
   function svg(seed, refresh = false) {
     const g = geometry(seed);
     // A poster painted while WebGL was briefly unavailable used the Canvas
-    // fallback, which looks different. Keep it only until the renderer's next
-    // probe, then paint it again, so covers do not stay degraded for the session.
-    if (g.poster && !refresh && (g.posterSurface || performance.now() < g.posterRetryAt)) return g.poster;
+    // fallback, which looks different. Paint it again once WebGL can paint, so
+    // covers do not stay degraded for the session. Where WebGL never becomes
+    // available the fallback poster stays cached and is not repainted. A lost
+    // context keeps the renderer, so repainting waits one probe interval.
+    if (g.poster && !refresh && (g.posterSurface || performance.now() < g.posterRetryAt || !surfaceAvailable())) return g.poster;
     const canvas = document.createElement("canvas"); canvas.width = 880; canvas.height = 680;
     g.posterSurface = draw(canvas.getContext("2d"), canvas.width, canvas.height, seed) === true;
     g.posterRetryAt = performance.now() + 5000;
