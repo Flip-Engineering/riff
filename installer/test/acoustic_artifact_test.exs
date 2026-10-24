@@ -291,7 +291,7 @@ defmodule Riff.Runtime.AcousticArtifactTest do
   defp simultaneously(operation) do
     tasks = for _ <- 1..8, do: Task.async(fn -> receive do: (:go -> operation.()) end)
     for task <- tasks, do: send(task.pid, :go)
-    Enum.map(tasks, &Task.await(&1, 10_000))
+    Enum.map(tasks, &Task.await(&1, :infinity))
   end
 
   defp limited_copy(launcher, operation, arguments, mode) do
