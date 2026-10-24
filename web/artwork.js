@@ -344,7 +344,8 @@ const RiffArtwork = (() => {
     shadow.addColorStop(0, c.ink + "38"); shadow.addColorStop(.48, c.ink + "1a"); shadow.addColorStop(1, c.ink + "00");
     context.fillStyle = shadow; context.fillRect(-152, -152, 304, 304); context.restore();
     context.lineJoin = "round";
-    if (!drawSurface(context, g, scale)) {
+    const surfaced = drawSurface(context, g, scale);
+    if (!surfaced) {
       orderFaces(g);
       shadeFaces(g);
       for (const face of g.faces) {
@@ -369,13 +370,18 @@ const RiffArtwork = (() => {
     context.font = `600 ${unit * .061}px Arial, sans-serif`;
     context.fillText("riff.", unit * .064, height - unit * .064);
     context.restore();
+    return surfaced;
   }
 
-  function svg(seed) {
+  function svg(seed, refresh = false) {
     const g = geometry(seed);
-    if (g.poster) return g.poster;
+    // A poster painted while WebGL was briefly unavailable used the Canvas
+    // fallback, which looks different. Keep it only until the renderer's next
+    // probe, then paint it again, so covers do not stay degraded for the session.
+    if (g.poster && !refresh && (g.posterSurface || performance.now() < g.posterRetryAt)) return g.poster;
     const canvas = document.createElement("canvas"); canvas.width = 880; canvas.height = 680;
-    draw(canvas.getContext("2d"), canvas.width, canvas.height, seed);
+    g.posterSurface = draw(canvas.getContext("2d"), canvas.width, canvas.height, seed) === true;
+    g.posterRetryAt = performance.now() + 5000;
     g.poster = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 440 340" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><image width="440" height="340" href="${canvas.toDataURL("image/png")}"/></svg>`;
     return g.poster;
   }
@@ -385,7 +391,7 @@ const RiffArtwork = (() => {
 function drawSeedArtwork(context, width, height, seed, seconds = 0, motion = [], appearance) {
   RiffArtwork.draw(context, width, height, seed, seconds, motion, appearance);
 }
-function artSVG(seed) { return RiffArtwork.svg(seed); }
+function artSVG(seed, refresh) { return RiffArtwork.svg(seed, refresh); }
 function artContent(seed) { return artSVG(seed).replace(/^<svg[^>]*>/, "").replace(/<\/svg>$/, ""); }
 
 // Library covers are painted only as they approach the viewport. Browsing a
