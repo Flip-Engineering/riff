@@ -445,6 +445,7 @@ async function createVideo(event) {
   $("#video-progress").value = 0;
   $("#video-status").textContent = "Preparing the artwork…";
   let complete = false, encoder = null;
+  const producer = new AbortController();
   const started = performance.now();
   const timings = { prepare_seconds: 0, draw_seconds: 0, snapshot_seconds: 0, encode_seconds: 0,
     upload_seconds: 0, preview_seconds: 0, yield_seconds: 0, before_finish_seconds: 0 };
@@ -488,6 +489,11 @@ async function createVideo(event) {
         ...range,
     });
     operation.id = job.id;
+    // The server keeps this export open for as long as this page holds the
+    // connection, however long a frame takes. Closing the page ends the export.
+    fetch(`/api/video-exports/${job.id}/live`, { signal: producer.signal, cache: "no-store" })
+      .then(response => response.body?.pipeTo(new WritableStream(), { signal: producer.signal }))
+      .catch(() => {});
     if (operation.cancelled) return;
     if (job.transport !== transport) throw new Error("The studio selected a different video path. Export again.");
     timings.prepare_seconds = (performance.now() - started) / 1000;
@@ -615,6 +621,8 @@ async function createVideo(event) {
       }
       catch (error) { if (!operation.cancelled) notify(error.message); }
     }
+    // Release the connection only after the server has recorded why the export ended.
+    producer.abort();
     if (operation.cancelled) $("#video-status").textContent = "Export cancelled.";
     if (videoExport === operation) videoExport = null;
     videoBusy(false);
