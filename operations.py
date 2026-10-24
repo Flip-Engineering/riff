@@ -22,6 +22,8 @@ from paths import ROOT
 
 SURFACE_VERSION = 1
 IDENTITY = re.compile(r"[a-f0-9]{32}")
+SCORE_REFERENCE = re.compile(r"riff-score-v1:[a-f0-9]{64}")
+SOUND_REFERENCE = re.compile(r"riff-acoustic-v1:[a-f0-9]{64}")
 TERMINAL = ("done", "planned", "performed", "synthesized", "cancelled", "interrupted", "failed")
 SCHEMA = """
     CREATE TABLE IF NOT EXISTS operations (
@@ -367,6 +369,17 @@ class Operations:
         unknown = set(payload) - {"subject", "score_source", "performance_source", "acoustic_source", "parent_track_id"}
         if unknown:
             raise ValueError("Unknown input: " + ", ".join(sorted(unknown)))
+        patterns = {"score_source": (SCORE_REFERENCE, "The saved score reference is invalid."),
+                    "acoustic_source": (SOUND_REFERENCE, "The saved sound reference is invalid.")}
+        for field in ("subject", "score_source", "performance_source", "acoustic_source", "parent_track_id"):
+            if field not in payload:
+                continue
+            value = payload[field]
+            if field in patterns:
+                if not isinstance(value, str) or not patterns[field][0].fullmatch(value):
+                    raise ValueError(patterns[field][1])
+            else:
+                identity(value, field)
         found = []
         if "subject" in payload:
             subject = self._subject(payload["subject"])
@@ -380,8 +393,8 @@ class Operations:
             return {"subject": subject["id"], "references": found}
         for field, check in (("score_source", self._check_score), ("performance_source", self._performance_reference),
                              ("acoustic_source", self._check_sound), ("parent_track_id", self._check_parent)):
-            if payload.get(field):
-                found.append(check(identity(payload[field], field) if field in ("performance_source", "parent_track_id") else payload[field]))
+            if field in payload:
+                found.append(check(payload[field]))
         return {"subject": None, "references": found}
 
     @staticmethod
@@ -498,12 +511,14 @@ class Operations:
 
     # -- writes ----------------------------------------------------------------
 
-    def submit(self, name, request, payload, key=None, family_id=None, parent=None, resumes=None, derivation=None):
+    def submit(self, name, request, payload, key=None, family_id=None, parent=None, resumes=None, derivation=None, guard=None):
         """Queue one take and record its operation atomically; replay a repeated key.
 
         Everything that reads files or the control runtime (validation, reference resolution, engine
         identity) happens before the write transaction. Inside it, the parent and family checks and the
-        inserts use the transaction's own connection."""
+        inserts use the transaction's own connection. ``guard(db)``, when given, runs inside that
+        transaction before the insert and may raise to refuse the work (for example a conflicting
+        operation that another request committed first)."""
         key = idempotency_key(key)
         fingerprint = digest(name, request)
         if key and (existing := self._existing(name, key, fingerprint)):
@@ -517,6 +532,8 @@ class Operations:
                 def record(db, job_id, bound):
                     if key and db.execute("SELECT 1 FROM operations WHERE name=? AND idempotency_key=?", (name, key)).fetchone():
                         raise _Duplicate()
+                    if guard:
+                        guard(db)
                     linked = self.parent_of(bound, parent, db)
                     family = self.family_for(linked, family_id, db)
                     db.execute("INSERT INTO operations (id,name,surface_version,idempotency_key,request_digest,created,job_id,"
@@ -553,7 +570,7 @@ class Operations:
                 "parent": operation["parent"], "status": receipt["job"]["status"], "receipt": receipt}
 
     def cancel(self, operation_id):
-        row = self.require(operation_id)
+        row = self.require(identity(operation_id, "Operation"))
         status = self.generator.cancel(row["job_id"])
         return {"operation_id": row["id"], "job_id": row["job_id"], "status": status, "receipt": self.receipt(row["id"])}
 
@@ -747,21 +764,28 @@ class Operations:
         Resuming is always an explicit request: an operation the user cancelled stays cancelled until
         this is called, and the new operation links back to the one it continues.
         """
+        identity(operation_id, "Operation")
         if original := self.replayed("operation.resume", {"operation_id": operation_id}, key):
             return original
         row = self.find(operation_id)
-        job = self.store.job(row["job_id"] if row else identity(operation_id, "Operation"))
+        job = self.store.job(row["job_id"] if row else operation_id)
         if job["status"] in ("queued", "running", "cancelling"):
             raise ValueError("This operation is still active.")
         if job["status"] in ("done", "planned", "performed", "synthesized"):
             raise ValueError("This operation finished. Its outputs are in the receipt.")
         subject = self._subject(job["id"])
         recipe, mode = job["recipe"], job["recipe"].get("render_mode", "music")
-        with self.store.db() as db:
+        resumes = row["id"] if row else job["id"]
+
+        def not_already_resuming(db):
+            # Checked again inside the write transaction: two requests that both passed an earlier
+            # check cannot both queue, because the second waits for the first's commit and sees it.
             active = db.execute("SELECT o.id FROM operations o JOIN jobs j ON j.id=o.job_id WHERE o.resumes=? "
-                                "AND j.status IN ('queued','running','cancelling')", (row["id"] if row else job["id"],)).fetchone()
-        if active:
-            raise Conflict(f"Operation {active['id']} is already resuming this one.")
+                                "AND j.status IN ('queued','running','cancelling')", (resumes,)).fetchone()
+            if active:
+                raise Conflict(f"Operation {active['id']} is already resuming this one.")
+        with self.store.db() as db:
+            not_already_resuming(db)
         captured = {stage: self._stage_reference(subject, stage)[0] for stage in ("sound", "performance", "score")}
         if mode == "music" and captured["sound"]:
             draft, retain, reused = {"acoustic_source": captured["sound"]}, None, ["sound"]
@@ -778,7 +802,7 @@ class Operations:
         return self.submit("operation.resume", {"operation_id": operation_id}, draft, key=key,
                            family_id=row["family_id"] if row else None,
                            parent=json.loads(row["parent"]) if row and row["parent"] else None,
-                           resumes=row["id"] if row else job["id"], derivation=derivation)
+                           resumes=resumes, derivation=derivation, guard=not_already_resuming)
 
     # -- selections ---------------------------------------------------------------
 
