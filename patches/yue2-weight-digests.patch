@@ -37,10 +37,11 @@
      uint64_t frames = 0, latent_dim = 0;
 --- a/include/engine/models/yue2/assets.h
 +++ b/include/engine/models/yue2/assets.h
-@@ -15,6 +15,7 @@
+@@ -15,6 +15,8 @@
      std::shared_ptr<const assets::TensorSource> model_weights;
      std::shared_ptr<const assets::TensorSource> vae_weights;
      checkpoint::FileIdentity model_identity, vae_identity;
++    checkpoint::SourceFile selected_model_source, selected_vae_source;
 +    checkpoint::SourceFile model_config_source, vae_config_source, generation_config_source, tokenizer_source;
      checkpoint::Digest model_config_hash{}, vae_config_hash{}, generation_config_hash{};
      bool has_model_config = false;
@@ -195,7 +196,7 @@
          engine::debug::timing_log_scalar("yue2.vae_decode_ms", engine::debug::elapsed_ms(vae_start, Clock::now()));
          if (vae) {
              vae->release_runtime_graphs();
-@@ -509,6 +518,34 @@
+@@ -509,6 +518,36 @@
      bool keep_resident = false;
  
  private:
@@ -210,9 +211,11 @@
 +        if (sources_invalid) throw std::runtime_error("Yue2 source session invalid; create a new session");
 +        try {
 +            vae_source.require_unchanged();
++            assets->selected_vae_source.require_unchanged();
 +            assets->vae_config_source.require_unchanged();
 +            if (!decode_only) {
 +                main_source.require_unchanged();
++                assets->selected_model_source.require_unchanged();
 +                tokenizer_source.require_unchanged();
 +                assets->model_config_source.require_unchanged();
 +                assets->generation_config_source.require_unchanged();
@@ -230,7 +233,7 @@
      const Yue2TextTokenizer & get_tokenizer() {
          if (!text_tokenizer) {
              tokenizer_identity = checkpoint::file_identity(assets->tiktoken_path);
-@@ -531,14 +568,17 @@
+@@ -531,14 +570,17 @@
          m.seed = request.seed; m.ode_steps = request.generation.ode_steps;
          m.ode_method = request.generation.ode_method; m.context = request.generation.context;
          m.guidance = request_guidance_scale(request);
@@ -252,3 +255,21 @@
          return m;
      }
  
+--- a/src/models/yue2/session.cpp
++++ b/src/models/yue2/session.cpp
+@@ -107,6 +107,7 @@
+         runtime::find_option(options, {"yue2.model_gguf"}).value_or("yue2-3b-q8_0.gguf");
+     const auto model_path = resolve_component_gguf_path(*base, "yue2.model_gguf", model_gguf);
+     selected->model_identity = checkpoint::file_identity(model_path);
++    selected->selected_model_source = checkpoint::SourceFile(model_path, selected->model_identity);
+     selected->model_weights = assets::open_tensor_source(
+         model_path,
+         "model_weights");
+@@ -118,6 +119,7 @@
+         runtime::find_option(options, {"yue2.vae_gguf"}).value_or("yue2-vae-f16.gguf");
+     const auto vae_path = resolve_component_gguf_path(*base, "yue2.vae_gguf", vae_gguf);
+     selected->vae_identity = checkpoint::file_identity(vae_path);
++    selected->selected_vae_source = checkpoint::SourceFile(vae_path, selected->vae_identity);
+     selected->vae_weights = assets::open_tensor_source(
+         vae_path,
+         "vae_weights");

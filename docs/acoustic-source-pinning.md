@@ -113,7 +113,9 @@ There is no persistent cache and no trusted Python-supplied substitute digest.
 
 Before every take, including one without checkpoint capture, the engine checks
 selected model/VAE/tokenizer/config identities before planning or retained-weight
-use. Config anchors surround the original parsing too; an absent generation
+use. Both the originally selected GGUF pathname and the loader's canonical source
+are guarded, so retargeting a selected symlink also invalidates the session.
+Config anchors surround the original parsing too; an absent generation
 config remains an anchored absence. Changed sources invalidate the session.
 The CLI marks that failure fatal in the warm protocol, requiring a new process
 rather than attaching a new pathname's digest to old uploaded weights.
@@ -134,7 +136,7 @@ config appearance, source changes between warm takes, invalid-session retirement
 fresh-session recovery and VAE mutation during decoding. Real capture validation
 also checks digest counters, output equality and checkpoint integrity.
 
-## Fixed-engine validation
+## Initial fixed-engine validation
 
 Queued CPU build `2a3bb79d2a9e45fa-cpu` passed. Both SHA implementations pass
 79 format/cache cases; 67 pipeline cases, 44 LoRA cases, the score replay oracle,

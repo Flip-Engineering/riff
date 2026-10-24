@@ -223,6 +223,17 @@ int main(int argc,char ** argv){
             auto fresh=session(changed,"","true");check(run(*fresh,warm_request).audio_output.has_value(),"fresh session did not recover");
             pass(std::string("fresh session recovers after source change: ")+relative);
         }
+        for(const auto * component:{"yue2-3b-q8_0.gguf","yue2-vae-f16.gguf"}){
+            const auto changed=model_fixture(root,std::string("alias-")+component,tokenizer);
+            const auto selected=changed/component,original=changed/(std::string("original-")+component);
+            fs::rename(selected,original);fs::create_symlink(original,selected);
+            e06_test::reset();auto s=session(changed,"","true");run(*s,warm_request);
+            const auto before=e06_test::calls.solve;
+            const auto replacement=changed/(std::string("replacement-")+component);fs::copy_file(original,replacement);
+            fs::remove(selected);fs::create_symlink(replacement,selected);
+            rejects(std::string("selected GGUF symlink retarget rejected before take: ")+component,[&]{run(*s,warm_request);});
+            check(e06_test::calls.solve==before,"retargeted GGUF alias reached generation");
+        }
         const auto decode_change=model_fixture(root,"changed-during-decode",tokenizer);
         e06_test::reset();e06_test::calls.during_decode=[&]{std::ofstream f(decode_change/"yue2-vae-f16.gguf",std::ios::binary|std::ios::app);f<<'X';};
         {auto s=session(decode_change);rejects("VAE mutation during decoding rejects audio",[&]{run(*s,{{"cot","off"},{"acoustic_latents_out",(root/"before-decode-change.yac").string()}});});}

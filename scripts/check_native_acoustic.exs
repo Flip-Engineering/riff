@@ -227,7 +227,7 @@ defmodule Riff.Native.AcousticCheck do
     text = run!(root, "pipeline", executable, [tokenizer, Path.join(root, "pipeline-fixtures")])
     result = text |> String.split("\n", trim: true) |> List.last() |> :json.decode()
 
-    unless result["passed"] == 67 and result["failed"] == 0 and
+    unless result["passed"] == 69 and result["failed"] == 0 and
              result["backend_initialized"] == false and result["model_weights_loaded"] == false,
            do: raise("Incomplete stage-boundary checks")
 
