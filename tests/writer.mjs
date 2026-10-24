@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
-import { chromium } from "playwright";
+import { launch } from "./browser-launch.mjs";
 
-const browser = await chromium.launch({ executablePath: process.env.RIFF_BROWSER_EXECUTABLE });
+const browser = await launch({ executablePath: process.env.RIFF_BROWSER_EXECUTABLE });
 const page = await browser.newPage({ viewport: { width: 1280, height: 1000 } });
 const errors = []; page.on("pageerror", error => errors.push(error.message));
 const score = 'X:1\nM:7/8\nL:1/8\nK:Dm\n"Dm"D2 F A2 G2|';

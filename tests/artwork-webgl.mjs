@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import { mkdirSync, readFileSync } from "node:fs";
-import { chromium } from "playwright";
+import { launch } from "./browser-launch.mjs";
 
 // Keep this trusted local fixture on an explicit graphics backend. Modern
 // headless Chromium can otherwise silently exercise only the Canvas fallback.
 const args = process.platform === "darwin" ? ["--use-angle=metal"]
   : ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"];
-const browser = await chromium.launch({ executablePath: process.env.RIFF_BROWSER_EXECUTABLE, args });
+const browser = await launch({ executablePath: process.env.RIFF_BROWSER_EXECUTABLE, args });
 const page = await browser.newPage({ viewport: { width: 1280, height: 1000 } });
 const errors = []; page.on("pageerror", error => errors.push(error.message));
 try {
