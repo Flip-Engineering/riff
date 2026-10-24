@@ -563,7 +563,7 @@
     },
     {
       "name": "issue20-diagnostic-long",
-      "error": "Error: EACCES: permission denied, scandir '/proc/690235/fd'",
+      "error": "Error: EACCES: permission denied, scandir [owned Linux process descriptor directory]",
       "file_written_at": "2026-10-23T22:04:49.354Z",
       "status": null,
       "received": null,
@@ -3416,6 +3416,7 @@
     }
   ],
   "artifact_root": "Worker checkout; referenced test-results/ artifacts are retained locally and are not committed to Git.",
+  "public_summary_redactions": "Local checkout paths and the diagnostic process descriptor path are described generically. Complete original failure artifacts are retained locally, not committed to Git.",
   "derivation_script": "test-results/finalize_issue20_evidence.mjs",
   "environment": {
     "browser": "Chromium 145.0.7632.6, Playwright build 1208 headless shell",
