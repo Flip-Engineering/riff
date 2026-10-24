@@ -140,7 +140,7 @@ class VideoTests(StudioFixture):
         super().tearDown()
 
     def request(self, method, path, body=None, headers=None):
-        connection = http.client.HTTPConnection("127.0.0.1", self.server.server_port, timeout=15)
+        connection = http.client.HTTPConnection("127.0.0.1", self.server.server_port)
         defaults = {"Content-Type": "application/json", "X-Riff-Request": "1"}
         defaults.update(headers or {})
         if body is not None and not isinstance(body, bytes): body = json.dumps(body).encode()

@@ -9,6 +9,7 @@ import {
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright";
+import { launch } from "./browser-launch.mjs";
 
 // This launches a separate headless browser, never an existing user browser.
 const base = process.env.RIFF_URL || "http://127.0.0.1:7878";
@@ -33,7 +34,7 @@ if (!executablePath && !existsSync(chromium.executablePath())) {
       .find((path) => existsSync(path));
   }
 }
-const browser = await chromium.launch({ headless: true, executablePath });
+const browser = await launch({ headless: true, executablePath });
 const context = await browser.newContext({
   viewport: { width: 1365, height: 1050 },
   reducedMotion: "reduce",
@@ -241,8 +242,6 @@ try {
       await page.waitForFunction(
         () =>
           document.querySelector("#playing-title")?.textContent === "Reedlight",
-        null,
-        { timeout: 240000 },
       );
     } else {
       await page
