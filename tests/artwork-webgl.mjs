@@ -140,4 +140,60 @@ try {
     await recovery.close();
   }
   console.log("PASS Temporary GPU initialization failures retry without reload; repeated context restoration preserves pixels and reuses its canvas");
+
+  // A cover painted while WebGL was unavailable must not stay degraded for the session.
+  for (const scenario of ["recovers", "stays unavailable"]) {
+    const covers = await browser.newPage();
+    await covers.evaluate(() => {
+      window.coverProbe = { blocked: true, time: 1000, renders: 0, draws: 0, attempts: 0 };
+      performance.now = () => coverProbe.time;
+      const getContext = HTMLCanvasElement.prototype.getContext;
+      HTMLCanvasElement.prototype.getContext = function (type, ...args) {
+        if (type === "webgl2") coverProbe.attempts++;
+        return type === "webgl2" && coverProbe.blocked ? null : getContext.call(this, type, ...args);
+      };
+      const toDataURL = HTMLCanvasElement.prototype.toDataURL;
+      HTMLCanvasElement.prototype.toDataURL = function (...args) { coverProbe.renders++; return toDataURL.apply(this, args); };
+      const drawElements = WebGL2RenderingContext.prototype.drawElements;
+      WebGL2RenderingContext.prototype.drawElements = function (...args) { coverProbe.draws++; return drawElements.apply(this, args); };
+    });
+    await covers.addScriptTag({ content: readFileSync("web/artwork.js", "utf8") });
+    const outcome = await covers.evaluate(scenario => {
+      const seed = "15961", log = { steady: [] };
+      const fallback = artSVG(seed);
+      log.fallbackDrawsOnGpu = coverProbe.draws;
+      coverProbe.blocked = scenario === "stays unavailable";
+      coverProbe.time += 4000;
+      log.cachedInsideThrottle = artSVG(seed) === fallback && coverProbe.renders === 1;
+      coverProbe.time += 2000;
+      const later = artSVG(seed);
+      log.rendersAfterThrottle = coverProbe.renders;
+      log.changed = later !== fallback;
+      log.gpuDraws = coverProbe.draws;
+      // Many probe intervals later, including repeated requests inside each one.
+      for (let interval = 0; interval < 6; interval++) {
+        coverProbe.time += 5001;
+        for (let request = 0; request < 3; request++) log.steady.push(artSVG(seed) === later && coverProbe.renders);
+      }
+      log.attempts = coverProbe.attempts;
+      log.refreshed = scenario === "recovers" && artSVG(seed, true) === later;
+      return log;
+    }, scenario);
+    assert.equal(outcome.fallbackDrawsOnGpu, 0);
+    assert(outcome.cachedInsideThrottle, "A fallback cover is reused until the renderer's next probe");
+    if (scenario === "recovers") {
+      assert(outcome.changed && outcome.gpuDraws > 0, "A cover painted by the fallback is painted again once WebGL returns");
+      assert.equal(outcome.rendersAfterThrottle, 2);
+      assert(outcome.steady.every(count => count === 2), "A cover painted by WebGL is kept");
+      assert(outcome.refreshed, "A refreshed poster matches the kept one");
+    } else {
+      assert.equal(outcome.gpuDraws, 0, "No GPU draws while graphics stay unavailable");
+      assert.equal(outcome.rendersAfterThrottle, 1, "A fallback cover is not repainted when WebGL is still unavailable");
+      assert(!outcome.changed);
+      assert(outcome.steady.every(count => count === 1), "The fallback cover is painted once and stays stable across probe intervals");
+      assert(outcome.attempts <= 1 + 1 + 6, "Unavailable graphics are probed at most once per interval");
+    }
+    await covers.close();
+  }
+  console.log("PASS A cover painted by the Canvas fallback is painted again when WebGL returns, and is not repainted while it never does");
 } finally { await browser.close(); }
