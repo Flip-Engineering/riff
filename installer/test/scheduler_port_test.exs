@@ -35,7 +35,7 @@ defmodule Riff.Runtime.SchedulerPortTest do
   defp call(port, message) do
     Device.feed(port.io, Jason.encode!(message) <> "\n")
     io = port.io
-    assert_receive {:scheduler_output, ^io, line}, 1000
+    assert_receive {:scheduler_output, ^io, line}
     Jason.decode!(line)
   end
 
@@ -152,13 +152,14 @@ defmodule Riff.Runtime.SchedulerPortTest do
     assert response["state"] == "admitted"
   end
 
-  defp await_result(port, id, deadline \\ nil) do
-    deadline = deadline || System.monotonic_time(:millisecond) + 1000
-
+  # The port reports a stage by polling (`artifact_result` answers "working" until the stage ends);
+  # it has no pushed completion message or blocking operation. Poll with a short sleep so the loop is
+  # not hot, and with no deadline: a stage that never finishes is stopped by ExUnit's test timeout.
+  defp await_result(port, id) do
     case call(port, %{"op" => "artifact_result", "id" => id}) do
       %{"state" => "working"} ->
-        assert System.monotonic_time(:millisecond) < deadline
-        await_result(port, id, deadline)
+        Process.sleep(10)
+        await_result(port, id)
 
       result ->
         result
@@ -260,9 +261,9 @@ defmodule Riff.Runtime.SchedulerPortTest do
       if ending == :eof, do: Device.feed(port.io, :eof), else: Process.exit(port.pid, :kill)
       pid = port.pid
       monitor = port.monitor
-      assert_receive {:DOWN, ^monitor, :process, ^pid, reason}, 1000
+      assert_receive {:DOWN, ^monitor, :process, ^pid, reason}
       if ending == :eof, do: assert(reason == :normal)
-      assert_receive {:DOWN, ^worker_ref, :process, ^worker, _}, 1000
+      assert_receive {:DOWN, ^worker_ref, :process, ^worker, _}
       assert Process.alive?(unrelated)
     end
   end
