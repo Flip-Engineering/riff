@@ -322,7 +322,7 @@ jobs:
   publish:
     if: inputs.publish && startsWith(github.ref, 'refs/tags/v')
     needs: preview
-    runs-on: [self-hosted, Linux, X64, baton2-native-linux-x64]
+    runs-on: [self-hosted, Linux, X64, riff-linux]
     timeout-minutes: 15
     permissions:
       contents: write
