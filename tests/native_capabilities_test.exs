@@ -53,7 +53,11 @@ defmodule Riff.Native.CapabilitiesTest do
 
   test "decoder discovery fixture needs only VAE metadata and no weights" do
     root =
-      Path.join(System.tmp_dir!(), "riff-native-capability-#{System.unique_integer([:positive])}")
+      Path.join(
+        System.tmp_dir!(),
+        "riff-native-capability-" <>
+          Base.url_encode64(:crypto.strong_rand_bytes(12), padding: false)
+      )
 
     on_exit(fn -> File.rm_rf!(root) end)
     model = C.decoder_fixture!(root)

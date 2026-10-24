@@ -49,7 +49,7 @@ else:
         (self.root / "metadata.txt").write_text("\n".join(metadata))
         return subprocess.run([sys.executable, "-B", str(ROOT / "run.py"), "--free", "--cot", "full",
                                "--plan-only", "--score-tokens", str(self.score), "--out", str(self.output), *extra],
-                              env={**os.environ, "RIFF_HOME": str(self.root)}, capture_output=True, text=True, timeout=15)
+                              env={**os.environ, "RIFF_HOME": str(self.root)}, capture_output=True, text=True)
 
     def test_old_partial_or_incompatible_engine_never_starts_generation(self):
         for metadata in ([], CAPABILITIES[:2], [*CAPABILITIES[:2], "format.yue2.prefix=other"]):

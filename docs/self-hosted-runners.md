@@ -7,7 +7,17 @@ inference run as homelab farm jobs, not in CI.
 
 ## Workflow routing
 
-Riff's Linux jobs run on `atari-homelab-riff` (label `riff-linux`), a runner dedicated to Riff on the homelab. It runs as the service user `riffci` from `/mnt/nvme4tb/ci-runners/riff-homelab`, and `riffci` is in the `baton-compile` group so native builds can use the shared compile queue. Baton's native runners (`baton2-native-linux-x64`) are not used by Riff, so Riff jobs do not wait on Baton compiles.
+Riff's Linux jobs run on five homelab runners with the label `riff-linux`: `atari-homelab-riff` and `atari-homelab-riff-2` to `atari-homelab-riff-5`. All five run as the service user `riffci` with `HOME=/mnt/nvme4tb/ci-runners/riff-homelab`. The first runner's directory is that `HOME`; the others are `runners/2` to `runners/5` under it, and each has its own `_work` directory. `riffci` is in the `baton-compile` group so native builds can use the shared compile queue. Baton's native runners (`baton2-native-linux-x64`) are not used by Riff, so Riff jobs do not wait on Baton compiles.
+
+## Isolation between concurrent jobs
+
+The five runners take jobs at the same time on one host, so anything outside a runner's own `_work` directory is shared between concurrent jobs. That includes `/tmp` and the toolchains in the shared `HOME` (`.rustup`, `.cargo`, `.mix`, `.hex`, `.cache/ms-playwright`, `.npm`).
+
+- The first step of every Linux job in `ci.yml` and `homelab-linux-validation.yml` writes `TMPDIR=$RUNNER_TEMP`, `MIX_HOME=$RUNNER_TEMP/mix` and `HEX_HOME=$RUNNER_TEMP/hex` to `GITHUB_ENV`. `RUNNER_TEMP` is the runner's own `_work/_temp`, which the runner empties for each job. `erlef/setup-beam` therefore installs Hex and rebar into the job's own `MIX_HOME`; before this, a concurrent `mix local.hex --force` removed `.mix/archives/hex-2.6.0` while another job's `mix deps.get` was loading it. The compile queue passes the caller's environment to the queued build, so the build's temporary directory is also inside the job.
+- Code and tests name their temporary directories with random bytes. `System.unique_integer/1` is unique only inside one BEAM VM: separate VMs running the same code produce the same values, so two jobs created the same `/tmp/riff-cache-19970`.
+- The native build places the sccache server socket at `$TMPDIR/riff-cache-<pid>-<16 hex digits>/server.sock`. A Unix socket path can be at most 107 bytes on Linux. With the directory layout above the path is at most 106 bytes; a runner directory with a longer path needs a shorter `TMPDIR`.
+- Cargo locks its registry and package cache, npm's cache is safe for concurrent use, and `playwright install` takes a lock in its browser cache, so those stay shared. `rustup toolchain install` in the shared `.rustup` is a no-op while the stable toolchain is current. When a new stable release appears, several control jobs install it into the same `.rustup` at once; if that produces failures, give each runner its own `RUSTUP_HOME`.
+- Tests wait for the fixture's own completion signal and have no wall-clock deadline of their own, because load on the shared host (load average 30 to 70 on 64 cores) decides how long each step takes. Python helpers in `tests/fixture_waits.py` also fail as soon as the thread or process that would produce the signal has exited. ExUnit's per-test timeout stops a hang in the Elixir tests; for the Python and Playwright tests the job timeout does.
 
 | Workflow / job | Required labels | Execution |
 | --- | --- | --- |

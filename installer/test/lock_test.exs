@@ -22,28 +22,27 @@ defmodule Riff.Installer.LockTest do
         end
       end)
 
-    assert_receive {:locked, _}, 2000
+    assert_receive {:locked, _}
     assert {:error, message} = Lock.acquire(directory)
     assert message =~ "Another Riff setup window"
     monitor = Process.monitor(owner)
     send(owner, :finish)
-    assert_receive {:DOWN, ^monitor, :process, ^owner, :normal}, 2000
+    assert_receive {:DOWN, ^monitor, :process, ^owner, :normal}
     # Synchronize on the actual advisory lock rather than assuming OS port exit timing.
-    lock = acquire_after_exit(directory, System.monotonic_time(:millisecond) + 2000)
+    lock = acquire_after_exit(directory)
     assert :ok = Lock.release(lock)
     {:ok, again} = Lock.acquire(directory)
     assert :ok = Lock.release(again)
   end
 
-  defp acquire_after_exit(directory, deadline) do
+  defp acquire_after_exit(directory) do
     case Lock.acquire(directory) do
       {:ok, lock} ->
         lock
 
       {:error, _} ->
-        assert System.monotonic_time(:millisecond) < deadline
         Process.sleep(5)
-        acquire_after_exit(directory, deadline)
+        acquire_after_exit(directory)
     end
   end
 end
