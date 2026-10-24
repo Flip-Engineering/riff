@@ -5,16 +5,18 @@ standard workflows no longer declare GitHub-hosted Ubuntu or macOS images.
 
 ## Workflow routing
 
+Riff's Linux jobs run on `atari-homelab-riff` (label `riff-linux`), a runner dedicated to Riff on the homelab. It runs as the service user `riffci` from `/mnt/nvme4tb/ci-runners/riff-homelab`, and `riffci` is in the `baton-compile` group so native builds can use the shared compile queue. Baton's native runners (`baton2-native-linux-x64`) are not used by Riff, so Riff jobs do not wait on Baton compiles.
+
 | Workflow / job | Required labels | Execution |
 | --- | --- | --- |
-| `ci.yml` control, application, browser, native Linux CPU | `self-hosted`, `Linux`, `X64`, `baton2-native-linux-x64` | push to `main`, same-repository pull requests, `workflow_call`, `workflow_dispatch` (a dispatch runs every `ci.yml` job) |
+| `ci.yml` control, application, browser, native Linux CPU | `self-hosted`, `Linux`, `X64`, `riff-linux` | push to `main`, same-repository pull requests, `workflow_call`, `workflow_dispatch` (a dispatch runs every `ci.yml` job) |
 | `ci.yml` CUDA compile probe | `self-hosted`, `Linux`, `X64`, `riff-cuda` | manual `workflow_dispatch` only |
-| `homelab-linux-validation.yml` | `self-hosted`, `Linux`, `X64`, `baton2-native-linux-x64` | manual exact-source dispatch |
+| `homelab-linux-validation.yml` | `self-hosted`, `Linux`, `X64`, `riff-linux` | manual exact-source dispatch |
 | `apple-silicon-validation.yml` | `self-hosted`, `macOS`, `ARM64` | manual exact-source dispatch |
 | `desktop.yml` preview | `self-hosted`, `macOS`, `ARM64` | `main`/`v*` tag/manual desktop workflow |
-| `desktop.yml` publish | `self-hosted`, `Linux`, `X64`, `baton2-native-linux-x64` | tag or manual publish |
-| `pages.yml` deploy | `self-hosted`, `Linux`, `X64`, `baton2-native-linux-x64` | Pages workflow |
-| `release.yml` validate/release | `self-hosted`, `Linux`, `X64`, `baton2-native-linux-x64` | release workflow |
+| `desktop.yml` publish | `self-hosted`, `Linux`, `X64`, `riff-linux` | tag or manual publish |
+| `pages.yml` deploy | `self-hosted`, `Linux`, `X64`, `riff-linux` | Pages workflow |
+| `release.yml` validate/release | `self-hosted`, `Linux`, `X64`, `riff-linux` | release workflow |
 
 
 The native Linux CPU job retains the existing solver, CPU-tensor LoRA,
@@ -66,7 +68,7 @@ workflow allowlist restricted to reviewed workflow paths.
 ## Current provisioning gaps
 
 The organization inventory recorded on 2026-10-20 found two online Linux runners
-with `baton2-native-linux-x64`. It found no `macOS`/`ARM64` runner and no
+with `riff-linux`. It found no `macOS`/`ARM64` runner and no
 `riff-cuda` runner. At that time the `baton2-native-homelab` runner group allowed
 only `homelab-linux-validation.yml`; `ci.yml`, `desktop.yml`, `pages.yml`,
 `release.yml` and `apple-silicon-validation.yml` still require an organization
