@@ -197,11 +197,15 @@ it records what the engine reported and what the studio measured:
   `audio` (decoded waveform), read from the engine's `[TIMING ts=...] <name> <ms>` lines
   (`yue2.plan_ms`, `yue2.semantic_ms`, `yue2.nar_ms`, `yue2.vae_decode_ms`). A stage the engine did not
   report is absent, not zero. `timings.load_seconds` is the time spent bringing weights to the device and
-  is present only when the engine printed weight-load lines. `timings.engine_session_seconds` is the
+  is the sum of the weight-upload lines (AR, AR generation, NAR and VAE) and is present only when the
+  engine printed them. `timings.acoustic_pin_seconds` is the engine's per-take cost of pinning the model
+  files for the saved-sound provenance (`yue2.acoustic.pin_sources_ms`). `timings.resident_reuse` is true
+  when the engine said a resident runtime already held the weights. `timings.engine_session_seconds` is the
   engine's own session total and `timings.parsed_lines` is how many timing lines were read.
-- `warm`: `engine` (`warm` or `process`), `hit` (true only when a warm engine's log has timing lines and
-  no weight-load line, false for a take in its own process, null when there was nothing to judge from) and
-  `prepare_seconds` (how long starting or reusing the warm engine took before the take began).
+- `warm`: `engine` (`warm` or `process`), `hit` (true only when a warm engine reported reusing its resident runtime and printed no
+  weight-load line, false otherwise, null when there were no timing lines to judge from) and `prepare_seconds`
+  (how long the call that starts or reuses the engine took; engine start-up itself is asynchronous, so the
+  first take's weight loading appears in `timings.load_seconds`, not here).
 - `queue`: `waited_seconds` from submission to the worker claiming the take, `admission_wait_seconds` spent
   waiting for memory, and the last waiting reason.
 - `memory`: `observed_peak_bytes` and, when the scheduler reports them, `reserved_host_bytes` and

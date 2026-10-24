@@ -1,10 +1,11 @@
 """Per-stage timings, warm hits, queue waits and memory in a take's metrics.
 
-The log fixtures in tests/fixtures/timings follow the exact line format and key names in the pinned
-audio.cpp source (``timing_log_scalar`` in src/framework/debug/trace.cpp, and the keys in
-src/models/yue2/pipeline.cpp, ar_runtime.cpp, nar_runtime.cpp and session.cpp). They are written to
-match that source, not captured from a model run; no YuE2 weights are installed on the test host.
-Their numbers are illustrative.
+``cold-take.log`` and ``warm-take.log`` in tests/fixtures/timings are real engine logs, captured on
+2026-10-23 from the pinned audio.cpp CPU engine (fingerprint a97282a0cd11f431) with the pinned YuE2 3B Q4
+model, a 6 s study at 4 steps and 4 threads: the first take in a fresh process, and the second take in a
+warm engine. Only two path prefixes were replaced, with ``<models>`` and ``<outputs>``. ``decode-only.log``
+and ``no-timing.log`` are written by hand to the same line format (no decoder-only run was captured), and
+their numbers are illustrative.
 """
 import json
 from pathlib import Path
@@ -29,24 +30,38 @@ def lines(name):
 
 
 class ParserTests(unittest.TestCase):
-    def test_cold_take_reports_every_stage_and_the_weight_load(self):
+    def test_real_cold_take_reports_every_stage_the_load_and_the_pin(self):
         summary = summarize(lines("cold-take.log"))
-        self.assertEqual(summary["stages"], {"plan": 2.2505, "performance": 14.90025, "sound": 6.12, "audio": 1.98075})
-        self.assertAlmostEqual(summary["load_seconds"], (8470.2 + 3879 + 1349.1) / 1000)
-        self.assertEqual(summary["engine_session_seconds"], 25.715)
-        # Non-timing lines, trace lines and a non-numeric timing value are ignored.
-        self.assertEqual(summary["parsed_lines"], 11)
+        self.assertEqual(summary["stages"], {"plan": 2.766671647, "performance": 40.64737152,
+                                             "sound": 108.166921413, "audio": 32.57509579})
+        # AR weights, AR generation weights, NAR weights and VAE weights; the AR prefix line is inside the first.
+        self.assertAlmostEqual(summary["load_seconds"], (3405.964867 + 392.00195 + 2144.093341 + 823.56612) / 1000)
+        self.assertEqual(summary["engine_session_seconds"], 217.522476581)
+        self.assertEqual(summary["acoustic_pin_seconds"], 32.312149477)
+        self.assertNotIn("resident_reuse", summary)
+        self.assertEqual(summary["parsed_lines"], 112)
 
-    def test_warm_take_has_no_load_lines_and_stages_are_not_invented(self):
+    def test_real_warm_take_has_no_load_and_says_it_reused_the_resident_runtime(self):
         summary = summarize(lines("warm-take.log"))
         self.assertNotIn("load_seconds", summary)
+        self.assertIs(summary["resident_reuse"], True)
         self.assertEqual(set(summary["stages"]), set(STAGE_KEYS))
-        self.assertEqual(summary["engine_session_seconds"], 9.725)
+        self.assertEqual(summary["stages"]["plan"], 0.029082308)
+        self.assertEqual(summary["engine_session_seconds"], 168.200637345)
+        self.assertEqual(summary["parsed_lines"], 97)
+
+    def test_the_stages_and_the_pin_account_for_the_engine_session(self):
+        for name in ("cold-take.log", "warm-take.log"):
+            with self.subTest(name=name):
+                summary = summarize(lines(name))
+                accounted = sum(summary["stages"].values()) + summary["acoustic_pin_seconds"] + summary.get("load_seconds", 0)
+                # Within a few seconds of the engine's own session total (the rest is untimed glue).
+                self.assertLess(abs(summary["engine_session_seconds"] - accounted), 12)
 
     def test_a_stage_that_was_not_logged_is_absent_not_zero(self):
         summary = summarize(lines("decode-only.log"))
         self.assertEqual(summary["stages"], {"audio": 2.8755})
-        self.assertEqual(summary["load_seconds"], 1.21)
+        self.assertEqual(summary["load_seconds"], 0.8235)
 
     def test_a_log_with_no_timing_lines_gives_an_empty_summary(self):
         self.assertEqual(summarize(lines("no-timing.log")), {"parsed_lines": 0, "stages": {}})
@@ -66,11 +81,15 @@ class ParserTests(unittest.TestCase):
         self.assertEqual(summary["stages"], {"sound": 1.5})
         self.assertEqual(summary["engine_session_seconds"], 9.0)
 
-    def test_warm_hit_needs_a_warm_engine_timing_lines_and_no_load(self):
+    def test_the_vae_init_line_is_not_a_load_cost(self):
+        self.assertNotIn("load_seconds", summarize(["[TIMING] yue2.vae.init_ms 0.004", "[TIMING] yue2.plan_ms 1"]))
+
+    def test_warm_hit_needs_a_warm_engine_reuse_line_and_no_load(self):
         cold, warm = summarize(lines("cold-take.log")), summarize(lines("warm-take.log"))
         self.assertEqual(warm_record("warm", cold, 1.5), {"engine": "warm", "hit": False, "prepare_seconds": 1.5})
         self.assertEqual(warm_record("warm", warm), {"engine": "warm", "hit": True})
         self.assertEqual(warm_record("warm", summarize([]))["hit"], None)
+        self.assertEqual(warm_record("warm", summarize(["[TIMING] yue2.plan_ms 1"]))["hit"], False)
         self.assertEqual(warm_record("process", warm), {"engine": "process", "hit": False})
 
 
@@ -165,8 +184,8 @@ class WarmTakeTests(WarmFixture):
         self.assertIs(two["warm"]["hit"], True)
         self.assertNotIn("load_seconds", two["timings"])
         self.assertEqual(two["timings"]["stages"], {"sound": 3.0, "audio": 0.5})
+        self.assertIn("prepare_seconds", one["warm"])
         self.assertIn("prepare_seconds", two["warm"])
-        self.assertLess(two["warm"]["prepare_seconds"], one["warm"]["prepare_seconds"])
 
 
 if __name__ == "__main__":

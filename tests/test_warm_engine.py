@@ -39,6 +39,8 @@ for line in sys.stdin:
         # Only the first job in an engine process uploads weights; later jobs reuse them.
         print("[TIMING ts=20261024-100000] yue2.ar.weights_upload_ms 250", flush=True)
         loaded = True
+    else:
+        print("[TIMING ts=20261024-100000] yue2.ar.resident_reuse 1", flush=True)
     if mode == "crash":
         print("about to crash", flush=True)
         os._exit(7)
