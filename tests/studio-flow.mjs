@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { mkdirSync } from "node:fs";
-import { chromium } from "playwright";
+import { launch } from "./browser-launch.mjs";
 
 const server = spawn(process.env.RIFF_PYTHON || "python3", ["-u", "tests/review_browser_server.py"], {
   env: { ...process.env, RIFF_QUEUE_FIXTURE: "1", RIFF_MULTI_TRACK_FIXTURE: "1" },
@@ -14,7 +14,7 @@ const fixture = await new Promise((resolve, reject) => {
   server.stdout.on("data", data => { output += data; if (output.includes("\n")) resolve(JSON.parse(output.split("\n")[0])); });
   server.once("exit", code => reject(new Error(`Fixture exited ${code}: ${diagnostics}`)));
 });
-const browser = await chromium.launch({ headless: process.env.RIFF_BROWSER_HEADED !== "1", executablePath: process.env.RIFF_BROWSER_EXECUTABLE });
+const browser = await launch({ headless: process.env.RIFF_BROWSER_HEADED !== "1", executablePath: process.env.RIFF_BROWSER_EXECUTABLE });
 const page = await browser.newPage({ viewport: { width: 1440, height: 1050 }, reducedMotion: "no-preference" });
 const errors = [];
 page.on("pageerror", error => errors.push(error.message));
