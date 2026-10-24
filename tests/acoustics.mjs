@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { mkdirSync } from "node:fs";
-import { chromium } from "playwright";
+import { launch } from "./browser-launch.mjs";
 
 // Actual served studio, with tiny acoustic API responses at the browser edge.
 // Real Store/Elixir/native fixture execution is test_acoustic_integration.py.
@@ -38,7 +38,7 @@ try {
     { id: savedJob, title: metadata.title, status: "synthesized", created: 1789315200, acoustic_source: source, acoustic_seconds: 12, performance_available: true },
     { id: failedJob, title: "Audio interrupted", status: "failed", error: "The audio could not finish.", created: 1789315201, acoustic_source: source, acoustic_seconds: 12, performance_available: true },
   ];
-  browser = await chromium.launch({ executablePath: process.env.RIFF_BROWSER_EXECUTABLE });
+  browser = await launch({ executablePath: process.env.RIFF_BROWSER_EXECUTABLE });
   console.log(`Browser ${browser.version()}`);
   page = await browser.newPage({ viewport: { width: 1280, height: 1000 }, reducedMotion: "reduce" });
   const errors = []; page.on("pageerror", error => { errors.push(error.message); console.error("Browser error:", error.message); });

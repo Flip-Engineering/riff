@@ -9,7 +9,12 @@ defmodule Riff.Installer.CryptoComponentTest do
   @moduletag skip: :os.type() != {:unix, :darwin}
 
   setup do
-    root = Path.join(System.tmp_dir!(), "riff-crypto-abi-#{System.unique_integer([:positive])}")
+    root =
+      Path.join(
+        System.tmp_dir!(),
+        "riff-crypto-abi-" <> Base.url_encode64(:crypto.strong_rand_bytes(12), padding: false)
+      )
+
     File.mkdir!(root)
     on_exit(fn -> File.rm_rf!(root) end)
     %{root: root, beam: Crypto.host!().beam}
