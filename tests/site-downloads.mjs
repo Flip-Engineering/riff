@@ -3,7 +3,7 @@ import { createServer } from "node:http";
 import { once } from "node:events";
 import { mkdir, readFile } from "node:fs/promises";
 import { resolve, sep, extname } from "node:path";
-import { chromium } from "playwright";
+import { launch } from "./browser-launch.mjs";
 
 const site = resolve("site");
 const assetURL = version => `https://github.com/Flip-Engineering/riff/releases/download/${version}/Riff-Setup-macos-arm64.zip`;
@@ -37,7 +37,7 @@ const server = createServer(async (request, response) => {
 server.listen(0, "127.0.0.1");
 await once(server, "listening");
 const url = `http://127.0.0.1:${server.address().port}`;
-const browser = await chromium.launch({ executablePath: process.env.RIFF_BROWSER_EXECUTABLE });
+const browser = await launch({ executablePath: process.env.RIFF_BROWSER_EXECUTABLE });
 try {
   await mkdir("test-results", { recursive: true });
   const scenarios = [

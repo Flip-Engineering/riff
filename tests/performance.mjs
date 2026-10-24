@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { chromium } from "playwright";
+import { launch } from "./browser-launch.mjs";
 
 const server = spawn(process.env.RIFF_PYTHON || "python3", ["-u", "tests/review_browser_server.py"], {
   env: { ...process.env, RIFF_PERFORMANCE_FIXTURE: "1" },
@@ -12,7 +12,7 @@ const fixture = await new Promise((resolve, reject) => {
   server.stdout.on("data", data => { output += data; if (output.includes("\n")) resolve(JSON.parse(output.split("\n")[0])); });
   server.once("exit", code => reject(new Error(`Fixture exited ${code}: ${diagnostics}`)));
 });
-const browser = await chromium.launch({ executablePath: process.env.RIFF_BROWSER_EXECUTABLE });
+const browser = await launch({ executablePath: process.env.RIFF_BROWSER_EXECUTABLE });
 const page = await browser.newPage({ viewport: { width: 1280, height: 1000 } });
 const errors = []; page.on("pageerror", error => errors.push(error.message));
 const call = (path, body) => page.evaluate(({ path, body }) => api(path, body ? "POST" : "GET", body), { path, body });

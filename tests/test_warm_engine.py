@@ -17,6 +17,7 @@ import studio_core
 from studio_core import Generator, Store
 from warm_engine import WarmEngine, engine_command, job_from_command
 from admission_fixture import FixtureAdmission
+from fixture_waits import until
 
 FAKE_ENGINE = """#!{python}
 import array, json, os, sys, time, wave
@@ -60,13 +61,8 @@ for line in sys.stdin:
 """
 
 
-def wait_until(predicate, timeout=10):
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if predicate():
-            return
-        time.sleep(0.02)
-    raise AssertionError("The expected engine state did not arrive before the test deadline")
+def wait_until(predicate, *producers):
+    until(predicate, *producers)
 
 
 class WarmFixture(unittest.TestCase):
@@ -156,9 +152,9 @@ class WarmEngineTests(WarmFixture):
 
     def test_consecutive_takes_reuse_one_engine_and_logs_are_separated(self):
         first, first_log = self.take(seed="1")
-        self.assertEqual(first.wait(10), 0)
+        self.assertEqual(first.wait(), 0)
         second, second_log = self.take(seed="2")
-        self.assertEqual(second.wait(10), 0)
+        self.assertEqual(second.wait(), 0)
         self.assertEqual(first.pid, second.pid)
         self.assertEqual(len(self.starts()), 1)
         arguments = json.loads(self.starts()[0].read_text())
@@ -180,19 +176,19 @@ class WarmEngineTests(WarmFixture):
 
     def test_job_error_fails_only_that_take(self):
         failed, log = self.take("error")
-        self.assertEqual(failed.wait(10), 1)
+        self.assertEqual(failed.wait(), 1)
         self.assertEqual(failed.message, "bad request")
         self.assertIn("audiocpp_cli failed: bad request", log.read_text())
         following, _ = self.take()
-        self.assertEqual(following.wait(10), 0)
+        self.assertEqual(following.wait(), 0)
         self.assertEqual(failed.pid, following.pid)
 
     def test_crash_mid_take_fails_it_and_the_next_take_restarts_the_engine(self):
         crashed, log = self.take("crash")
-        self.assertEqual(crashed.wait(10), 7)
+        self.assertEqual(crashed.wait(), 7)
         self.assertIn("about to crash", log.read_text())
         following, _ = self.take()
-        self.assertEqual(following.wait(10), 0)
+        self.assertEqual(following.wait(), 0)
         self.assertNotEqual(crashed.pid, following.pid)
         self.assertEqual(len(self.starts()), 2)
 
@@ -200,47 +196,47 @@ class WarmEngineTests(WarmFixture):
         waiting, _ = self.take("wait")
         wait_until(lambda: (self.state / "waiting").exists())
         waiting.terminate()
-        self.assertEqual(waiting.wait(10), -signal.SIGTERM)
+        self.assertEqual(waiting.wait(), -signal.SIGTERM)
         self.assertFalse(hasattr(waiting, "kill"))
         following, _ = self.take()
-        self.assertEqual(following.wait(10), 0)
+        self.assertEqual(following.wait(), 0)
         self.assertNotEqual(waiting.pid, following.pid)
 
     def test_backend_fatal_error_retires_the_engine(self):
         fatal, _ = self.take("fatal")
-        self.assertEqual(fatal.wait(10), 1)
+        self.assertEqual(fatal.wait(), 1)
         following, _ = self.take()
-        self.assertEqual(following.wait(10), 0)
+        self.assertEqual(following.wait(), 0)
         self.assertNotEqual(fatal.pid, following.pid)
 
     def test_unexpected_marker_fails_the_take_and_stops_the_engine(self):
         broken, log = self.take("wrong-id")
-        self.assertEqual(broken.wait(10), 1)
+        self.assertEqual(broken.wait(), 1)
         self.assertIn("protocol error", log.read_text())
         following, _ = self.take()
-        self.assertEqual(following.wait(10), 0)
+        self.assertEqual(following.wait(), 0)
         self.assertNotEqual(broken.pid, following.pid)
 
     def test_setting_or_model_file_change_restarts_the_engine(self):
         first, _ = self.take()
-        first.wait(10)
+        first.wait()
         changed_threads, _ = self.take(threads="2")
-        changed_threads.wait(10)
+        changed_threads.wait()
         self.assertNotEqual(first.pid, changed_threads.pid)
         same, _ = self.take(threads="2")
-        same.wait(10)
+        same.wait()
         self.assertEqual(changed_threads.pid, same.pid)
         model = self.models / "m.gguf"
         model.write_bytes(b"new weights")
         os.utime(model, ns=(time.time_ns(), time.time_ns() + 10 ** 9))
         replaced, _ = self.take(threads="2")
-        self.assertEqual(replaced.wait(10), 0)
+        self.assertEqual(replaced.wait(), 0)
         self.assertNotEqual(same.pid, replaced.pid)
         self.assertEqual(len(self.starts()), 3)
 
     def test_idle_engine_stops_on_eof_without_signals(self):
         take, _ = self.take()
-        take.wait(10)
+        take.wait()
         process = self.engine.process
         with patch.object(subprocess.Popen, "send_signal", side_effect=AssertionError("idle stop should use EOF")):
             self.engine.stop()
