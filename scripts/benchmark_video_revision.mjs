@@ -13,8 +13,8 @@ const commit = execFileSync("git", ["rev-parse", "--verify", `${revision}^{commi
 const output = resolve(destination);
 mkdirSync(output);
 const checkout = `${output}/source`;
-const driverScript = process.env.RIFF_BENCH_DRIVER === "cdp" ? "benchmark_video_cdp.mjs" : "benchmark_video.mjs";
-const driver = { source_revision: commit, driver_script: driverScript,
+const driverScript = "benchmark_video.mjs";
+const driver = { source_revision: commit, driver_script: driverScript, requested_driver: process.env.RIFF_BENCH_DRIVER || "auto",
   harness_revision: execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim(),
   harness_dirty: Boolean(execFileSync("git", ["status", "--porcelain", "--untracked-files=all"], { encoding: "utf8" }).trim()) };
 writeFileSync(`${output}/driver.json`, JSON.stringify(driver, null, 2) + "\n");

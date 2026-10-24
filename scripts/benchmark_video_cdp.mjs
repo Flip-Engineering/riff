@@ -86,9 +86,9 @@ const output = resolve(process.argv[2] || `test-results/video-cdp-${Date.now()}`
 mkdirSync(output);
 const temporary = mkdtempSync(`${output}/temporary-`);
 const fixtureEnv = { ...process.env, TMPDIR: temporary, TEMP: temporary, TMP: temporary };
-const dimensions = (process.env.RIFF_BENCH_DIMENSIONS || "2160x2160x60").split(",").map(value => value.split("x").map(Number));
+const dimensions = (process.env.RIFF_BENCH_DIMENSIONS || "1920x1080x30,2160x2160x30,2160x2160x60").split(",").map(value => value.split("x").map(Number));
 const durations = (process.env.RIFF_BENCH_DURATIONS || "2,10").split(",").map(Number);
-const transports = (process.env.RIFF_BENCH_TRANSPORTS || "png").split(",");
+const transports = (process.env.RIFF_BENCH_TRANSPORTS || "png,h264").split(",");
 assert(dimensions.every(x => x.length === 3 && x.every(n => Number.isFinite(n) && n > 0)));
 assert(durations.every(n => Number.isFinite(n) && n > 0));
 assert(transports.every(x => ["png", "h264"].includes(x)));
