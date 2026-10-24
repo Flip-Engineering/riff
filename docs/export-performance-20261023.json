@@ -3415,7 +3415,7 @@
       "inaccessible_descriptor_samples": 0
     }
   ],
-  "artifact_root": "/mnt/nvme4tb/ci-runners/baton2-native-homelab/home/worktrees/riff-issue20-sol-20261023",
+  "artifact_root": "Worker checkout; referenced test-results/ artifacts are retained locally and are not committed to Git.",
   "derivation_script": "test-results/finalize_issue20_evidence.mjs",
   "environment": {
     "browser": "Chromium 145.0.7632.6, Playwright build 1208 headless shell",
