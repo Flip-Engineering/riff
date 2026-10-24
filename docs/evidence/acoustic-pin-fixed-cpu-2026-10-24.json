@@ -1,9 +1,9 @@
 {
   "schema": "riff.acoustic-pin-fixed.v1",
-  "source_sha": "f85456baea5c20ad1d0722b9a84d17f3492298de",
-  "engine_sha256": "c3be950956e5638772ba926c0656da2e8991d15f8ba8d55dff99455721a944eb",
-  "engine_bytes": 6283416,
-  "native_fingerprint": "2a3bb79d2a9e45fa-cpu",
+  "source_sha": "cf211d3b72a1663b06c1f40eeedd731effe03910",
+  "engine_sha256": "ccb29f067b684db356883ee5453b78845e09995eb4adf62f6be6f8d1b33ee604",
+  "engine_bytes": 6283440,
+  "native_fingerprint": "48d269d2573480e2-cpu",
   "command": [
     "<engine>",
     "--task",
@@ -79,7 +79,7 @@
       "metrics": true
     }
   ],
-  "process_wall_ms": 82388.74038000358,
+  "process_wall_ms": 112678.52006899193,
   "runs": [
     {
       "name": "warm-first",
@@ -88,10 +88,10 @@
           0.0
         ],
         "yue2.acoustic.source_hash_bytes": [
-          2939695610.0
+          2939695634.0
         ],
         "yue2.acoustic.pin_sources_ms": [
-          19001.519479
+          25061.614974
         ],
         "yue2.plan.prefix_tokens": [
           36.0
@@ -100,25 +100,25 @@
           0.0
         ],
         "yue2.plan_ms": [
-          1070.764352
+          2064.62458
         ],
         "yue2.ar.weights_load_ms": [
-          0.525687
+          2.093716
         ],
         "yue2.ar.prefix_weights_upload_ms": [
-          1623.283109
+          2785.884133
         ],
         "yue2.ar.weights_upload_ms": [
-          1623.351319
+          2785.947744
         ],
         "yue2.ar.init_total_ms": [
-          1623.915028
+          2788.181976
         ],
         "yue2.ar.init_ms": [
-          1623.940076
+          2788.219488
         ],
         "yue2.semantic.negative_prefix_ms": [
-          0.160183
+          0.210198
         ],
         "yue2.semantic.positive_prefix_tokens": [
           36.0
@@ -127,16 +127,16 @@
           12.0
         ],
         "yue2.ar.generation_weights_bind_ms": [
-          0.012213
+          0.017674
         ],
         "yue2.ar.generation_weights_upload_ms": [
-          244.013333
+          340.889396
         ],
         "yue2.ar.runtime_build_ms": [
-          0.050135
+          0.102935
         ],
         "yue2.ar.ensure_generation_ms": [
-          244.216959
+          341.286889
         ],
         "yue2.ar.generate.prefix_tokens": [
           36.0
@@ -145,22 +145,22 @@
           25.0
         ],
         "yue2.ar.prefill.graph.build_ms": [
-          2.352993
+          3.5848
         ],
         "yue2.ar.generate.prefill_ms": [
-          3162.768418
+          4498.067049
         ],
         "yue2.ar.decode.graph.build_ms": [
-          1.572894
+          2.361604
         ],
         "yue2.ar.generate.start_decode_ms": [
-          15.986894
+          26.580002
         ],
         "yue2.ar.generate.sample_ms": [
-          4.5916690000000004
+          6.40713
         ],
         "yue2.ar.generate.decode_ms": [
-          2892.949612
+          9874.858262000003
         ],
         "yue2.ar.generate.refill_prefill_ms": [
           0.0
@@ -172,10 +172,10 @@
           25.0
         ],
         "yue2.ar.generate.total_ms": [
-          6076.516431
+          14406.217921
         ],
         "yue2.semantic.music_generate_ms": [
-          6320.745893
+          14747.533604
         ],
         "yue2.semantic.tokens": [
           25.0
@@ -184,31 +184,31 @@
           1.0
         ],
         "yue2.semantic.total_inner_ms": [
-          7944.914022
+          17536.011321
         ],
         "yue2.semantic_ms": [
-          7948.314392
+          17539.903284
         ],
         "yue2.nar.codec_extract_ms": [
-          0.000251
+          0.000281
         ],
         "yue2.nar.codec_tokens": [
           25.0
         ],
         "yue2.nar.weights_bind_ms": [
-          0.731898
+          1.079465
         ],
         "yue2.nar.weights_upload_ms": [
-          972.685795
+          1436.402963
         ],
         "yue2.nar.weights_total_ms": [
-          973.498938
+          1437.594681
         ],
         "yue2.nar.init_total_ms": [
-          973.504698
+          1437.602336
         ],
         "yue2.nar.init_ms": [
-          973.514256
+          1437.614178
         ],
         "yue2.ar.resident_reuse": [
           1.0
@@ -229,22 +229,22 @@
           24576.0
         ],
         "yue2.nar.synthesize.noise_ms": [
-          0.040437
+          0.040647
         ],
         "yue2.ar.prefill_state.tokens": [
           62.0
         ],
         "yue2.ar.prefix_state.graph.build_ms": [
-          1.920473
+          2.915273
         ],
         "yue2.ar.prefix_state.graph.total_ms": [
-          1.96138
+          3.030722
         ],
         "yue2.ar.prefix_state.input_upload_ms": [
-          0.000721
+          0.001262
         ],
         "yue2.ar.prefix_state.graph_compute_ms": [
-          5499.331447
+          6668.071973
         ],
         "yue2.ar.prefix_state.device_copy_ms": [
           0.0
@@ -256,13 +256,13 @@
           7688.0
         ],
         "yue2.ar.prefill_state_ms": [
-          5501.649184
+          6671.529052
         ],
         "yue2.nar.graph.build_ms": [
-          1.810785
+          2.697611
         ],
         "yue2.nar.graph.alloc_ms": [
-          0.898725
+          2.497321
         ],
         "yue2.nar.graph.static_upload_ms": [
           0.0
@@ -277,7 +277,7 @@
           27.0
         ],
         "yue2.nar.graph.total_ms": [
-          2.831711
+          5.38974
         ],
         "yue2.nar.progress": [
           0.0,
@@ -294,58 +294,58 @@
           4.0
         ],
         "yue2.nar.chunk.host_pad_ms": [
-          0.01062
+          0.016760999999999998
         ],
         "yue2.nar.chunk.host_timestep_ms": [
-          0.01097
+          0.015249
         ],
         "yue2.nar.chunk.host_update_ms": [
-          0.16084499999851687
+          0.20057099999758066
         ],
         "yue2.nar.chunk.input_upload_ms": [
-          0.012425
+          0.01622
         ],
         "yue2.nar.chunk.graph_compute_ms": [
-          11797.396508000002
+          12532.349893999999
         ],
         "yue2.nar.chunk.output_read_ms": [
-          0.05017699999999999
+          0.067046
         ],
         "yue2.nar.chunk.total_ms": [
-          11800.551864
+          12538.165921
         ],
         "yue2.nar.synthesize.token_build_ms": [
-          0.004088
+          0.00522
         ],
         "yue2.nar.synthesize.noise_slice_ms": [
-          0.000802
+          0.000862
         ],
         "yue2.nar.synthesize.prefill_state_ms": [
-          5501.657028
+          6671.536948
         ],
         "yue2.nar.synthesize.solve_chunks_ms": [
-          11800.558376
+          12538.172103
         ],
         "yue2.nar.synthesize.output_append_ms": [
-          0.007935
+          0.186854
         ],
         "yue2.nar.synthesize.output_latents": [
           1600.0
         ],
         "yue2.nar.synthesize.total_ms": [
-          17302.336074
+          19210.113147
         ],
         "yue2.nar_ms": [
-          18275.880127
+          20647.772379
         ],
         "yue2.resident.retained": [
           1.0
         ],
         "yue2.acoustic.save_ms": [
-          1.471942
+          322.207264
         ],
         "yue2.vae.init_ms": [
-          0.005541
+          0.001773
         ],
         "yue2.vae_decode.latent_frames": [
           25.0
@@ -354,16 +354,16 @@
           64.0
         ],
         "framework.oobleck_audio_vae.weights_bind_ms": [
-          0.368649
+          1.04497
         ],
         "framework.oobleck_audio_vae.weights_upload_ms": [
-          307.167617
+          478.041976
         ],
         "framework.oobleck_audio_vae.weights_total_ms": [
-          307.636175
+          498.462143
         ],
         "framework.oobleck_audio_vae.require_weights_ms": [
-          308.082613
+          499.601051
         ],
         "framework.oobleck_audio_vae.decode.graph_batch": [
           1.0
@@ -375,40 +375,40 @@
           47936.0
         ],
         "framework.oobleck_audio_vae.decode.graph_build_ms": [
-          1.441344
+          3.258683
         ],
         "framework.oobleck_audio_vae.decode.input_upload_ms": [
-          0.005671
+          0.016011
         ],
         "framework.oobleck_audio_vae.decode.graph_compute_ms": [
-          5267.074832
+          7306.397568
         ],
         "framework.oobleck_audio_vae.decode.output_read_ms": [
-          0.110149
+          0.20562
         ],
         "framework.oobleck_audio_vae.decode.total_ms": [
-          5267.309327
+          7306.748302
         ],
         "framework.oobleck_audio_vae.decode_planar_ms": [
-          5576.863591
+          7809.687647
         ],
         "framework.oobleck_audio_vae.decode.interleave_ms": [
-          0.129034
+          0.198757
         ],
         "framework.oobleck_audio_vae.decode.audio_frames": [
           47936.0
         ],
         "framework.oobleck_audio_vae.decode.full_ms": [
-          5577.016912
+          7809.913585
         ],
         "yue2.vae_decode.tiles": [
           1.0
         ],
         "yue2.vae_decode.planar_pack_ms": [
-          0.002365
+          0.006082
         ],
         "yue2.vae_decode.tile_decode_ms": [
-          5577.063911
+          7809.969782
         ],
         "yue2.vae_decode.tile_copy_ms": [
           0.0
@@ -417,14 +417,14 @@
           47936.0
         ],
         "yue2.vae_decode_ms": [
-          5577.214597
+          7810.15845
         ],
         "session.wall_ms": [
-          51899.757538
+          73520.720494
         ]
       },
       "wav_sha256": "568aeda41727e0ee8e2ac573b7092f87f8df6f09d582b74d6a042edab747d68e",
-      "checkpoint_sha256": "3cca253f9fdfac030b2aa674aed6e923d5e44c58c232b0331c2d1132e070b5a4",
+      "checkpoint_sha256": "5df55eed4d680076f6278857b94a5645e7fd8226a102368fa1520d3d02c5d10a",
       "payload_sha256": "44a4b8891ff140fb20a168ff30a038d006b9dd2f4b56f0b7d6487a95efa4539e",
       "checkpoint_header_payload_valid": true,
       "baseline_payload_metadata_identical_except_producer": true
@@ -439,7 +439,7 @@
           0.0
         ],
         "yue2.acoustic.pin_sources_ms": [
-          0.091834
+          0.141848
         ],
         "yue2.plan.prefix_tokens": [
           36.0
@@ -448,14 +448,14 @@
           0.0
         ],
         "yue2.plan_ms": [
-          0.939542
+          1.557982
         ],
         "yue2.ar.resident_reuse": [
           1.0,
           1.0
         ],
         "yue2.semantic.negative_prefix_ms": [
-          0.062248
+          0.086083
         ],
         "yue2.semantic.positive_prefix_tokens": [
           36.0
@@ -470,22 +470,22 @@
           25.0
         ],
         "yue2.ar.prefill.graph.build_ms": [
-          1.710054
+          2.592081
         ],
         "yue2.ar.generate.prefill_ms": [
-          3778.778026
+          4102.480923
         ],
         "yue2.ar.decode.graph.build_ms": [
-          1.924952
+          2.16934
         ],
         "yue2.ar.generate.start_decode_ms": [
-          18.635339
+          21.515583
         ],
         "yue2.ar.generate.sample_ms": [
-          4.919761999999999
+          5.233999000000001
         ],
         "yue2.ar.generate.decode_ms": [
-          3645.632511
+          4366.159452
         ],
         "yue2.ar.generate.refill_prefill_ms": [
           0.0
@@ -497,10 +497,10 @@
           25.0
         ],
         "yue2.ar.generate.total_ms": [
-          7448.166812
+          8495.591113
         ],
         "yue2.semantic.music_generate_ms": [
-          7448.174146
+          8495.615919
         ],
         "yue2.semantic.tokens": [
           25.0
@@ -509,13 +509,13 @@
           1.0
         ],
         "yue2.semantic.total_inner_ms": [
-          7448.268506
+          8495.735455
         ],
         "yue2.semantic_ms": [
-          7456.999206
+          8503.729711
         ],
         "yue2.nar.codec_extract_ms": [
-          0.00025
+          0.00021
         ],
         "yue2.nar.codec_tokens": [
           25.0
@@ -539,22 +539,22 @@
           24576.0
         ],
         "yue2.nar.synthesize.noise_ms": [
-          0.040707
+          0.041699
         ],
         "yue2.ar.prefill_state.tokens": [
           62.0
         ],
         "yue2.ar.prefix_state.graph.build_ms": [
-          2.881145
+          3.368081
         ],
         "yue2.ar.prefix_state.graph.total_ms": [
-          2.970314
+          3.439347
         ],
         "yue2.ar.prefix_state.input_upload_ms": [
-          0.001062
+          0.000822
         ],
         "yue2.ar.prefix_state.graph_compute_ms": [
-          5566.664213
+          6094.696795
         ],
         "yue2.ar.prefix_state.device_copy_ms": [
           0.0
@@ -566,13 +566,13 @@
           7688.0
         ],
         "yue2.ar.prefill_state_ms": [
-          5570.449674
+          6098.6161
         ],
         "yue2.nar.graph.build_ms": [
-          1.685267
+          2.929941
         ],
         "yue2.nar.graph.alloc_ms": [
-          0.661234
+          2.114145
         ],
         "yue2.nar.graph.static_upload_ms": [
           0.0
@@ -587,7 +587,7 @@
           27.0
         ],
         "yue2.nar.graph.total_ms": [
-          2.443385
+          5.272469
         ],
         "yue2.nar.progress": [
           0.0,
@@ -604,55 +604,55 @@
           4.0
         ],
         "yue2.nar.chunk.host_pad_ms": [
-          0.005581
+          0.014268
         ],
         "yue2.nar.chunk.host_timestep_ms": [
-          0.009547
+          0.017322999999999998
         ],
         "yue2.nar.chunk.host_update_ms": [
-          0.180051999999705
+          0.22850199999993492
         ],
         "yue2.nar.chunk.input_upload_ms": [
-          0.013075999999999999
+          0.016992
         ],
         "yue2.nar.chunk.graph_compute_ms": [
-          10829.896434
+          14969.147302
         ],
         "yue2.nar.chunk.output_read_ms": [
-          0.037161
+          0.033532
         ],
         "yue2.nar.chunk.total_ms": [
-          10832.66212
+          14974.819248
         ],
         "yue2.nar.synthesize.token_build_ms": [
-          0.001022
+          0.001052
         ],
         "yue2.nar.synthesize.noise_slice_ms": [
-          0.001803
+          0.001613
         ],
         "yue2.nar.synthesize.prefill_state_ms": [
-          5570.455085
+          6098.624376
         ],
         "yue2.nar.synthesize.solve_chunks_ms": [
-          10832.668292
+          14974.830759
         ],
         "yue2.nar.synthesize.output_append_ms": [
-          0.013886
+          0.022082
         ],
         "yue2.nar.synthesize.output_latents": [
           1600.0
         ],
         "yue2.nar.synthesize.total_ms": [
-          16403.256299
+          21073.598447
         ],
         "yue2.nar_ms": [
-          16403.291947
+          21073.631881
         ],
         "yue2.resident.retained": [
           1.0
         ],
         "yue2.acoustic.save_ms": [
-          1.759588
+          4.202132
         ],
         "yue2.vae_decode.latent_frames": [
           25.0
@@ -670,40 +670,40 @@
           47936.0
         ],
         "framework.oobleck_audio_vae.decode.graph_build_ms": [
-          1.353267
+          1.848743
         ],
         "framework.oobleck_audio_vae.decode.input_upload_ms": [
-          0.006342
+          0.008566
         ],
         "framework.oobleck_audio_vae.decode.graph_compute_ms": [
-          5675.380491
+          8014.412967
         ],
         "framework.oobleck_audio_vae.decode.output_read_ms": [
-          0.066597
+          0.071335
         ],
         "framework.oobleck_audio_vae.decode.total_ms": [
-          5675.554211
+          8014.601023
         ],
         "framework.oobleck_audio_vae.decode_planar_ms": [
-          5676.923087
+          8016.464414
         ],
         "framework.oobleck_audio_vae.decode.interleave_ms": [
-          0.086123
+          0.140106
         ],
         "framework.oobleck_audio_vae.decode.audio_frames": [
           47936.0
         ],
         "framework.oobleck_audio_vae.decode.full_ms": [
-          5677.030291
+          8016.62056
         ],
         "yue2.vae_decode.tiles": [
           1.0
         ],
         "yue2.vae_decode.planar_pack_ms": [
-          0.008315
+          0.013245
         ],
         "yue2.vae_decode.tile_decode_ms": [
-          5677.080846
+          8016.671777
         ],
         "yue2.vae_decode.tile_copy_ms": [
           0.0
@@ -712,41 +712,49 @@
           47936.0
         ],
         "yue2.vae_decode_ms": [
-          5677.174044
+          8016.762699
         ],
         "session.wall_ms": [
-          29555.215277
+          37617.299842
         ]
       },
       "wav_sha256": "568aeda41727e0ee8e2ac573b7092f87f8df6f09d582b74d6a042edab747d68e",
-      "checkpoint_sha256": "3cca253f9fdfac030b2aa674aed6e923d5e44c58c232b0331c2d1132e070b5a4",
+      "checkpoint_sha256": "5df55eed4d680076f6278857b94a5645e7fd8226a102368fa1520d3d02c5d10a",
       "payload_sha256": "44a4b8891ff140fb20a168ff30a038d006b9dd2f4b56f0b7d6487a95efa4539e",
       "checkpoint_header_payload_valid": true,
       "baseline_payload_metadata_identical_except_producer": true
     }
   ],
-  "log_sha256": "8bb513f70da6e0b4c04ebab249542c849939707acd98e7b2478168796ae0735c",
+  "log_sha256": "d024ddd4398d2170f9c34e1384a3f50fe4c9e8609e879fe0b17824ae3c19d0c9",
   "real_cli_changed_source": {
     "exit_code": 3,
     "fatal_marker": true,
     "same_size_restored_mtime": true,
     "neural_work_requested": false
   },
+  "real_cli_retargeted_alias": {
+    "exit_code": 3,
+    "fatal_marker": true,
+    "old_canonical_source_unchanged": true,
+    "replacement_bytes_equal": true,
+    "neural_work_requested": false,
+    "component": "vae"
+  },
   "shared_files_unchanged": true,
   "native_build_receipt": {
     "backend": "cpu",
     "build_exit_status": 0,
-    "build_milliseconds": 428463,
+    "build_milliseconds": 499453,
     "cache_backend": "disabled",
     "cache_enabled": false,
     "cache_mode": "DISABLED",
     "cache_service_version": null,
     "cache_status": "GitHub compiler cache is unavailable; compiling normally",
-    "inputs_sha256": "30eaffdf5f653231281819f1a76f11c9a7b9438d47e42b009f61f6d0a5922fc6",
+    "inputs_sha256": "4c0b416b1567a5bbb77cbc3b2f269859e7bf2b814a84c059bed0eec71044f058",
     "namespace_sha256": "6924b7180ff225b97fb9f852cfb6c3882cb4385326a1cd2e27ae70c816420f1f",
-    "native_fingerprint": "2a3bb79d2a9e45fa",
+    "native_fingerprint": "48d269d2573480e2",
     "schema": "riff.native-cache-build.v1",
-    "source_sha256": "312f510b0a462086cf580472a5e5e61b70bec79901c804b065e349e8e800a4a6",
+    "source_sha256": "b7b172b86200451650b268759f429b50168f839fdcaafc5d6f2e64fc74a2bf40",
     "statistics": {},
     "tool": null
   },
@@ -756,7 +764,7 @@
       "boundary_doubles": true,
       "failed": 0,
       "model_weights_loaded": false,
-      "passed": 67
+      "passed": 69
     },
     "format": {
       "format-native": {
@@ -774,14 +782,15 @@
     },
     "lora_cases": 44,
     "score_replay_oracle": "passed with original/current pipeline comparison and source proof",
-    "solver": "passed analytic convergence checks",
+    "solver": "unchanged solver previously passed analytic convergence checks",
     "python_warm_and_setup_cases": 26
   },
   "method": {
-    "host": "Same Linux x86_64 AMD EPYC 7551 host as baseline, busy shared host; timing comparisons are observations, not a controlled throughput claim.",
-    "recipe": "Same baseline recipe: seed1234,25semanticframes,2midpointsteps,2CPUthreads, no adapter. Two jobs in one resident engine. Full source SHA checks before run; selected shared files opened read only.",
-    "before_after": "WAV bytes equal across both fixed takes and both previous baseline takes. Acoustic payload and metadata match baseline except producer binary SHA and consequent header checksum. Fixed checkpoints byte-identical across both requests; header/payload digests validated.",
-    "guard": "Actual production CLI in --jobs mode: successful plan-only request with owned sidecars/shared GGUF symlinks, then same-size owned VAE config edit with restored mtime. Next request exits3 with fatal=1 before neural generation. No shared input modified.",
-    "limits": "Two approximately1second CPU takes; no new Metal/CUDA full-model inference measurements. Windows change-time code not built on this Linux host. Metadata/TOCTOU limitations documented. Raw logs/orchestration retained locally."
+    "host": "Same busy shared Linux x86_64 AMD EPYC 7551 host as baseline; timings are observations, not a controlled throughput matrix.",
+    "recipe": "Same baseline recipe: seed1234,25semanticframes,2midpointsteps,2CPUthreads, no adapter. Two requests in one resident engine. All shared model files SHA-verified before run and opened read only.",
+    "before_after": "Both WAVs equal baseline bytes. Checkpoint payload/metadata equal baseline except new producer binary SHA and consequent header checksum. Fixed checkpoint pair byte-identical, header and payload digests validated.",
+    "guard": "Production CLI first plans with owned sidecars/shared GGUF symlinks, then rejects a same-size owned VAE config edit with restored mtime (fatal=1,exit3). Another process first plans, then rejects VAE symlink retargeting to a hash-identical owned copy while original canonical source stays unchanged (fatal=1,exit3). Neither guard test requests neural generation.",
+    "limits": "Two approximately1second CPU takes. Host load affects total-session comparisons. Full-model Metal/CUDA performance and Windows build qualification remain unmeasured. Metadata/TOCTOU limits documented. Raw logs and orchestration retained locally.",
+    "previous_fixed_measurement": "Earlier 2a3bb79d2a9e45fa-cpu receipt remains in Git at1fd0d5c and local fixed-inference/receipt.json; it measured0.091834ms before explicit GGUF-alias guards. Latest source includes those guards."
   }
 }

@@ -136,25 +136,28 @@ config appearance, source changes between warm takes, invalid-session retirement
 fresh-session recovery and VAE mutation during decoding. Real capture validation
 also checks digest counters, output equality and checkpoint integrity.
 
-## Initial fixed-engine validation
+## Fixed-engine validation
 
-Queued CPU build `2a3bb79d2a9e45fa-cpu` passed. Both SHA implementations pass
-79 format/cache cases; 67 pipeline cases, 44 LoRA cases, the score replay oracle,
+Queued CPU build `48d269d2573480e2-cpu` passed. Both SHA implementations pass
+79 format/cache cases; 69 pipeline cases, 44 LoRA cases, the score replay oracle,
 solver checks and 26 Python warm/setup cases pass.
 
 Same real model, recipe and two-thread resident-engine protocol as above:
 
 | Take | Pinning, ms | Source bytes hashed | Digest hits | Session wall, ms |
 |---|---:|---:|---:|---:|
-| First | 19,001.519 | 2,939,695,610 | 0 | 51,899.758 |
-| Second | 0.092 | 0 | 4 | 29,555.215 |
+| First | 25,061.615 | 2,939,695,634 | 0 | 73,520.720 |
+| Second | 0.142 | 0 | 4 | 37,617.300 |
 
 Both WAVs match the baseline bytes. Acoustic payload and metadata match baseline
 except the new producer binary digest and consequent header checksum; both fixed
 checkpoints are byte-identical and have valid header/payload hashes. An additional
 production CLI check successfully plans once, then edits an owned VAE sidecar
 without changing size or mtime: the next warm request emits `fatal=1` and exits 3
-before neural generation. Shared model file identities remain unchanged.
+before neural generation. A second production CLI test retargets its selected
+VAE symlink to an identical-byte owned file while leaving the old canonical
+source unchanged; that next request is also fatal before generation. Shared
+model file identities remain unchanged.
 
 The [fixed-engine receipt](evidence/acoustic-pin-fixed-cpu-2026-10-24.json) records
 commands, counters, timings, build proof and validation. These are two short CPU
