@@ -10,7 +10,7 @@ defmodule Riff.NativeCacheTest do
     root =
       Path.join(
         System.tmp_dir!(),
-        "riff-cache-test-" <> Integer.to_string(System.unique_integer([:positive]))
+        "riff-cache-test-" <> Base.url_encode64(:crypto.strong_rand_bytes(12), padding: false)
       )
 
     File.mkdir_p!(root)

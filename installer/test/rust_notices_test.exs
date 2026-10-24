@@ -5,7 +5,12 @@ defmodule Riff.Installer.RustNoticesTest do
   alias Riff.Installer.RustNotices
 
   setup do
-    root = Path.join(System.tmp_dir!(), "riff-rust-notices-#{System.unique_integer([:positive])}")
+    root =
+      Path.join(
+        System.tmp_dir!(),
+        "riff-rust-notices-" <> Base.url_encode64(:crypto.strong_rand_bytes(12), padding: false)
+      )
+
     File.mkdir!(root)
     on_exit(fn -> File.rm_rf!(root) end)
     %{root: root, sysroot: Path.join(root, "toolchain"), destination: Path.join(root, "notices")}

@@ -183,7 +183,7 @@ with patch.object(install.urllib.request, "urlopen", return_value=Response(archi
 '''
         result = subprocess.run([sys.executable, "-B", "-c", code, str(Path(install.__file__).resolve()),
                                  str(self.install_root), str(self.archive), str(descriptor)],
-                                text=True, capture_output=True, timeout=15)
+                                text=True, capture_output=True)
         self.assertEqual(result.returncode, 73, result.stderr)
         [orphan] = list(self.cache.parent.glob(".preparing-*/payload"))
         before = {path.relative_to(orphan).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { mkdirSync } from "node:fs";
-import { chromium } from "playwright";
+import { launch } from "./browser-launch.mjs";
 
 const server = spawn(process.env.RIFF_PYTHON || "python3", ["-B", "-u", "tests/review_browser_server.py"], {
   env: { ...process.env, RIFF_MULTI_TRACK_FIXTURE: "1" },
@@ -36,7 +36,7 @@ try {
       left: {}, right: { acoustic: settings },
       rows: [["Audio sections", "Not recorded → 1024 frames"], ["Audio overlap", "Not recorded → 16 frames"], ["Decoder precision", "Not recorded → Model default"]] },
   ];
-  browser = await chromium.launch({ executablePath: process.env.RIFF_BROWSER_EXECUTABLE });
+  browser = await launch({ executablePath: process.env.RIFF_BROWSER_EXECUTABLE });
   mkdirSync("test-results", { recursive: true });
   for (const scenario of scenarios) {
     const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, reducedMotion: "reduce" });

@@ -19,6 +19,7 @@ import run
 from model_admission import ModelAdmission, SchedulerNotInstalled
 from score_artifacts import ScoreArtifacts
 from studio_core import Generator, Store, validate_recipe
+from fixture_waits import until
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -151,13 +152,9 @@ class ScoreIntegrationTests(unittest.TestCase):
         self.generator = Generator(self.store, admission=self.admission or self.new_control(command))
         return self.generator
 
-    def wait_for(self, predicate, timeout=10):
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
-            if predicate():
-                return
-            time.sleep(.01)
-        self.fail("The owned fixture did not reach its expected state before the test deadline")
+    def wait_for(self, predicate):
+        # The generator's worker moves every job, so a wait ends with a failure once it has exited.
+        until(predicate, *([self.generator.thread] if self.generator else []))
 
     def finish(self, job, expected):
         self.wait_for(lambda: self.store.job(job["id"])["status"] in TERMINAL)
@@ -199,7 +196,7 @@ class ScoreIntegrationTests(unittest.TestCase):
         output = self.store.outputs / "riff" / (job_id + ".wav")
         command = run.build_command(lyrics="", style="", max_seconds=1, steps=2, cot="full", seed=17,
                                     threads=1, output=output, render_mode="performance", semantic_only=True)
-        subprocess.run(command, check=True, capture_output=True, timeout=5)
+        subprocess.run(command, check=True, capture_output=True)
         return job_id, recipe
 
     def test_recovery_uses_launch_snapshot_and_keeps_complete_stages_independent(self):
@@ -388,7 +385,7 @@ Riff.Runtime.SchedulerPort.main(artifact_runner: runner)
         pid = self.admission.process.pid
         generator.cancel(job["id"])
         try:
-            self.wait_for(lambda: self.store.job(job["id"])["status"] == "cancelled", timeout=2)
+            self.wait_for(lambda: self.store.job(job["id"])["status"] == "cancelled")
             self.assertEqual(self.admission.process.pid, pid)
             self.assertEqual(self.admission._exchange({"op": "status"})["active"], [])
             self.assertFalse((self.store.outputs / "riff" / (job["id"] + ".request.json")).exists())

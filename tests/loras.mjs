@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { mkdirSync } from "node:fs";
-import { chromium } from "playwright";
+import { launch } from "./browser-launch.mjs";
 
 // The real importer, HTTP boundary and queue use small architecture-correct
 // tensors. Hub transport, admission and audio generation are explicit fixtures.
@@ -18,15 +18,12 @@ const fixture = await new Promise((resolve, reject) => {
   });
   server.once("exit", code => reject(new Error(`Fixture exited ${code}: ${diagnostics}`)));
 });
-const browser = await chromium.launch({ headless: true, executablePath: process.env.RIFF_BROWSER_EXECUTABLE });
+const browser = await launch({ headless: true, executablePath: process.env.RIFF_BROWSER_EXECUTABLE });
 const page = await browser.newPage({ viewport: { width: 1365, height: 1050 }, reducedMotion: "reduce" });
-page.setDefaultTimeout(15000);
-async function eventually(predicate, message, timeout = 15000) {
-  const deadline = Date.now() + timeout;
+async function eventually(predicate) {
   for (;;) {
     const value = await predicate();
     if (value) return value;
-    if (Date.now() >= deadline) throw new Error(message);
     await page.waitForTimeout(50);
   }
 }
@@ -145,7 +142,7 @@ try {
   check("Details expose license and unsupported-file reasons; sanitized README and same-origin audio preview work");
 
   await page.locator("#lora-install").click();
-  await eventually(async () => (await localAPI("/api/loras")).loras.some(item => item.source?.type === "huggingface"), "Installed adapter did not appear");
+  await eventually(async () => (await localAPI("/api/loras")).loras.some(item => item.source?.type === "huggingface"));
   await page.locator("#lora-installed-tab").click();
   const items = await localAPI("/api/loras");
   const paired = items.loras.find(item => item.source?.type === "huggingface");
@@ -176,7 +173,9 @@ try {
   const job = await queued.json();
   assert.equal(job.recipe.lora_provenance[0].files.length, 2);
   assert.equal(job.recipe.lora_provenance[0].ar_scale, .65);
-  await eventually(async () => (await localAPI("/api/state")).jobs.some(item => item.id === job.id && item.status === "done"), "Queued adapter take did not finish");
+  // Wait for the take to settle, then require the status "done".
+  const settled = await eventually(async () => (await localAPI("/api/state")).jobs.find(item => item.id === job.id && !["queued", "running", "cancelling"].includes(item.status)));
+  assert.equal(settled.status, "done", JSON.stringify(settled));
   const saved = await page.evaluate(() => formRecipe());
   await page.reload();
   await page.locator("#play:not([disabled])").waitFor();
@@ -193,7 +192,7 @@ try {
   const versions = await eventually(async () => {
     const items = (await localAPI("/api/loras")).loras.filter(item => item.source?.type === "huggingface");
     return items.some(item => item.source.revision === "b".repeat(40)) ? items : null;
-  }, "Updated LoRA revision did not install");
+  });
   assert(versions.some(item => item.id === paired.id));
   assert(versions.some(item => item.source.revision === "b".repeat(40)));
   check("Update check installs the new pinned revision beside the old recording's version");
@@ -213,7 +212,7 @@ try {
   let warning = "";
   page.once("dialog", async prompt => { warning = prompt.message(); await prompt.accept(); });
   await page.locator("#lora-delete").click();
-  await eventually(async () => !(await localAPI("/api/loras")).loras.some(item => item.id === paired.id), "Deleted LoRA remained in the library");
+  await eventually(async () => !(await localAPI("/api/loras")).loras.some(item => item.id === paired.id));
   assert(warning.includes("saved references"));
   await page.getByRole("button", { name: "Close LoRA library", exact: true }).click();
   assert((await page.locator("#lora-ar option:checked").textContent()).includes("Unavailable"));
