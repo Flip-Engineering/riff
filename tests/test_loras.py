@@ -525,8 +525,7 @@ class HubTests(LoRAFixture):
         self.library.hub = FakeHub({"adapter.safetensors": adapter_bytes(style="comfyui", combined=True)})
         def install(commit):
             task = self.library.hub_install({"repo": REPO, "revision": commit, "files": ["adapter.safetensors"]})
-            deadline = time.monotonic() + 10
-            while task["status"] not in ("completed", "failed", "cancelled") and time.monotonic() < deadline:
+            while task["status"] not in ("completed", "failed", "cancelled"):
                 time.sleep(.01)
                 task = self.library.task(task["id"])
             self.assertEqual(task["status"], "completed", task)

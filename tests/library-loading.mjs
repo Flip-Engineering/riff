@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
-import {chromium} from 'playwright';
-const browser = await chromium.launch({headless:true});
+import {launch} from './browser-launch.mjs';
+const browser = await launch({headless:true});
 try {
   const page = await browser.newPage({viewport:{width:390,height:844},isMobile:true,hasTouch:true});
   const original = await (await page.request.get(process.env.RIFF_URL + '/api/state')).json();

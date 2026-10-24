@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
-import { chromium } from "playwright";
+import { launch } from "./browser-launch.mjs";
 
-const browser = await chromium.launch({ headless: true, executablePath: process.env.RIFF_BROWSER_EXECUTABLE });
+const browser = await launch({ headless: true, executablePath: process.env.RIFF_BROWSER_EXECUTABLE });
 try {
   const page = await browser.newPage();
   await page.goto(`${process.env.RIFF_URL}/?recording=${process.env.RIFF_TEST_TRACK}#studio`);

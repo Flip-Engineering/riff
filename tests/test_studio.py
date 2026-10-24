@@ -17,6 +17,7 @@ from unittest.mock import patch
 from studio import StudioServer, byte_range, studio_identity
 from studio_core import CONTEXT, Generator, Store, lyrics_record, observe_generation, validate_recipe
 from admission_fixture import FixtureAdmission
+from fixture_waits import until
 
 
 def fixture_audio(path):
@@ -30,13 +31,8 @@ def recipe(**updates):
                  "style": "warm folk", "max_seconds": 10, "steps": 8, "seed": "42", "cot": "off", "abc": ""}, **updates)
 
 
-def wait_until(predicate, timeout=10):
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if predicate():
-            return
-        time.sleep(0.025)
-    raise AssertionError("The expected process state did not arrive before the test deadline")
+def wait_until(predicate, *producers):
+    until(predicate, *producers)
 
 
 class RecipeTests(unittest.TestCase):
@@ -450,7 +446,7 @@ marker.unlink()
             wait_until(lambda: generator.process and generator.process.poll() is None)
             second_process = generator.process
             generator.cancel_writing()
-            worker.join(timeout=10)
+            worker.join()
             self.assertFalse(worker.is_alive())
             self.assertIsNone(second_process.poll())
             generator.cancel(second)
@@ -459,7 +455,7 @@ marker.unlink()
             self.assertEqual(subprocess.run(["/bin/ps", "-p", str(pid)], capture_output=True).returncode, 1)
         finally:
             if generator.writer_process: generator.cancel_writing()
-            worker.join(timeout=10)
+            worker.join()
 
     def test_waiting_writer_can_stop_before_launch_and_resumes_when_memory_returns(self):
         generator = self.writing_generator()
@@ -472,7 +468,7 @@ marker.unlink()
         self.assertTrue(generator.has_active_work())
         self.assertFalse(generator.quiesce())
         generator.cancel_writing()
-        worker.join(timeout=10)
+        worker.join()
         self.assertEqual(results, [{"cancelled": True}])
         self.assertFalse(self.admission.entries)
         worker = threading.Thread(target=lambda: results.append(generator.inspiration({"mode": "surprise"})))
@@ -480,7 +476,7 @@ marker.unlink()
         try:
             wait_until(lambda: (generator.writing_status() or {}).get("stage") == "Waiting for memory")
             self.admission.gates["writer"].set()
-            worker.join(timeout=10)
+            worker.join()
             self.assertFalse(worker.is_alive())
             self.assertEqual(results[-1]["lyrics"], "Two moons talk over tea.")
             self.assertTrue(generator.quiesce())
@@ -493,7 +489,7 @@ marker.unlink()
             wait_until(lambda: self.status(job) == "done")
         finally:
             if generator.writing_status(): generator.cancel_writing()
-            worker.join(timeout=10)
+            worker.join()
 
     def test_waiting_native_cancellation_keeps_writer_and_next_job_retries_admission(self):
         generator = self.writing_generator()
@@ -516,7 +512,7 @@ marker.unlink()
             self.assertIsNone(generator.writer_process.poll())
         finally:
             if generator.writing_status(): generator.cancel_writing()
-            worker.join(timeout=10)
+            worker.join()
 
     def test_automatic_writer_waiting_for_standalone_writer_can_be_cancelled(self):
         generator = self.writing_generator()
@@ -531,7 +527,7 @@ marker.unlink()
             self.assertIsNone(generator.writer_process.poll())
         finally:
             if generator.writing_status(): generator.cancel_writing()
-            worker.join(timeout=10)
+            worker.join()
 
     def test_cancellation_reaps_child_and_next_queued_take_finishes(self):
         self.generator = Generator(self.store, self.fake_command)

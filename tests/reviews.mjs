@@ -5,6 +5,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright";
+import { launch } from "./browser-launch.mjs";
 
 // Own server, database, credential double, provider double, and browser.
 // No remote requests, actual credentials, or music model are used in this test.
@@ -41,7 +42,7 @@ if (!executablePath && !existsSync(chromium.executablePath())) {
     )
     .find((path) => existsSync(path));
 }
-const browser = await chromium.launch({ headless: true, executablePath });
+const browser = await launch({ headless: true, executablePath });
 const page = await browser.newPage({
   viewport: { width: 1365, height: 1050 },
   reducedMotion: "reduce",
