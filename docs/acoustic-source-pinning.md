@@ -136,7 +136,29 @@ also checks digest counters, output equality and checkpoint integrity.
 
 ## Fixed-engine validation
 
-FIXED_RESULTS_PENDING
+Queued CPU build `2a3bb79d2a9e45fa-cpu` passed. Both SHA implementations pass
+79 format/cache cases; 67 pipeline cases, 44 LoRA cases, the score replay oracle,
+solver checks and 26 Python warm/setup cases pass.
+
+Same real model, recipe and two-thread resident-engine protocol as above:
+
+| Take | Pinning, ms | Source bytes hashed | Digest hits | Session wall, ms |
+|---|---:|---:|---:|---:|
+| First | 19,001.519 | 2,939,695,610 | 0 | 51,899.758 |
+| Second | 0.092 | 0 | 4 | 29,555.215 |
+
+Both WAVs match the baseline bytes. Acoustic payload and metadata match baseline
+except the new producer binary digest and consequent header checksum; both fixed
+checkpoints are byte-identical and have valid header/payload hashes. An additional
+production CLI check successfully plans once, then edits an owned VAE sidecar
+without changing size or mtime: the next warm request emits `fatal=1` and exits 3
+before neural generation. Shared model file identities remain unchanged.
+
+The [fixed-engine receipt](evidence/acoustic-pin-fixed-cpu-2026-10-24.json) records
+commands, counters, timings, build proof and validation. These are two short CPU
+takes on a busy shared host; the pin-stage counters demonstrate avoided hashing,
+while total-session differences also include host-load variation. No new full-model
+Metal/CUDA performance or Windows build qualification is claimed.
 
 This removes repeated full reads for unchanged warm sessions; the first capture
 still pays the hash cost. Fresh processes gain little from a session-only cache.

@@ -54,7 +54,7 @@ AR/NAR adapter is documented in [LoRA validation](../../docs/lora-validation.md)
 
 ## Native contract
 
-`patches/yue2-weight-adapters.patch` adds the loader on the ordered patch on the existing
+`patches/yue2-weight-adapters.patch` adds the loader to the pinned
 `fbe3eedbf6c504e45189e2cdcf1b257740a28863` runtime. It advertises
 `feature.yue2.lora=1` and `format.yue2.lora=riff.yue2.lora.v1`.
 
