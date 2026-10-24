@@ -286,6 +286,33 @@ class LoRAHTTP(LoRAFixture):
         self.assertIn("lora_install", schema["operations"])
         self.assertTrue(self.request(f"/api/loras/{id}", "DELETE", {})[2]["deleted"])
 
+    def test_retained_bytes_are_reported_and_clean_is_an_explicit_post(self):
+        id = self.adapter["id"]
+        directory = self.store.loras.root / id
+        listed = self.request("/api/loras")[2]["loras"][0]
+        self.assertEqual(listed["retained_bytes"], listed["bytes"] + (directory / "manifest.json").stat().st_size)
+        self.assertEqual(listed["unreferenced"], [])
+        (directory / "leftover.tmp").write_bytes(b"x" * 321)
+        detail = self.request(f"/api/loras/{id}")[2]
+        self.assertEqual((detail["bytes"], detail["retained_bytes"] - listed["retained_bytes"]), (listed["bytes"], 321))
+        self.assertEqual(detail["unreferenced"], [{"path": "leftover.tmp", "bytes": 321}])
+        # Reading never deletes, and the action is a POST only.
+        self.assertTrue((directory / "leftover.tmp").exists())
+        self.assertEqual(self.request(f"/api/loras/{id}/clean")[0], 404)
+        self.assertEqual(self.request(f"/api/loras/{id}/clean", "DELETE", {})[0], 404)
+        code, _, cleaned = self.request(f"/api/loras/{id}/clean", "POST", {})
+        self.assertEqual(code, 200, cleaned)
+        self.assertEqual((cleaned["removed"], cleaned["reclaimed_bytes"]), ([{"path": "leftover.tmp", "bytes": 321}], 321))
+        self.assertFalse((directory / "leftover.tmp").exists())
+        self.assertEqual(self.request(f"/api/loras/{id}")[2]["retained_bytes"], listed["retained_bytes"])
+        self.assertEqual(self.request("/api/loras/" + "0" * 64 + "/clean", "POST", {})[0], 400)
+        self.assertIn("lora_clean", self.request("/api/capabilities")[2]["operations"])
+        # Without the request header it is refused like every other change.
+        connection = http.client.HTTPConnection("127.0.0.1", self.server.server_port, timeout=15)
+        connection.request("POST", f"/api/loras/{id}/clean", body="{}", headers={"Content-Type": "application/json"})
+        self.assertEqual(connection.getresponse().status, 403)
+        connection.close()
+
     def test_malformed_receipt_returns_json_error_without_queueing(self):
         for receipt in ([{"id": [], "stages": ["ar"]}], [{"id": self.adapter["id"], "stages": 1}]):
             with self.subTest(receipt=receipt), patch("studio.platform_support.readiness", return_value={"ready": True}):
