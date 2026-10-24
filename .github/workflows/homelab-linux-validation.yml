@@ -14,7 +14,7 @@ permissions:
 jobs:
   linux-validation:
     name: Linux source, browser, and CPU checks
-    runs-on: [self-hosted, Linux, X64, baton2-native-linux-x64]
+    runs-on: [self-hosted, Linux, X64, riff-linux]
     steps:
       - name: Check out the requested commit
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -41,7 +41,7 @@ jobs:
               "runner_os": os.environ.get("RUNNER_OS", platform.system()),
               "runner_architecture": os.environ.get("RUNNER_ARCH", platform.machine()),
               "runner_name": os.environ.get("RUNNER_NAME"),
-              "runner_labels": ["self-hosted", "Linux", "X64", "baton2-native-linux-x64"],
+              "runner_labels": ["self-hosted", "Linux", "X64", "riff-linux"],
               "kernel": platform.release(),
               "scope": ["python-3.9-and-3.14", "javascript", "browser", "linux-cpu-native", "score", "acoustic", "source-release"],
           }, sort_keys=True, indent=2))
