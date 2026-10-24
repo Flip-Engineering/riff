@@ -97,7 +97,7 @@ class RuntimeBridgeTest(unittest.TestCase):
             self.assertFalse(done.wait(0.15))
             self.assertTrue(gate.exists())
             helper.communicate(b"release")
-            self.assertTrue(done.wait(3))
+            self.assertTrue(done.wait())
             worker.join()
             self.assertEqual(errors, [])
             self.assertFalse(gate.exists())

@@ -69,11 +69,9 @@ defmodule Riff.CachedNativeBuild do
     File.mkdir_p!(output)
     Cache.write_json(Path.join(output, "inputs.json"), identity.descriptor)
 
-    owned =
-      Path.join(
-        System.tmp_dir!(),
-        "riff-cache-" <> Integer.to_string(System.unique_integer([:positive]))
-      )
+    # unique_integer is only unique within this VM; parallel builds on one host need more.
+    suffix = System.pid() <> "-" <> Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)
+    owned = Path.join(System.tmp_dir!(), "riff-cache-" <> suffix)
 
     File.mkdir!(owned)
     cache = start_cache(app, workspace, owned, identity)

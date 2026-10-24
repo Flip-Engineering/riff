@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { mkdirSync } from "node:fs";
-import { chromium } from "playwright";
+import { launch } from "./browser-launch.mjs";
 
 // Own server, temporary library and fixture audio. No music model or network.
 const server = spawn(process.env.RIFF_PYTHON || "python3", [
@@ -20,7 +20,7 @@ const fixture = await new Promise((resolve, reject) => {
   server.once("exit", (code) => reject(new Error(`Fixture exited ${code}: ${diagnostics}`)));
 });
 mkdirSync("test-results", { recursive: true });
-const browser = await chromium.launch({ headless: true, executablePath: process.env.RIFF_BROWSER_EXECUTABLE });
+const browser = await launch({ headless: true, executablePath: process.env.RIFF_BROWSER_EXECUTABLE });
 try {
   const page = await browser.newPage({
     viewport: { width: 1365, height: 1050 },

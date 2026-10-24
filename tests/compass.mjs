@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
-import { chromium } from "playwright";
+import { launch } from "./browser-launch.mjs";
 
-const browser = await chromium.launch({ executablePath: process.env.RIFF_BROWSER_EXECUTABLE });
+const browser = await launch({ executablePath: process.env.RIFF_BROWSER_EXECUTABLE });
 const page = await browser.newPage({ viewport: { width: 1440, height: 1050 }, hasTouch: true });
 const errors = []; page.on("pageerror", e => errors.push(e.message));
 let requests = [], held = null, defer = false;
