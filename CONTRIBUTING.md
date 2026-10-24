@@ -9,6 +9,14 @@ doubles. Install development dependencies with `npm ci` and
 `npx playwright install chromium`, then run `npm run test:all-browser`. No model
 weights, personal API keys, or paid requests are needed for these checks.
 
+Seed artwork geometry is guarded without any renderer. `npm run test:artwork-geometry`
+(also part of `npm run test:all-browser`) builds `RiffArtwork.scene()` for a fixed set of seeds and
+conditions in plain Node and compares a SHA-256 digest of each canonical, rounded result with
+`tests/fixtures/artwork-geometry.json`. The header of `tests/artwork-geometry.mjs` states the
+precision and what the digest does and does not cover. When the artwork changes on purpose, run
+`node tests/artwork-geometry.mjs --update`, review the fixture diff together with the artwork
+change, and commit both. A mismatch never rewrites the file by itself.
+
 Native builds use `python3 setup_engine.py --backend metal --build-only` or
 `--backend cpu` / `--backend cuda`. CUDA builds need an NVIDIA toolkit; building
 without a GPU requires an explicit `--cuda-arch`. CI distinguishes compile/device
