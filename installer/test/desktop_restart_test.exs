@@ -13,10 +13,10 @@ defmodule Riff.Installer.DesktopRestartTest do
                shutdown_timeout: 5_000
              )
 
-    assert_received {:response, ^listener, :close}
-    assert_received {:response, ^listener, :serving}
-    assert_received {:response, ^listener, :reset}
-    assert_received {:listener_closed, ^listener}
+    assert_receive {:response, ^listener, :close}
+    assert_receive {:response, ^listener, :serving}
+    assert_receive {:response, ^listener, :reset}
+    assert_receive {:listener_closed, ^listener}
     assert_received {:progress, :starting, "Finishing the current session"}
   end
 
@@ -41,8 +41,8 @@ defmodule Riff.Installer.DesktopRestartTest do
                shutdown_timeout: 5_000
              )
 
-    assert_received {:response, ^listener, :timeout}
-    assert_received {:listener_closed, ^listener}
+    assert_receive {:response, ^listener, :timeout}
+    assert_receive {:listener_closed, ^listener}
   end
 
   test "a permanent HTTP refusal is an error, not shutdown confirmation" do
@@ -52,7 +52,7 @@ defmodule Riff.Installer.DesktopRestartTest do
       Desktop.wait_until_closed(url, fn _, _ -> :ok end, shutdown_timeout: 5_000)
     end
 
-    assert_received {:response, ^listener, :unauthorized}
+    assert_receive {:response, ^listener, :unauthorized}
     assert Process.alive?(listener)
     refute_received {:listener_closed, ^listener}
   end
