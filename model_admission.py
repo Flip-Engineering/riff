@@ -14,6 +14,17 @@ from paths import ROOT, WORKSPACE, MODELS
 import platform_support
 
 
+RESIDENT_PROTOCOL = "riff.resident.v1"
+
+
+class ResidentUnavailable(ValueError):
+    pass
+
+
+class ResidentBindingUnavailable(ResidentUnavailable):
+    pass
+
+
 class AdmissionCancelled(Exception):
     pass
 
@@ -39,6 +50,9 @@ class ModelAdmission:
         self.log = None
         self.closed = False
         self.serial_fallback = False
+        self.residents = {}
+        self.resident_version = None
+        self.on_change = None
 
     @staticmethod
     def _timeout():
@@ -100,6 +114,7 @@ class ModelAdmission:
         self.process = subprocess.Popen(command, cwd=directory, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                         stderr=self.log, bufsize=0, env={**os.environ, "RELEASE_DISTRIBUTION": "none"})
         self.buffer = b""
+        self.resident_version = None
 
     def supports_artifacts(self, kind="score"):
         """Read-only availability check; source-only installs can retain legacy scores."""
@@ -114,6 +129,149 @@ class ModelAdmission:
             except (ValueError, SchedulerUnavailable):
                 return False
         return True
+
+    def supports_residents(self):
+        """Negotiate once per policy process; absence means legacy behavior."""
+        with self.lock:
+            if self.serial_fallback:
+                return False
+            try:
+                self._ensure()
+            except SchedulerNotInstalled:
+                return False
+            if self.resident_version is None:
+                try:
+                    version = self._exchange({"op": "capabilities"}).get("resident")
+                except ValueError:
+                    version = None  # Schedulers predating capability discovery.
+                self.resident_version = RESIDENT_PROTOCOL if version == RESIDENT_PROTOCOL else False
+            return self.resident_version == RESIDENT_PROTOCOL
+
+    def _snapshot(self, fresh=False):
+        observe = getattr(self.observer, "fresh_snapshot", self.observer.snapshot) if fresh else self.observer.snapshot
+        return observe()
+
+    def _resident_measurement(self, requirement, process, snapshot):
+        if process.poll() is not None:
+            return None, "The resident engine has stopped"
+        host, _ = self.monitor.read(process.pid)
+        if not isinstance(host, int) or host <= 0:
+            return None, "Resident process memory is unavailable; using legacy warm admission without lease credit"
+        device = 0
+        if requirement.get("device_peak", 0) > 0:
+            processes = snapshot.get("device_processes", {}).get(requirement["device"], {})
+            device = processes.get(str(process.pid))
+            if not isinstance(device, int) or device < 0:
+                return None, "Resident device memory is unavailable; using legacy warm admission without lease credit"
+        return {"host": host, "device": device}, ""
+
+    def _resident_message(self, action, identity, **arguments):
+        result = self._exchange({"op": "resident", "action": action, "id": identity,
+                                 "protocol": RESIDENT_PROTOCOL, **arguments})
+        if result.get("protocol") != RESIDENT_PROTOCOL:
+            raise ValueError("The scheduler returned an unsupported resident lease protocol")
+        expected = {"update": ("resident",), "fit": ("resident_fit",),
+                    "release": ("released",), "release_if_idle": ("released", "busy")}
+        if result.get("state") not in expected[action]:
+            raise ValueError("The scheduler returned an invalid resident lease result")
+        return result
+
+    def _sync_residents(self, snapshot):
+        errors = {}
+        if not self.residents or not self.supports_residents():
+            return errors
+        for identity, lease in list(self.residents.items()):
+            owners = [entry for entry in self.entries.values() if entry.get("resident") == identity]
+            bound = any(entry.get("admitted") for entry in owners)
+            if not bound:
+                usage, reason = self._resident_measurement(lease["requirement"], lease["process"], snapshot)
+                if usage is None:
+                    errors[identity] = reason
+                    if owners:
+                        continue
+                    self._resident_message("release", identity)
+                    self.residents.pop(identity)
+                    continue
+                lease["usage"] = usage
+            self._resident_message("update", identity, requirement=lease["requirement"], usage=lease["usage"])
+        return errors
+
+    def _usage(self, snapshot):
+        usage = {identity: lease["usage"] for identity, lease in self.residents.items()}
+        for key, entry in self.entries.items():
+            process = entry.get("process")
+            if process and process.poll() is None:
+                resident, _ = self.monitor.read(process.pid)
+                devices = snapshot.get("device_processes", {}).get(entry["requirement"].get("device"), {})
+                usage[key] = {"host": resident, "device": devices.get(str(process.pid), 0)}
+        return usage
+
+    def resident_plan(self, identity, recipe, kind, cancelled, on_wait=None, resident=None):
+        requirement = self.estimate(resource_inputs(recipe, kind, self.observer), cancelled, on_wait)
+        with self.lock:
+            snapshot = self._snapshot(fresh=True)
+            if not self.supports_residents():
+                raise ResidentUnavailable("The scheduler no longer supports resident leases; using legacy admission")
+            errors = self._sync_residents(snapshot)
+            if resident is not None and (resident in errors or resident not in self.residents):
+                raise ResidentUnavailable(errors.get(resident, "Resident measurements changed; the take needs a fresh reservation"))
+            arguments = {"requirement": requirement, "snapshot": snapshot, "usage": self._usage(snapshot)}
+            if resident is not None:
+                arguments["resident"] = resident
+            decision = self._resident_message("fit", identity, **arguments)
+            if (decision.get("state") != "resident_fit" or decision.get("protocol") != RESIDENT_PROTOCOL
+                    or type(decision.get("keep")) is not bool or not isinstance(decision.get("figures"), dict)):
+                raise ValueError("The scheduler returned an invalid resident fit decision")
+            return requirement, decision
+
+    def retain_resident(self, identity, process, resident=None):
+        """Publish an idle engine's measured baseline, never a guessed footprint."""
+        with self.lock:
+            if not self.supports_residents():
+                return None, "The scheduler does not support resident leases"
+            requirement = self.entries[identity]["estimate"]
+            snapshot = self._snapshot(fresh=True)
+            usage, reason = self._resident_measurement(requirement, process, snapshot)
+            if usage is None:
+                return None, reason
+            resident = resident or "resident:" + uuid.uuid4().hex
+            self._resident_message("update", resident, requirement=requirement, usage=usage)
+            self.residents[resident] = {"requirement": requirement, "usage": usage, "process": process}
+            return {"id": resident, "protocol": RESIDENT_PROTOCOL, "usage": usage}, ""
+
+    def release_resident(self, identity):
+        if identity is None:
+            return
+        with self.lock:
+            if identity in self.residents and self.process and self.process.poll() is None and self.resident_version:
+                try:
+                    self._resident_message("release", identity)
+                except SchedulerUnavailable:
+                    pass
+            self.residents.pop(identity, None)
+
+    def release_resident_if_idle(self, identity, retire):
+        """Retire under admission's lock; the caller waits for process exit outside it.
+
+        ``retire`` must only mark the engine unavailable for reuse, never wait.
+        """
+        with self.lock:
+            if self.entries:
+                return False
+            if self.serial_fallback:
+                idle = True
+            elif self.supports_residents() and identity is not None:
+                self._sync_residents(self._snapshot(fresh=True))
+                result = self._resident_message("release_if_idle", identity)
+                idle = result.get("state") == "released"
+            else:
+                status = self._exchange({"op": "status"})
+                idle = status.get("state") == "ready" and status.get("active") == [] and status.get("waiting") == []
+            if not idle:
+                return False
+            self.residents.pop(identity, None)
+            retire()
+            return True
 
     def _exchange(self, payload):
         with self.lock:
@@ -135,7 +293,11 @@ class ModelAdmission:
                         self.log.write(line + b"\n")
                         continue
                     if result.get("state") == "error":
-                        raise ValueError(result.get("error", "Invalid model scheduling request"))
+                        error = result.get("error", "Invalid model scheduling request")
+                        if error in ("The resident lease is no longer registered.",
+                                     "The resident lease uses a different device."):
+                            raise ResidentBindingUnavailable(error)
+                        raise ValueError(error)
                     return result
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
@@ -240,25 +402,24 @@ class ModelAdmission:
             self.release(identity)
             raise
 
-    def acquire(self, identity, requirement, cancelled, on_wait=None):
+    def acquire(self, identity, requirement, cancelled, on_wait=None, resident=None):
         with self.lock:
             if identity in self.entries:
                 raise ValueError("This model operation already owns a reservation.")
-            self.entries[identity] = {"requirement": requirement, "admitted": False, "process": None}
+            self.entries[identity] = {"requirement": requirement, "estimate": requirement, "admitted": False, "process": None, "resident": resident}
         try:
             while not cancelled.is_set():
                 snapshot = self.observer.snapshot()
                 with self.lock:
-                    usage = {}
-                    for key, entry in self.entries.items():
-                        process = entry.get("process")
-                        if process and process.poll() is None:
-                            resident, _ = self.monitor.read(process.pid)
-                            devices = snapshot.get("device_processes", {}).get(entry["requirement"].get("device"), {})
-                            usage[key] = {"host": resident, "device": devices.get(str(process.pid), 0)}
                     try:
-                        result = self._exchange({"op": "request", "id": identity, "requirement": requirement,
-                                                 "snapshot": snapshot, "usage": usage})
+                        errors = self._sync_residents(snapshot)
+                        if resident is not None and (resident in errors or resident not in self.residents or not self.supports_residents()):
+                            raise ResidentUnavailable(errors.get(resident, "Resident lease ended while waiting; a cold reservation is required"))
+                        payload = {"op": "request", "id": identity, "requirement": requirement,
+                                   "snapshot": snapshot, "usage": self._usage(snapshot)}
+                        if resident is not None:
+                            payload.update(resident=resident, resident_protocol=RESIDENT_PROTOCOL)
+                        result = self._exchange(payload)
                     except SchedulerUnavailable as exc:
                         result = {"state": "waiting", "reason": str(exc)}
                     if result["state"] == "admitted":
@@ -289,6 +450,8 @@ class ModelAdmission:
                     # Active work retains its local ownership record. A fresh
                     # policy process starts only after those owners release.
                     pass
+        if entry and self.on_change:
+            self.on_change()
 
     def close(self):
         with self.lock:
