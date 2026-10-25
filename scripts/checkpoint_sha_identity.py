@@ -9,6 +9,7 @@ import hashlib
 import json
 from pathlib import Path
 import re
+import shutil
 import struct
 import subprocess
 import sys
@@ -162,7 +163,7 @@ def discover(portable=False, source=ROOT, cmake=None):
         def provision(command):
             subprocess.run(command, capture_output=True, text=True, check=True)
         manifest = json.loads((Path(source) / "sources.json").read_text())
-        cmake = cmake_executable(provision, manifest["cmake"])
+        cmake = shutil.which("cmake") or cmake_executable(provision, manifest["cmake"])
     with tempfile.TemporaryDirectory(prefix="riff-sha-discovery-") as directory:
         root = Path(directory)
         (root / "sha.cmake").write_text(module_text(source))

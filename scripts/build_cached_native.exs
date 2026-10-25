@@ -27,14 +27,13 @@ defmodule Riff.CachedNativeBuild do
     app = Path.expand("..", __DIR__)
     workspace = Path.expand(System.get_env("RIFF_HOME", app))
     python = System.find_executable("python3") || raise("Python required")
-    discovery_args = if options[:portable_sha], do: ["--portable-sha"], else: []
+    manifest = Cache.json(Path.join(app, "sources.json"))
 
-    {discovery, 0} =
-      System.cmd(python, [Path.join(app, "scripts/checkpoint_sha_identity.py") | discovery_args],
-        stderr_to_stdout: true
-      )
+    sha_identity =
+      if Map.has_key?(manifest["local_patches"], "patches/yue2-weight-system-sha.patch"),
+        do: discover_sha!(app, python, options[:portable_sha]),
+        else: %{}
 
-    sha_identity = :json.decode(String.trim(discovery))
     selected_sha = sha_identity["sha256_backend"]
     source = Cache.source!(app, selected_sha, sha_identity)
 
@@ -151,6 +150,35 @@ defmodule Riff.CachedNativeBuild do
       end
 
     if result != 0, do: System.halt(result)
+  end
+
+  defp discover_sha!(app, python, portable) do
+    args = if portable, do: ["--portable-sha"], else: []
+
+    {text, status} =
+      System.cmd(
+        python,
+        [Path.join(app, "scripts/checkpoint_sha_identity.py") | args],
+        stderr_to_stdout: true
+      )
+
+    if status != 0,
+      do: raise("System SHA discovery failed (exit #{status}):\n" <> String.trim(text))
+
+    identity =
+      try do
+        :json.decode(String.trim(text))
+      rescue
+        ArgumentError -> raise("System SHA discovery returned invalid JSON")
+      end
+
+    case identity do
+      %{"sha256_backend" => backend} when backend in ~w(portable commoncrypto openssl-evp) ->
+        identity
+
+      _ ->
+        raise("System SHA discovery returned an unsupported backend")
+    end
   end
 
   defp launchers!(configuration, value, environment) do

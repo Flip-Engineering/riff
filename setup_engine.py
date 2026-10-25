@@ -130,7 +130,7 @@ def prepare(backend, run=None, source=ROOT, download_models=True, jobs=None, cud
         def run(command, cwd=None):
             print(" ".join(map(str, command)), flush=True)
             subprocess.run(command, cwd=cwd, check=True)
-    cmake = cmake_executable(run, manifest["cmake"])
+    cmake = shutil.which("cmake") or cmake_executable(run, manifest["cmake"])
     sha_backend, sha_identity = None, None
     if "patches/yue2-weight-system-sha.patch" in manifest["local_patches"]:
         from scripts.checkpoint_sha_identity import discover

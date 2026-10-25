@@ -458,6 +458,11 @@ defmodule Riff.NativeCacheTest do
       "cmake_minimum_required(VERSION 3.17)\nproject(cache_driver_fixture C CXX)\nset(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)\nadd_executable(audiocpp_cli main.cpp)\n"
     )
 
+    File.write!(
+      Path.join(root, "scripts/checkpoint_sha_identity.py"),
+      "raise AssertionError('SHA discovery must not run without the system-SHA patch')\n"
+    )
+
     File.write!(Path.join(native, "main.cpp"), program)
     {_, 0} = System.cmd("git", ["init", "--quiet", native], stderr_to_stdout: true)
     {_, 0} = System.cmd("git", ["-C", native, "add", "."], stderr_to_stdout: true)
@@ -488,6 +493,44 @@ defmodule Riff.NativeCacheTest do
       "runtime_commit" => String.trim(commit),
       "local_patches" => %{}
     })
+  end
+
+  test "SHA discovery failure reports its cause before native setup", %{root: root} do
+    patch = Path.join(root, "patches/yue2-weight-system-sha.patch")
+    File.write!(patch, "owned optional SHA fixture\n")
+    manifest = Cache.json(Path.join(root, "sources.json"))
+
+    manifest =
+      put_in(
+        manifest["local_patches"]["patches/yue2-weight-system-sha.patch"],
+        Map.take(Cache.file_record(patch, "patch"), ["bytes", "sha256"])
+      )
+
+    Cache.write_json(Path.join(root, "sources.json"), manifest)
+
+    File.write!(
+      Path.join(root, "scripts/checkpoint_sha_identity.py"),
+      "import sys\nprint('intentional_discovery_failure')\nsys.exit(9)\n"
+    )
+
+    {text, status} =
+      System.cmd(
+        "elixir",
+        [
+          Path.join(root, "scripts/build_cached_native.exs"),
+          "--backend",
+          "cpu",
+          "--compile-only"
+        ],
+        env: [{"RIFF_HOME", root}],
+        stderr_to_stdout: true
+      )
+
+    refute status == 0
+    assert text =~ "System SHA discovery failed (exit 9)"
+    assert text =~ "intentional_discovery_failure"
+    refute text =~ "MatchError"
+    assert Path.wildcard(Path.join(root, "engines/*")) == []
   end
 
   test "unavailable remote cache runs the actual driver, fresh compile and link", %{root: root} do
