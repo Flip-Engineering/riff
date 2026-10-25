@@ -54,6 +54,8 @@ def build_command(*, lyrics, style, max_seconds, steps, cot, seed, threads, outp
     settings = platform_runtime.settings()
     from scripts.checkpoint_sha_identity import verify_runtime
     verify_runtime(settings["binary"])
+    from engine_devices import require_device
+    require_device(settings, backend)
     config_path = Path(settings["model_root"]) / "sidecars/yue2-vae-config.json"
     config = json.loads(config_path.read_text()) if config_path.exists() else {}
     token_rate = config.get("sample_rate", 48000) / config.get("downsampling_ratio", 1920)
@@ -180,8 +182,19 @@ def engine_capabilities(settings=None):
         return {"exact_score_replay": False, "error": str(error)}
     try:
         binary = str(Path(settings["binary"]).resolve())
-        return dict(_engine_capabilities(binary, str(Path(settings["model_root"]).resolve()), file_identity(binary)))
-    except (OSError, ValueError, subprocess.SubprocessError):
+        capability = dict(_engine_capabilities(binary, str(Path(settings["model_root"]).resolve()), file_identity(binary)))
+        if settings.get("backend") == "metal":
+            from engine_devices import probe_metal_device
+            device = probe_metal_device(binary, settings.get("device", 0))
+            capability["device"] = {key: value for key, value in device.items() if key != "output"}
+            if device.get("error"):
+                capability.update(error=device["error"], recommended_backend="cpu")
+        return capability
+    except (OSError, ValueError, subprocess.SubprocessError) as error:
+        if settings.get("backend") == "metal":
+            from engine_devices import CPU_ADVICE
+            return {"exact_score_replay": False, "recommended_backend": "cpu",
+                    "error": "Cannot verify the Metal engine: " + str(error) + " " + CPU_ADVICE}
         return {"exact_score_replay": False}
 
 
@@ -239,6 +252,8 @@ def build_decode_command(acoustic_file, output, decoder=None):
     settings = platform_runtime.settings()
     from scripts.checkpoint_sha_identity import verify_runtime
     verify_runtime(settings["binary"])
+    from engine_devices import require_device
+    require_device(settings)
     decoder_contract(settings)
     values = decoder_options({} if decoder is None else decoder)
     command = [settings["binary"], "--task", "gen", "--family", "yue2", "--model", settings["model_root"],

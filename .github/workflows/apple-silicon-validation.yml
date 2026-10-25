@@ -123,10 +123,11 @@ jobs:
           set -euo pipefail
           npm run test:all-browser 2>&1 | tee "$RUNNER_TEMP/riff-apple-silicon-validation/browser-tests.log"
 
-      - name: Build and test the Metal engine
+      - name: Build Metal, run CPU synthetic checks and capability-gated Metal attention
         run: |
           set -euo pipefail
-          elixir scripts/build_cached_native.exs --backend metal --build-only --jobs 2 2>&1 | tee "$RUNNER_TEMP/riff-apple-silicon-validation/native-metal-build.log"
+          elixir scripts/build_cached_native.exs --backend metal --compile-only --jobs 2 2>&1 | tee "$RUNNER_TEMP/riff-apple-silicon-validation/native-metal-build.log"
+          python3 scripts/configure_native_checks.py
           python3 scripts/check_native_solver.py 2>&1 | tee "$RUNNER_TEMP/riff-apple-silicon-validation/native-solver-tests.log"
           python3 scripts/check_native_lora.py --output "$RUNNER_TEMP/riff-apple-silicon-validation/native-lora" 2>&1 | tee "$RUNNER_TEMP/riff-apple-silicon-validation/native-lora-tests.log"
           elixir scripts/check_native_score_replay.exs --download-tokenizer --output "$RUNNER_TEMP/riff-apple-silicon-validation/native-score-check" 2>&1 | tee "$RUNNER_TEMP/riff-apple-silicon-validation/native-score-replay-tests.log"
