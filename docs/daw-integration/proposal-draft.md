@@ -74,6 +74,15 @@ cold-process builder, persistent engines the resident path; N stem
 artifacts per job would extend the current single-artifact provenance
 shapes (operations.py:56-62) — a contract addition the proposal must price.
 
+Composition-format hypothesis (working assumption to test, not a decision):
+one multi-voice ABC document with one `V:` per instrument (matches YuE2's
+Vocal/Ins convention and the existing multi-voice score workspace, where
+voices can already be isolated in preview), each voice mapped to a DAW
+track with an explicit instrument assignment (`%%MIDI program` and/or a
+voice→plugin manifest with the numbering convention pinned down). The
+alternative — N separate single-voice ABC scores — buys independent token
+budgets at the cost of a shared meter/tempo/key coordination step.
+
 ## 5. Validation plan [to be detailed]
 
 - Unit: converter invariant tests (tempo/meter/key exact; voice→track
