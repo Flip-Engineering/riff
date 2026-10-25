@@ -10,7 +10,9 @@ their numbers are illustrative.
 import json
 from pathlib import Path
 import sys
+import tempfile
 import time
+import tracemalloc
 import unittest
 
 from studio_core import Generator, Store
@@ -84,6 +86,33 @@ class ParserTests(unittest.TestCase):
     def test_the_vae_init_line_is_not_a_load_cost(self):
         self.assertNotIn("load_seconds", summarize(["[TIMING] yue2.vae.init_ms 0.004", "[TIMING] yue2.plan_ms 1"]))
 
+    def test_large_log_summary_does_not_retain_samples_or_distinct_unknown_names(self):
+        samples = 100_000
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "large.log"
+            with path.open("w") as log:
+                log.write("[TIMING] yue2.ar.resident_reuse 1\n[TIMING] session.wall_ms 1000\n")
+                for index in range(samples):
+                    log.write(f"[TIMING] unknown.{index} 1\n[TIMING] yue2.nar_ms 1\n")
+                log.write("[TIMING] session.wall_ms 9000\n[TIMING] yue2.ar.weights_upload_ms 0\n")
+            tracemalloc.start()
+            try:
+                with path.open() as log:
+                    summary = summarize(log)
+                _, peak = tracemalloc.get_traced_memory()
+            finally:
+                tracemalloc.stop()
+            self.assertEqual(summary, {"parsed_lines": samples * 2 + 4, "stages": {"sound": samples / 1000},
+                                      "engine_session_seconds": 9.0, "resident_reuse": True, "load_seconds": 0.0})
+            self.assertFalse(warm_record("warm", summary)["hit"])
+            # Even a fraction of this multi-megabyte log would exceed the stream's working memory.
+            self.assertLess(peak, path.stat().st_size // 32)
+
+    def test_public_parser_still_returns_all_samples_in_order(self):
+        parsed, count = parse_timing_lines(iter(["[TIMING] unknown 1", "[TIMING] yue2.nar_ms 2",
+                                                "[TIMING] unknown 3", "[TIMING] unknown nan"]))
+        self.assertEqual((parsed, count), ({"unknown": [1.0, 3.0], "yue2.nar_ms": [2.0]}, 3))
+
     def test_warm_hit_needs_a_warm_engine_reuse_line_and_no_load(self):
         cold, warm = summarize(lines("cold-take.log")), summarize(lines("warm-take.log"))
         self.assertEqual(warm_record("warm", cold, 1.5), {"engine": "warm", "hit": False, "prepare_seconds": 1.5})
@@ -112,8 +141,15 @@ with wave.open(sys.argv[1], "wb") as wav:
     def test_a_finished_take_records_timings_queue_and_memory_in_both_places(self):
         generator = Generator(self.store, self.command)
         self.addCleanup(generator.close)
-        job_id = generator.submit(recipe())["id"]
-        wait_until(lambda: self.store.job(job_id)["status"] == "done")
+        read_text = Path.read_text
+        def without_whole_log_reads(path, *args, **kwargs):
+            if path.suffix == ".log":
+                raise AssertionError("Take metrics must stream the engine log.")
+            return read_text(path, *args, **kwargs)
+        with patch.object(Path, "read_text", without_whole_log_reads):
+            job_id = generator.submit(recipe())["id"]
+            wait_until(lambda: self.store.job(job_id)["status"] in ("done", "failed"))
+            self.assertEqual(self.store.job(job_id)["status"], "done")
         saved = json.loads((self.store.outputs / "riff" / f"{job_id}.metrics.json").read_text())
         stored = self.store.track(job_id)["metrics"]
         for metrics in (saved, stored):

@@ -29,9 +29,8 @@ PIN_KEY = "yue2.acoustic.pin_sources_ms"
 LINE = re.compile(r"\[TIMING(?: ts=[^\]\s]*)?\]\s+(\S+)\s+(\S+)")
 
 
-def parse_timing_lines(lines):
-    """Return ({name: [values]}, number of timing lines) for the numeric ``[TIMING]`` lines."""
-    found, count = {}, 0
+def _timing_values(lines):
+    """Yield valid timing samples without retaining the input or prior samples."""
     for line in lines:
         match = LINE.search(line)
         if not match:
@@ -42,7 +41,18 @@ def parse_timing_lines(lines):
             continue
         if value != value or value in (float("inf"), float("-inf")):
             continue
-        found.setdefault(match.group(1), []).append(value)
+        yield match.group(1), value
+
+
+def parse_timing_lines(lines):
+    """Return ({name: [values]}, number of timing lines) for the numeric ``[TIMING]`` lines.
+
+    This collecting interface preserves samples for callers that need them. Take metrics use
+    ``summarize`` instead, which keeps a fixed set of aggregates regardless of log length.
+    """
+    found, count = {}, 0
+    for name, value in _timing_values(lines):
+        found.setdefault(name, []).append(value)
         count += 1
     return found, count
 
@@ -57,17 +67,26 @@ def summarize(lines):
     ``load_seconds`` is present only when at least one load line was printed. ``parsed_lines`` lets a
     reader tell an empty summary (the log had no timing lines) from a take that simply lacked a stage.
     """
-    found, count = parse_timing_lines(lines)
-    summary = {"parsed_lines": count, "stages": {stage: _seconds(found[key])
-                                                 for stage, key in STAGE_KEYS.items() if key in found}}
-    loads = [value for key in LOAD_KEYS for value in found.get(key, [])]
+    summed_keys = frozenset((*STAGE_KEYS.values(), *LOAD_KEYS, PIN_KEY))
+    totals, count, last_session, resident_reuse = {}, 0, None, False
+    for name, value in _timing_values(lines):
+        count += 1
+        if name in summed_keys:
+            totals[name] = totals.get(name, 0.0) + value
+        elif name == SESSION_KEY:
+            last_session = value
+        elif name in REUSE_KEYS and value >= 1:
+            resident_reuse = True
+    summary = {"parsed_lines": count, "stages": {stage: totals[key] / 1000.0
+                                                 for stage, key in STAGE_KEYS.items() if key in totals}}
+    loads = [totals[key] for key in LOAD_KEYS if key in totals]
     if loads:
         summary["load_seconds"] = _seconds(loads)
-    if SESSION_KEY in found:
-        summary["engine_session_seconds"] = _seconds(found[SESSION_KEY][-1:])
-    if PIN_KEY in found:
-        summary["acoustic_pin_seconds"] = _seconds(found[PIN_KEY])
-    if any(value >= 1 for key in REUSE_KEYS for value in found.get(key, [])):
+    if last_session is not None:
+        summary["engine_session_seconds"] = last_session / 1000.0
+    if PIN_KEY in totals:
+        summary["acoustic_pin_seconds"] = totals[PIN_KEY] / 1000.0
+    if resident_reuse:
         summary["resident_reuse"] = True
     return summary
 

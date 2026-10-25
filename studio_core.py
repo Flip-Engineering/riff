@@ -1529,10 +1529,10 @@ class Generator:
             if self.monitor.libproc and not warm:
                 metrics["macos_lifetime_peak_footprint_bytes_observed"] = peak
             try:
-                log_lines = log_path.read_text(errors="replace").splitlines()
+                with log_path.open(errors="replace") as log_lines:
+                    summary = timings.summarize(log_lines)
             except OSError:
-                log_lines = []
-            summary = timings.summarize(log_lines)
+                summary = timings.summarize(())
             metrics["timings"] = summary
             metrics["warm"] = timings.warm_record(metrics["engine"], summary, prepare_seconds)
             metrics["queue"] = queue
