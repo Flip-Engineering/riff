@@ -663,6 +663,18 @@ class Operations:
             raise ValueError("retain must be a list of seed, score and performance.")
         return list(dict.fromkeys(value)), True
 
+    def _review_of(self, subject, review_id):
+        """A saved producer review of the source take; the take made from it records its reference clips."""
+        identity(review_id, "Review")
+        with self.store.db() as db:
+            table = db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='reviews'").fetchone()
+            row = db.execute("SELECT track_id FROM reviews WHERE id=?", (review_id,)).fetchone() if table else None
+        if row is None:
+            raise KeyError("Review not found.")
+        if row["track_id"] not in (subject["track_id"], subject["job_id"]):
+            raise ValueError("That review is of a different take.")
+        return review_id
+
     def _parent_link(self, subject):
         if subject["operation_id"]:
             return {"kind": "operation", "id": subject["operation_id"]}
@@ -696,7 +708,7 @@ class Operations:
 
     def derive(self, name, payload, replay=None):
         """Replay or develop a recorded take. ``enqueue: false`` returns the draft and queues nothing."""
-        allowed = {"source", "retain", "changes", "idempotency_key", "enqueue"} | ({"replay"} if name == "take.replay" else {"selection"})
+        allowed = {"source", "retain", "changes", "idempotency_key", "enqueue"} | ({"replay"} if name == "take.replay" else {"selection", "review_id"})
         unknown = set(payload) - allowed
         if unknown:
             raise ValueError("Unknown input: " + ", ".join(sorted(unknown)))
@@ -731,6 +743,8 @@ class Operations:
             draft, notes = self._draft(subject, retain, strict=bool(replay) or explicit, changes=changes, suffix=suffix)
             retained = {"seed": draft.get("seed") == subject["recipe"].get("seed") and "seed" in draft,
                         "score": bool(draft.get("score_source")), "performance": bool(draft.get("performance_source"))}
+        if payload.get("review_id") is not None:
+            draft["review_id"] = self._review_of(subject, payload["review_id"])
         derivation = {"from": self._origin(subject), "mode": name + (f":{replay}" if replay else ""), "retained": retained,
                       "notes": notes, "changed": recipe_changes(subject["recipe"], draft),
                       "selection": self._selection_for(subject, payload.get("selection")) if name == "take.develop" else None}
@@ -958,7 +972,9 @@ def catalog(recipe_schema, riff_version):
                                  "the seed and the verified score by default, with every recorded input editable through "
                                  "changes. Records parent, family, what was retained and the selection it came from. This is the "
                                  "promotion step for a chosen study.",
-                                 _object({**DERIVE_INPUT, "selection": {"type": "string"}}, ("source",)), DERIVE_OUTPUT, True),
+                                 _object({**DERIVE_INPUT, "selection": {"type": "string"},
+                                          "review_id": {"type": "string", "description": "A saved producer review of the source take. "
+                                                        "The new take records the review's reference clips as provenance."}}, ("source",)), DERIVE_OUTPUT, True),
             "take.select": post("take.select", "Record a durable, append-only choice of a completed take within its family, with "
                                 "a rationale. Queues nothing.",
                                 _object({"take": {"type": "string"}, "rationale": {"type": "string"},

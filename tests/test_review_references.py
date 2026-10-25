@@ -460,6 +460,70 @@ def encode_capturing(calls):
     return encode
 
 
+class OperationSurfaceTests(ReferenceFixture):
+    """A take made from a review records its reference clips on every route that queues it."""
+    request = test_studio.HttpTests.request
+
+    def setUp(self):
+        super().setUp()
+        self.generator = Generator(self.store, lambda recipe, output: ["/usr/bin/false"])
+        self.server = StudioServer(("127.0.0.1", 0), self.store, self.generator, self.reviews)
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+        ready = patch("studio.platform_support.readiness", return_value={"ready": True})
+        ready.start()
+        self.addCleanup(ready.stop)
+
+    def tearDown(self):
+        self.server.shutdown()
+        self.server.server_close()
+        self.generator.close()
+        self.thread.join()
+        super().tearDown()
+
+    def post(self, path, body):
+        status, _, data = self.request("POST", path, json.dumps(body), HEADERS)
+        return status, json.loads(data)
+
+    def test_studio_route_and_take_develop_both_record_the_reviews_reference_clips(self):
+        clip = self.clip(label="Calibration", link="https://example.org/ref")
+        review = self.review([clip["id"]])
+        expected = [{"id": clip["id"], "sha256": clip["sha256"], "label": "Calibration"}]
+        status, studio = self.post("/api/generations", {**review["generation"], "parent_track_id": self.track_id, "review_id": review["id"]})
+        self.assertEqual(status, 201, studio)
+        self.assertEqual(studio["recipe"]["review_references"], expected)
+        status, developed = self.post("/api/v1/operations/take.develop", {"source": self.track_id, "review_id": review["id"]})
+        self.assertEqual(status, 201, developed)
+        effective = developed["receipt"]["effective_recipe"]
+        self.assertEqual((effective["review_id"], effective["review_references"]), (review["id"], expected))
+        self.assertEqual(self.store.job(developed["job_id"])["recipe"]["review_references"], expected)
+        self.assertEqual(developed["receipt"]["derivation"]["from"]["track_id"], self.track_id)
+        # The draft shows the same provenance before anything is queued, and study.create agrees.
+        status, draft = self.post("/api/v1/operations/take.develop", {"source": self.track_id, "review_id": review["id"], "enqueue": False})
+        self.assertEqual((status, draft["validation"]["effective_recipe"]["review_references"]), (200, expected))
+        status, created = self.post("/api/v1/operations/study.create", {"recipe": {**review["generation"], "review_id": review["id"]}})
+        self.assertEqual((status, created["receipt"]["effective_recipe"]["review_references"]), (201, expected))
+        # A claim from the caller is ignored, and a review with no clips adds nothing.
+        status, claimed = self.post("/api/v1/operations/study.create", {"recipe": {
+            **review["generation"], "review_id": review["id"], "review_references": [{"id": "x", "sha256": "0" * 64, "label": "forged"}]}})
+        self.assertEqual(claimed["receipt"]["effective_recipe"]["review_references"], expected)
+        plain = self.review()
+        status, none = self.post("/api/v1/operations/take.develop", {"source": self.track_id, "review_id": plain["id"]})
+        self.assertEqual(status, 201, none)
+        self.assertNotIn("review_references", none["receipt"]["effective_recipe"])
+
+    def test_take_develop_refuses_a_review_that_is_unknown_malformed_or_of_another_take(self):
+        second = self.store.outputs / "other.wav"
+        shutil.copyfile(self.audio, second)
+        other = self.store.add_track(second, recipe(steps=7), {})
+        review = self.review()
+        for value, expected in (("0" * 32, 404), ("nope", 400), ([1], 400), (5, 400)):
+            with self.subTest(review=value):
+                self.assertEqual(self.post("/api/v1/operations/take.develop", {"source": self.track_id, "review_id": value})[0], expected)
+        status, body = self.post("/api/v1/operations/take.develop", {"source": other, "review_id": review["id"]})
+        self.assertEqual((status, body["error"]), (400, "That review is of a different take."))
+
+
 class ProviderRequestTests(unittest.TestCase):
     """The client sends one direct multimodal request; nothing else transcribes or listens."""
 
