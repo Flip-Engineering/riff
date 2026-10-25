@@ -116,3 +116,21 @@ the selection should stay provisional pending root review.
 Related: `docs/daw-integration/ardour-musical-workflow.md`,
 `docs/evidence/ardour-musical-workflow-20261025.json`,
 `docs/evidence/lmms-arrangement-probe-20261025.json`, issue #78.
+
+## 5. Wording check on the in-progress proposal edit
+
+The conductor's current working-tree edit (not committed at time of writing)
+adds the LMMS pad/master-taper qualifiers, which is the right correction. Two
+residual asymmetries should be fixed before publication:
+
+1. "It is the only candidate with a receipted headless PROJECT→MIX+STEMS
+   chain" is no longer true literally. Ardour now has a generated 3-track
+   project → mix + three solo-render stems, with a 1-LSB reconstruction
+   receipt. The defensible LMMS-specific claim is "the only candidate with a
+   native per-track `rendertracks` command receipt", or "both have headless
+   project→mix+stems receipts, with different stem methods".
+2. The same paragraph's closing list still says "stem-vs-mix semantics are
+   NOT yet receipted", which contradicts its new qualifier. The remaining
+   gap is sample-sum identity / raw pre-master semantics, not that no
+   stem-vs-mix receipt exists. Change the phrase to "sample-sum stem
+   decomposition" or remove it from that list.
