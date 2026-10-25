@@ -10,6 +10,7 @@ struct Calls {
     std::vector<float> completed;
     std::vector<int64_t> decoded_frames;
     std::function<void()> during_nar;
+    std::function<void()> during_decode;
 };
 extern Calls calls;
 void reset();

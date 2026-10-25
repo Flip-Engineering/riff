@@ -1,0 +1,104 @@
+name: Metal LoRA inference qualification
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Exact commit to qualify from this repository
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: metal-lora-inference-${{ inputs.source_sha }}
+  cancel-in-progress: false
+
+jobs:
+  metal-inference:
+    name: Hosted Apple Silicon pinned LoRA inference
+    runs-on: macos-14
+    env:
+      EVIDENCE: ${{ runner.temp }}/riff-metal-lora-evidence
+      MODELS: ${{ runner.temp }}/riff-metal-lora-models
+      TMPDIR: ${{ runner.temp }}
+      OMP_NUM_THREADS: '2'
+      OPENBLAS_NUM_THREADS: '2'
+    steps:
+      - name: Check out the exact requested commit
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ inputs.source_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify source and Apple Silicon runner
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          test "$(uname -s)" = Darwin
+          test "$(uname -m)" = arm64
+          xcodebuild -version
+          xcrun --find metal
+          mkdir -p "$EVIDENCE" "$TMPDIR"
+          sw_vers > "$EVIDENCE/macos.log"
+          xcodebuild -version > "$EVIDENCE/xcode.log"
+          python3 - <<'PY' > "$EVIDENCE/hardware.json"
+          import json, platform, subprocess
+          def value(name):
+              return subprocess.check_output(["sysctl", "-n", name], text=True).strip()
+          print(json.dumps({"architecture": platform.machine(), "runner_label": "macos-14",
+                            "cpu": value("machdep.cpu.brand_string"), "memory_bytes": int(value("hw.memsize"))}, indent=2))
+          PY
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.14'
+
+      - name: Set up the pinned control toolchain
+        uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124
+        with:
+          otp-version: '28.0.2'
+          elixir-version: '1.18.4'
+          version-type: strict
+
+      - name: Build the pinned Metal engine
+        run: |
+          set -euo pipefail
+          elixir scripts/build_cached_native.exs --backend metal --build-only --jobs 2 2>&1 | tee "$EVIDENCE/native-metal-build.log"
+          python3 scripts/check_native_lora.py --output "$EVIDENCE/native-lora" 2>&1 | tee "$EVIDENCE/native-lora-tests.log"
+
+      - name: Fetch and verify pinned base weights
+        run: |
+          set -euo pipefail
+          python3 fetch-models.py --directory "$MODELS" 2>&1 | tee "$EVIDENCE/models.log"
+
+      - name: Run actual Metal baseline and adapter inference
+        run: |
+          set -euo pipefail
+          python3 scripts/check_lora_inference.py --backend metal --models "$MODELS" \
+            --threads 2 --output "$EVIDENCE/inference" \
+            --metadata-arena model_weight_context=32 --metadata-arena vae_weight_context=32 \
+            --metadata-arena ar_prefill_graph_arena=64 --metadata-arena ar_decode_graph_arena=32 \
+            --metadata-arena nar_graph_arena=64 --metadata-arena vae_graph_arena=64 \
+            2>&1 | tee "$EVIDENCE/inference.log"
+
+      - name: Upload qualification receipts and logs, excluding weights
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: riff-metal-lora-${{ inputs.source_sha }}
+          path: |
+            ${{ env.EVIDENCE }}/*.log
+            ${{ env.EVIDENCE }}/hardware.json
+            ${{ env.EVIDENCE }}/native-lora/*.json
+            ${{ env.EVIDENCE }}/native-lora/*.log
+            ${{ env.EVIDENCE }}/inference/receipt.json
+            ${{ env.EVIDENCE }}/inference/*.log
+            native-cache-receipts/*.json
+          if-no-files-found: warn

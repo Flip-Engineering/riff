@@ -13,6 +13,10 @@ import wave
 
 MOTION_VERSION = 4
 WAVEFORM_POINTS = 64  # Half the contour's 128 vertices; detail remains legible at cover size.
+# How often the producer stream writes one byte to the drawing page. The byte
+# only reveals a closed connection and keeps proxies from idling the stream out;
+# no export ends because time passed.
+PRODUCER_PROBE_SECONDS = 5
 VIDEO_FRAME_BATCH = {"max_frames": 16, "max_bytes": 32 * 1024 * 1024,
                      "content_type": "application/x-riff-video-frames"}
 # One final encoding for both frame paths. On real 4K60 artwork, x264
@@ -145,8 +149,6 @@ class VideoExports:
             db.execute("UPDATE video_exports SET source_end=source_start+duration WHERE source_end IS NULL")
             db.execute("UPDATE video_exports SET status='interrupted' WHERE status IN ('rendering','encoding')")
         self.stop = threading.Event()
-        self.cleaner = threading.Thread(target=self.cleanup, daemon=True)
-        self.cleaner.start()
 
     def visualization(self, track_id):
         path = self.store.audio_path(track_id)
@@ -237,10 +239,51 @@ class VideoExports:
                 db.execute("INSERT INTO video_exports(id,track_id,created,status,width,height,fps,duration,frames,source_start,source_end,transport) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
                            (export_id, track_id, time.time(), "rendering", width, height, fps, duration,
                             math.ceil(duration * fps), start, end, transport))
-            self.active[export_id] = {"process": process, "log": log, "updated": time.monotonic(), "lock": threading.Lock(),
+            self.active[export_id] = {"process": process, "log": log, "lock": threading.Lock(),
                                       "started": started, "received_bytes": 0, "stdin_seconds": 0.0,
-                                      "job": self.get(export_id)}
+                                      "ended": threading.Event(), "job": self.get(export_id)}
+        threading.Thread(target=self.watch_encoder, args=(export_id, process), daemon=True).start()
         return self.get(export_id)
+
+    def encoder_stopped(self, process):
+        status = process.poll()
+        if status is None:
+            return "The video encoder stopped accepting frames."
+        return f"The video encoder exited with status {status} before the video was finished."
+
+    def watch_encoder(self, export_id, process):
+        """Fail an export as soon as its encoder exits while frames are still expected."""
+        process.wait()
+        with self.lock:
+            active = self.active.get(export_id)
+            rendering = active is not None and active["process"] is process and active["job"]["status"] == "rendering"
+        if rendering:
+            self.cancel(export_id, "failed", self.encoder_stopped(process))
+
+    def producer(self, export_id, send, probe_seconds=PRODUCER_PROBE_SECONDS):
+        """Hold the drawing page's connection for the life of the export.
+
+        The page draws every frame, so its connection is the producer's liveness:
+        the export stays live however long a frame takes, and is interrupted only
+        when this connection closes while frames are still expected. ``send``
+        writes to that connection; the periodic probe only detects a closed
+        socket and keeps proxies from treating the stream as idle. It never ends
+        an export by itself.
+        """
+        with self.lock: active = self.active.get(export_id)
+        if not active:
+            self.get(export_id)
+            raise ValueError("This export is no longer accepting frames.")
+        try:
+            while True:
+                send(b"\n")
+                if active["ended"].wait(probe_seconds):
+                    return
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            with self.lock:
+                rendering = self.active.get(export_id) is active and active["job"]["status"] == "rendering"
+            if rendering:
+                self.cancel(export_id, "interrupted", "The page drawing this video closed, so no more frames can arrive.")
 
     def frame(self, export_id, index, data):
         return self.frames(export_id, index, [data])
@@ -292,11 +335,11 @@ class VideoExports:
                     active["process"].stdin.flush()
                     active["stdin_seconds"] += time.monotonic() - sending
                     active["received_bytes"] += len(data)
-                    active["updated"] = time.monotonic()
                     job["received"] += 1
         except (BrokenPipeError, OSError):
-            self.cancel(export_id, "failed", "Video encoding stopped. Check that FFmpeg includes H.264 encoding.")
-            raise ValueError("Video encoding stopped. Check that FFmpeg includes H.264 encoding.") from None
+            error = self.encoder_stopped(active["process"])
+            self.cancel(export_id, "failed", error)
+            raise ValueError(error) from None
         return self.get(export_id)
 
     def valid_output(self, job):
@@ -368,6 +411,7 @@ class VideoExports:
                                   "finalize_seconds": time.monotonic() - finishing},
                        "client_reported": client_timings}
             self.active.pop(export_id)
+            active["ended"].set()
             active["log"].close()
             with self.store.db() as db:
                 db.execute("UPDATE video_exports SET status='done',receipt=? WHERE id=?",
@@ -380,6 +424,7 @@ class VideoExports:
             active = self.active.pop(export_id, None)
             if active:
                 active["job"]["status"] = status
+                active["ended"].set()
                 active["process"].terminate()
                 try: active["process"].wait(timeout=5)
                 except subprocess.TimeoutExpired:
@@ -405,15 +450,7 @@ class VideoExports:
         suffix = " — passage.mp4" if passage else ".mp4"
         return self.output / (export_id + ".mp4"), track["title"] + suffix
 
-    def cleanup(self):
-        while not self.stop.wait(15):
-            with self.lock:
-                expired = [key for key, value in self.active.items()
-                           if value["job"]["status"] == "rendering" and time.monotonic() - value["updated"] > 120]
-            for key in expired: self.cancel(key, "interrupted", "The browser stopped sending video frames.")
-
     def close(self):
         self.stop.set()
         with self.lock: active = list(self.active)
         for key in active: self.cancel(key, "interrupted")
-        self.cleaner.join()

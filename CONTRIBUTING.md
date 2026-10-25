@@ -20,7 +20,8 @@ change, and commit both. A mismatch never rewrites the file by itself.
 Native builds use `python3 setup_engine.py --backend metal --build-only` or
 `--backend cpu` / `--backend cuda`. CUDA builds need an NVIDIA toolkit; building
 without a GPU requires an explicit `--cuda-arch`. CI distinguishes compile/device
-probes from inference on real weights.
+probes from inference on real weights. CUDA builds and inference run as homelab
+farm jobs, not in CI (see `docs/self-hosted-runners.md`).
 
 Do not commit `data/`, `outputs/`, models, keys, local logs or install folders.
 Keep UI copy musical, make suggestions editable, and document actual engine limits.
