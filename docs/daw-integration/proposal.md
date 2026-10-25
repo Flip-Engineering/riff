@@ -2,7 +2,7 @@
 
 Ensemble riff-daw-integration-20261025: conductor riff-daw-conductor-kimi-20261025,
 workers riff-daw-deepseek-20261025 and riff-daw-glm-20261025.
-Status: FOR PARENT/ROOT REVIEW. No detailed architecture, no implementation
+Status: JOINT PROPOSAL, ensemble-signed, FOR PARENT/ROOT REVIEW. No detailed architecture, no implementation
 authorization is claimed; this is the evidence-backed comparison, selection
 recommendation and integration-hypothesis recommendation the assignment
 asked for. All receipts are reproducible; docs cited live on branch
@@ -27,12 +27,15 @@ open gates.**
 
 Why LMMS first, on evidence:
 
-1. It is the only candidate with a COMPLETE receipt chain for the product
-   aim today: hand-written (agent-authored) 2-track `.mmp` XML → headless
-   mix render (`render`, ~1 s wall, no display) → per-track stems
+1. It is the only candidate with a complete headless PROJECT→MIX+STEMS
+   chain receipted for a hand-written `.mmp`: agent-authored 2-track XML →
+   headless mix render (`render`, ~1 s wall, no display) → per-track stems
    (`rendertracks`, distinct per-voice content) → deterministic output
    (three renders byte-identical, sha256-verified by two seats
-   independently). (GLM probe; conductor cross-check.)
+   independently). (GLM probe; conductor and DeepSeek cross-checks.)
+   The end-to-end ABC→MIDI→`.mmp` product bridge, macOS headless,
+   instrument/timbre path, and stem-vs-mix semantics are NOT yet receipted —
+   they are explicit gates in §5, not buried under this claim.
 2. Official macOS arm64 builds exist (macOS 11+/M1+, 1.3.0-alpha.2 release
    table), matching Riff's only desktop payload target; Linux x86_64
    probed on this host.
@@ -47,11 +50,15 @@ Why not the others first (all reversible, evidence in the cited docs):
 - **Ardour 9.8**: strongest arrangement/mixing/automation depth; headless
   render PROVEN (DeepSeek: MIDI+gmsynth→WAV via `ardour9-export` CLI and
   in-process `SimpleExport`, non-silent, sha256-pinned); construction gates
-  partially proven (DeepSeek two-track template generation; conductor
-  template-swap). But no general headless session generator, no per-track
-  stem export evidence, no session reopen receipt, and Lua scripting is
-  self-described upstream as "prototyping stage, interfaces may change".
-  Keep as the upgrade path for mixing depth once its generator gate closes.
+  partially proven (DeepSeek two-track template generation, extended to
+  four tracks; conductor template-swap); per-track stems proven via the
+  solo-render path (Lua `solo_control()` + per-snapshot export; two stems
+  reconstruct the master within 1 LSB, four within 2 LSB — DeepSeek §3.1,
+  hashes conductor-verified). Still open: a general headless session
+  generator, raw/pre-fader/GUI/batch stem export, session reopen receipt,
+  and Lua scripting is self-described upstream as "prototyping stage,
+  interfaces may change". Keep as the upgrade path for mixing depth once
+  its generator gate closes.
 - **Tracktion Engine 3.2**: the strongest PROGRAMMATIC authoring surface
   (first-class MIDI API, GUI-independent `Renderer`, ProjectManager
   persistence), but it is an engine, not a DAW: Riff would build and own a
@@ -85,7 +92,7 @@ Why not the others first (all reversible, evidence in the cited docs):
 | Mixing | FX mixer, per-track vol/pan | full buses/sends/mature mixing | via plugins/API |
 | Automation | automation clips/controllers in XML | mature automation | AutomatableParameter API |
 | Persistence/reopen | .mmp/.mmpz; alpha one-way-upgrade caveat; reopen receipt via dump round-trip | .ardour XML; reopen receipt missing | ProjectManager/Edit (source) |
-| Audio export | mix + per-track stems, wav/flac/ogg/mp3, ≤192 kHz, 32-bit float `[probe]` | master-bus export `[probe]`; stems unproven | renderToFile incl. track selection (source) |
+| Audio export | mix + per-track stems, wav/flac/ogg/mp3, ≤192 kHz, 32-bit float `[probe]` | master-bus export `[probe]`; solo-render per-track stems `[probe]`; raw/GUI/batch stems unproven | renderToFile incl. track selection (source) |
 | Platforms | macOS arm64 (1.3 alpha), Linux, Windows | macOS arm64 official, Linux, Windows | macOS/Linux/Windows/mobile |
 | Health | 1.3 alpha churn risk; active | active, mature | v3.2.0 2025-05; active |
 | Resource profile | ~1 s short-render, CPU-only `[probe]` | demo-build CPU render `[probe]` | unmeasured |
@@ -95,8 +102,9 @@ source/doc evidence; full citations in `daw-candidates.md` and probe docs.
 
 ## 3. ABC semantics: what crosses the bridge (DeepSeek's matrix, condensed)
 
-Authoritative matrix: `abc-semantics.md` (10 cases × 2 converters, event-level
-receipts). Contract-level consequences:
+Authoritative matrix: `abc-semantics.md` (18 cases + a two-voice smoke
+probe = 19 receipts across abcjs 6.7.0 and abc2midi 5.07, event-level JSON).
+Contract-level consequences:
 
 - Preserved: pitch/duration/rests as performance data; header M:/K:/Q: metas;
   tuplets (quantized); voice→track+channel mapping (abc2midi channel-correct;
@@ -109,7 +117,8 @@ receipts). Contract-level consequences:
   (abc2midi); chord symbols synthesize unrequested accompaniment unless
   suppressed (abc2midi `-NGUI`).
 - Convention pins the bridge must state: GM program numbering (raw 0-127 vs
-  1-indexed names — `abcguide.txt:774`); default tempo when Q: absent
+  1-indexed names — receipt in `daw-candidates.md` §3 citing
+  `abcguide.txt:774`); default tempo when Q: absent
   (abc2midi 120 vs abcjs 180); one ABC doc with one `V:` per instrument as
   the composition format (matches YuE2 Vocal/Ins and Riff's multi-voice
   workspace).
@@ -145,13 +154,26 @@ review.
 
 ## 5. Qualification items before implementation (validation plan)
 
+Reversible probes ALREADY PERFORMED are the receipts cited in §1–§3 (LMMS
+project→mix+stems, determinism, dump round-trip; Ardour render, template
+construction, solo-render stems; converter matrix). Everything below is the
+LATER validation plan — not done, and not required before this proposal per
+the operator's instruction.
+
+0. End-to-end bridge receipt (DeepSeek gate 1): ABC→MIDI→`.mmp`→render/stems
+   with an explicit voice→instrument map and the pinned converter — the
+   product-chain demonstration the current receipts do not yet cover.
+
 1. LMMS: GM instrument path (Sf2Player + a license-reviewed pinned
-   soundfont — LMMS ships none; vs per-track synth presets); macOS headless
-   render (unverified — AppImage probe was Linux); .mmp reopen round-trip
-   beyond dump; stem-vs-master signal semantics (stems did not sample-sum
-   to the mix in cross-check — document pre/post-master behavior); render
+   soundfont — the AppImage contains zero .sf2/.sf3 files, GLM-verified;
+   vs per-track synth presets); macOS headless render (unverified —
+   AppImage probe was Linux); .mmp reopen round-trip beyond dump;
+   stem-vs-mix signal semantics (stems did not sample-sum to the mix in
+   cross-check — DeepSeek reproduced: mix peak 32767, stem-sum peak 32768,
+   difference RMS 7775; document pre/post-master behavior); render
    level sanity (probe content clipped at full scale).
-2. Ardour: general session generator; per-track stems; reopen; controlled
+2. Ardour: general session generator; raw/pre-fader/GUI/batch stem export
+   (solo-render stems proven); reopen; controlled
    mute/solo voice-isolation receipt (current two-track evidence is
    master-mix level); demo-nightly vs release-tag re-verification;
    DummyMidiBuffer warning investigation.
@@ -185,11 +207,14 @@ review.
 
 - Conductor (kimi): author of synthesis; architecture trace; abcjs and
   template-swap probes.
-- GLM: candidate landscape, LMMS receipts, corrections accepted and applied;
-  reviewed conductor docs (3 corrections landed).
-- DeepSeek: fidelity matrix, Ardour probes, LMMS import correction,
-  Tracktion note; reviewed conductor probe wording ("two-track template path
-  proven; general generator unproven" applied).
-- Dissent: none recorded. DeepSeek's note that no final selection was
-  justified was written BEFORE the LMMS chain receipt and its own two-track
-  receipt landed; this proposal is the ensemble's joint answer to that bar.
+- GLM: **SIGN-ON**, no evidence errors; 4 minor comments (see its report);
+  independently re-confirmed the determinism receipt and verified the LMMS
+  AppImage ships no soundfont.
+- DeepSeek: **CONDITIONAL SIGN-ON** (deepseek-review.md): signs on to
+  LMMS-first under H1 conditional on its two factual corrections (applied
+  here: Ardour solo-render stem evidence restored; "complete chain" wording
+  narrowed to hand-written-.mmp scope) and on §5 gates 0–6 staying explicit
+  in the root-facing proposal.
+- No dissenting selection position remains; the Ardour vs LMMS-first
+  difference was resolved by evidence (project-generation receipts), not
+  preference.
