@@ -3,6 +3,7 @@ from review_recipe import response_schema, lora_schema
 from model_options import CONTEXT, TOKEN_RATE
 from video import VIDEO_ENCODING, VIDEO_FRAME_BATCH
 from operations import catalog
+from families import catalog as family_catalog
 from paths import ROOT
 
 
@@ -24,13 +25,15 @@ def describe():
                                       "description": "Optional source reference to retain the iteration's ancestry."}
     recipe["properties"]["idea_engine"] = {"type": "string", "enum": ["ai", "phrases", "openrouter"]}
     recipe["properties"]["brief"] = {"type": "string", "description": "The writer's musical intention for a Surprise song."}
+    surface = catalog(recipe, (ROOT / "VERSION").read_text().strip())
+    surface["operations"].update(family_catalog(recipe))
     return {
         "model": "YuE2", "context_tokens": CONTEXT, "music_tokens_per_second": TOKEN_RATE,
         "recipe_schema": recipe,
         "video_encoding": VIDEO_ENCODING,
         "video_frame_batch": VIDEO_FRAME_BATCH,
         "request_header": {"X-Riff-Request": "1"},
-        "agent_surface": catalog(recipe, (ROOT / "VERSION").read_text().strip()),
+        "agent_surface": surface,
         "operations": {
             "loras": {"method": "GET", "path": "/api/loras", "description": "Installed adapters and native activation availability."},
             "lora_search": {"method": "GET", "path": "/api/loras/hub?q=&sort=downloads&page=0&limit=20"},

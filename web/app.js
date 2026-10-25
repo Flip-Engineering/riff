@@ -1242,6 +1242,7 @@ async function refresh() {
   window.RiffLoRAs?.render(next);
   window.RiffScore?.update(next);
   window.RiffCompare?.render();
+  window.RiffFamilies?.render(next);
   $("#library-count").textContent = state.tracks.filter(
     (t) => !t.archived,
   ).length;

@@ -32,6 +32,7 @@ API to Riff and records remaining stage-reuse and composition workflows.
 | Agent operation | Discover `/api/capabilities` (`agent_surface`); use the same library, composition, review and generation queue through [versioned operations](agent-operations.md) with idempotency keys and receipts |
 | Decoder or quantization | Custom GGUF paths in Studio settings |
 | Compare revisions | A/B takes at the same listening position, passage loops, input differences, short studies, parent links, and runnable producer recommendations |
+| Group studies and develop one | Study families: a named group with shared inputs and each take's own differences, select a take with a reason, then develop it into a longer take that keeps its seed and score ([agent operations](agent-operations.md)) |
 | Analyze a reference for a cover | Planned C02: optional Gemini direct-audio analysis into editable style, lyrics, duration and ABC; not currently exposed |
 | Share a recording or passage | Animated seeded-artwork MP4 with optional in/out points and listening-loop shortcut; WAV, PNG artwork, and generation recipe |
 

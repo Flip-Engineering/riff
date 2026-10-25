@@ -592,6 +592,27 @@ class DevelopTests(DerivedFixture):
         self.assertEqual(result["receipt"]["references"][0]["provenance"]["sha256"], "a" * 64)
         self.assertEqual(result["receipt"]["stages"]["plan"], {"state": "reused", "from": SCORE})
 
+    def test_develop_keeps_a_verified_saved_performance_by_default_and_drops_it_with_a_note_when_the_length_changes(self):
+        take = self.source(stages=("score", "performance"))
+        status, kept = self.derive("take.develop", source=take["job_id"])
+        self.assertEqual(status, 201, kept)
+        effective = kept["receipt"]["effective_recipe"]
+        self.assertEqual((effective["performance_source"], effective["score_source"], effective["seed"]), (take["job_id"], SCORE, "1234"))
+        self.assertEqual(effective["max_seconds"], 10 / 25)
+        self.assertEqual(kept["receipt"]["derivation"]["retained"], {"seed": True, "score": True, "performance": True})
+        status, longer = self.derive("take.develop", source=take["job_id"], changes={"max_seconds": 60})
+        self.assertEqual(status, 201, longer)
+        effective = longer["receipt"]["effective_recipe"]
+        self.assertEqual((effective["max_seconds"], effective.get("performance_source", "")), (60.0, ""))
+        self.assertEqual(longer["receipt"]["derivation"]["retained"], {"seed": True, "score": True, "performance": False})
+        self.assertTrue(any("new length needs a new performance" in note for note in longer["receipt"]["derivation"]["notes"]))
+        # Naming the performance and a new length together is still refused.
+        self.assertEqual(self.derive("take.develop", source=take["job_id"], retain=["performance"], changes={"max_seconds": 60})[0], 400)
+        # Without a saved performance the default is unchanged.
+        plain = self.source(stages=("score",))
+        self.assertEqual(self.derive("take.develop", source=plain["job_id"])[1]["receipt"]["derivation"]["retained"],
+                         {"seed": True, "score": True, "performance": False})
+
     def test_defaults_that_cannot_be_kept_are_noted_and_explicit_requests_fail(self):
         direct = self.source(cot="off")
         status, result = self.derive("take.develop", source=direct["job_id"])

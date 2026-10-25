@@ -314,7 +314,8 @@ class Operations:
                 return self.family_for(parent, family_id, own)
         if family_id is not None:
             identity(family_id, "Family")
-            if not db.execute("SELECT 1 FROM operations WHERE family_id=? LIMIT 1", (family_id,)).fetchone():
+            if not (db.execute("SELECT 1 FROM operations WHERE family_id=? LIMIT 1", (family_id,)).fetchone()
+                    or db.execute("SELECT 1 FROM families WHERE id=?", (family_id,)).fetchone()):
                 raise KeyError("Family not found.")
             return family_id
         if parent:
@@ -463,19 +464,38 @@ class Operations:
             return {"id": reference, "job_id": None, "track_id": track["id"], "status": "done", "title": track["title"],
                     "recipe": track["recipe"], "kind": "take", "operation_id": None, "family_id": None}
 
+    @staticmethod
+    def input_view(recipe):
+        """A recorded recipe plus the identities of the composed score and performance it produced."""
+        view = dict(recipe)
+        if (recipe.get("symbolic_plan") or {}).get("artifact_id"):
+            view["composed_score"] = recipe["symbolic_plan"]["artifact_id"]
+        if (recipe.get("performance") or {}).get("sha256"):
+            view["performance_sha256"] = recipe["performance"]["sha256"]
+        return view
+
+    @staticmethod
+    def split_inputs(views):
+        """The recorded inputs every view shares, and for each view the ones where it differs from the others."""
+        shared, differing = [], [[] for _ in views]
+        if not views:
+            return shared, differing
+        for field, label in INPUT_FIELDS + COMPARED_RESULTS:
+            observed = [(field in view, view.get(field)) for view in views]
+            if all(item == observed[0] for item in observed):
+                if observed[0][0]:
+                    shared.append({"field": field, "label": label, "value": observed[0][1]})
+            else:
+                for items, (recorded, value) in zip(differing, observed):
+                    items.append({"field": field, "label": label, "value": value, "recorded": recorded})
+        return shared, differing
+
     def compare(self, references):
         """Show which recorded inputs the subjects share and where they differ."""
         if not isinstance(references, list) or len(references) < 2:
             raise ValueError("Choose at least two takes, jobs or operations to compare.")
         subjects = [self._subject(reference) for reference in references]
-        views = []
-        for subject in subjects:
-            recipe, view = subject["recipe"], dict(subject["recipe"])
-            if (recipe.get("symbolic_plan") or {}).get("artifact_id"):
-                view["composed_score"] = recipe["symbolic_plan"]["artifact_id"]
-            if (recipe.get("performance") or {}).get("sha256"):
-                view["performance_sha256"] = recipe["performance"]["sha256"]
-            views.append(view)
+        views = [self.input_view(subject["recipe"]) for subject in subjects]
         shared, differences = [], []
         for field, label in INPUT_FIELDS + COMPARED_RESULTS:
             observed = [(field in view, view.get(field)) for view in views]
@@ -493,14 +513,15 @@ class Operations:
 
     # -- writes ----------------------------------------------------------------
 
-    def submit(self, name, request, payload, key=None, family_id=None, parent=None, resumes=None, derivation=None, guard=None):
+    def submit(self, name, request, payload, key=None, family_id=None, parent=None, resumes=None, derivation=None, guard=None, also=None):
         """Queue one take and record its operation atomically; replay a repeated key.
 
         Everything that reads files or the control runtime (validation, reference resolution, engine
         identity) happens before the write transaction. Inside it, the parent and family checks and the
         inserts use the transaction's own connection. ``guard(db)``, when given, runs inside that
         transaction before the insert and may raise to refuse the work (for example a conflicting
-        operation that another request committed first)."""
+        operation that another request committed first). ``also(db)`` runs in the same transaction, so
+        a record that must exist only if this take is accepted (a new family) is never left behind by a refusal."""
         key = idempotency_key(key)
         fingerprint = digest(name, request)
         if key and (existing := self._existing(name, key, fingerprint)):
@@ -516,6 +537,8 @@ class Operations:
                         raise _Duplicate()
                     if guard:
                         guard(db)
+                    if also:
+                        also(db)
                     linked = self.parent_of(bound, parent, db)
                     family = self.family_for(linked, family_id, db)
                     db.execute("INSERT INTO operations (id,name,surface_version,idempotency_key,request_digest,created,job_id,"
@@ -626,13 +649,16 @@ class Operations:
         if "score_source" not in draft and cot != "off" and "abc" not in changes:
             draft["abc"] = source.get("abc", "")
         if "performance" in retain:
-            if "max_seconds" in changes:
+            if "max_seconds" in changes and strict:
                 raise ValueError("A retained performance fixes the duration. Change max_seconds only without retaining the performance.")
-            reference, reason = self._stage_reference(subject, "performance")
-            if reference:
-                draft["performance_source"] = reference
+            if "max_seconds" in changes:
+                skip("A new length needs a new performance, so the saved performance was not kept.")
             else:
-                skip(reason)
+                reference, reason = self._stage_reference(subject, "performance")
+                if reference:
+                    draft["performance_source"] = reference
+                else:
+                    skip(reason)
         if continuing:
             for key in ("parent_track_id", "review_id"):
                 if source.get(key):
@@ -723,7 +749,9 @@ class Operations:
             draft, retained, notes = {"acoustic_source": reference, **copy.deepcopy(changes)}, {"sound": True}, []
         else:
             changes = self._changes(payload.get("changes"))
-            default = ["seed", "score"] if replay in (None, "score") else ["seed", "performance"]
+            # Develop keeps what the source verifiably has: its seed, composed score and saved performance.
+            # A saved performance fixes the length, so it is skipped (with a note) when the length is changed.
+            default = ["seed", "score", "performance"] if replay is None else ["seed", "score"] if replay == "score" else ["seed", "performance"]
             retain, explicit = self._retention(payload.get("retain"), default)
             if replay in ("score", "performance") and replay not in retain:
                 raise ValueError(f"Replaying the {replay} retains it; remove it from retain or choose another replay.")
