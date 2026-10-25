@@ -48,21 +48,23 @@ evidence before any selection is final.
 
 Why LMMS first, on evidence:
 
-1. It is the only candidate with a receipted headless PROJECT→MIX+STEMS
-   chain for a hand-written `.mmp`: agent-authored 4-voice XML (generated
+1. It has the only native per-track stem COMMAND receipt (`rendertracks`);
+   both candidates now have headless project→mix+stems receipts by
+   different methods (LMMS native per-track; Ardour solo-render per-track
+   with a 1-LSB sample-domain reconstruction of the mix): agent-authored
+   4-voice XML (generated
    by `probes/verify/mmp_generator.py` from the shared ABC fixture) →
    headless mix render (~1 s wall, no display) → per-track stems
-   (`rendertracks`, distinct per-voice content) → deterministic output:
+   (distinct per-voice content) → deterministic output:
    re-run byte-identical (GLM render+re-run + conductor's two invocations,
-   one sha256). Qualifiers on "complete": the render carries a
+   one sha256). Qualifiers on the chain: the render carries a
    deterministic song-end pad (24.166 s render vs ~19.97 s content);
    stems pass the master-volume stage and are NOT a sample-sum
    decomposition of the mix (track clipping + nonlinear master taper —
-   GLM's routing resolution; Ardour's solo-render stems reconstruct its
-   mix within 1 LSB, the complementary stronger receipt); and the
+   GLM's routing resolution); and the
    ABC→project generator is fixture-shaped, not general.
-   The end-to-end ABC→MIDI→`.mmp` product bridge, macOS headless,
-   instrument/timbre path, and stem-vs-mix semantics are NOT yet receipted —
+   The end-to-end ABC→MIDI→`.mmp` product bridge, macOS headless, and the
+   instrument/timbre path are NOT yet receipted —
    they are explicit gates in §5, not buried under this claim.
 2. Official macOS arm64 builds exist (macOS 11+/M1+, 1.3.0-alpha.2 release
    table), matching Riff's only desktop payload target; Linux x86_64
