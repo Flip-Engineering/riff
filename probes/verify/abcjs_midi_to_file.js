@@ -1,0 +1,10 @@
+const fs = require('fs');
+const ABCJS = require('/mnt/nvme4tb/ci-runners/baton2-native-homelab/home/worktrees/riff-daw-ensemble-20261025/web/vendor/abcjs-basic-min.js');
+const abc = fs.readFileSync('.probe-tmp/sample.abc', 'utf8');
+const r = ABCJS.synth.getMidiFile(abc, { midiOutputType: 'binary' });
+console.log('ctor:', r && r.constructor && r.constructor.name, 'isUint8:', r instanceof Uint8Array, 'len:', r.length, 'keys:', Object.keys(r).slice(0,5));
+const s = String(r);
+const arr = s.split(',').map(Number);
+console.log('string bytes:', arr.length, 'first:', arr.slice(0, 14).join(','));
+fs.writeFileSync('.probe-tmp/abcjs.mid', Buffer.from(arr));
+console.log('wrote via string path');

@@ -8,11 +8,11 @@ the Ardour demo bundle, rendered WAVs) are NOT retained; the committed
 
 ## Attribution
 
-- `tools/midi_summary.py`, `tools/abc2js.js`: riff-daw-deepseek-20261025
+- `verify/midi_summary.py`, `verify/abc2js.js`: riff-daw-deepseek-20261025
   (dsh/deepseek-flash) — dependency-free SMF event summarizer; abcjs
   headless runner (Node vm + DOM shim) driving the vendored
   `web/vendor/abcjs-basic-min.js`.
-- `tools/abcjs_midi_to_file.js`: riff-daw-conductor-kimi-20261025
+- `verify/abcjs_midi_to_file.js`: riff-daw-conductor-kimi-20261025
   (omp/kimi-code/k3) — earlier abcjs variant (Array-wrapped return
   handling); superseded by `abc2js.js` for new work.
 - `ardour/*.lua`: riff-daw-deepseek-20261025 — headless session load,
@@ -34,8 +34,8 @@ Converters: abcMIDI 5.07 (source build, commit `6582eb8`); abcjs 6.7.0
 ```sh
 # ABC -> per-converter SMF
 abc2midi probes/fixtures/arrangement-v1.abc -o out.mid -NGUI
-node probes/tools/abc2js.js probes/fixtures/arrangement-v1.abc out-abcjs.mid
-python3 probes/tools/midi_summary.py out.mid > out.summary.json
+node probes/verify/abc2js.js probes/fixtures/arrangement-v1.abc out-abcjs.mid
+python3 probes/verify/midi_summary.py out.mid > out.summary.json
 ```
 
 DAW render environments are documented in
