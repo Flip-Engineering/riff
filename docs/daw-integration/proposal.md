@@ -17,16 +17,28 @@ Evidence base: `riff-architecture.md` (Riff source facts),
 `comparison-framework.md` (conductor), `docs/evidence/*.json` receipts,
 Baton knowledge records by all three seats.
 
-## 1. Recommendation
+## 1. Recommendation (PROVISIONAL — root review continues; bounded musical
+comparison authorized and running)
 
-**Integrate LMMS (pinned v1.3.0-alpha.2) as the first DAW render backend,
-under the batch-render hypothesis (H1), with a pinned server-side abc2midi
-conversion stage. Retain Ardour as the production-depth alternative and
-Tracktion Engine as the engine-component alternative, both with documented
-open gates.** This is a proposal FOR ROOT REVIEW, not a selected production
-implementation; production readiness for Riff is not established — the
-gates in §5 (including the absent end-to-end instrument bridge and any
-macOS run) remain open.
+**The ensemble's evidence favors LMMS (pinned v1.3.0-alpha.2) as the first
+DAW render backend, under the batch-render hypothesis (H1), with a pinned
+server-side abc2midi conversion stage — while Ardour remains a competitive
+choice and Tracktion Engine remains the engine-component alternative. This
+is a preference, not a decisive production-quality advantage, and not a
+selected production implementation.**
+
+Fair-comparison correction (root review): BOTH LMMS and Ardour need a
+project-generation adapter. LMMS's receipts are handwritten-XML driven;
+its MIDI import is GUI-dependent. Ardour already has GENERATED two- and
+four-track projects with individual MIDI sources/instruments, headless
+save/render, and solo stems reconstructing the master within 1-2 LSB.
+Deferring Ardour for lacking a general generator would apply a standard
+LMMS has not met either. LMMS's demonstrated advantages are simpler project
+construction, native per-track export (`rendertracks`), and fast startup on
+the small fixture — these support the preference; they do not close the
+comparison. The root-authorized musical workflow probes (both DAWs, shared
+arrangement fixture) are designed to supply the missing production-quality
+evidence before any selection is final.
 
 Why LMMS first, on evidence:
 
@@ -43,9 +55,12 @@ Why LMMS first, on evidence:
 2. Official macOS arm64 builds exist (macOS 11+/M1+, 1.3.0-alpha.2 release
    table), matching Riff's only desktop payload target; Linux x86_64
    probed on this host.
-3. GPLv2 license; distribution as a separate process with pinned sources
-   follows Riff's existing ffmpeg/x264/lame compliance pattern
-   (obligation review still required — see §5).
+3. GPLv2 license. Separate-process execution is NOT blanket clearance:
+   obligations follow the ACTUAL distributed artifacts (program sources,
+   bundled instruments/plugins/samples/soundfonts), so per-candidate
+   licensing inventories of the distributed bundles are probe items
+   (GLM: LMMS AppImage; DeepSeek: Ardour bundle incl. gmsynth and its SF2)
+   with obligation review to follow (§5).
 4. The project format is agent-writable XML with a text-level `dump`
    reparse/round-trip receipt (11 notes byte-identical after
    write→MMPZ→dump; this is a reparse of the generated project, NOT a
@@ -65,10 +80,13 @@ Why not the others first (all reversible, evidence in the cited docs):
   solo-render path (Lua `solo_control()` + per-snapshot export; two stems
   reconstruct the master within 1 LSB, four within 2 LSB — DeepSeek §3.1,
   hashes conductor-verified). Still open: a general headless session
-  generator, raw/pre-fader/GUI/batch stem export, session reopen receipt,
-  and Lua scripting is self-described upstream as "prototyping stage,
-  interfaces may change". Keep as the upgrade path for mixing depth once
-  its generator gate closes.
+  generator (the same class of adapter LMMS also needs — handwritten XML
+  is not a generator either), raw/pre-fader/GUI/batch stem export, and a
+  session reopen receipt. The editing-interface tradeoff is weighed in
+  probe 5: Lua scripting is self-described upstream as "prototyping stage,
+  interfaces may change", while LMMS's XML writing needs version-specific
+  maintenance — neither disqualifies a pinned implementation. Ardour
+  remains in active competition pending the shared musical-workflow probe.
 - **Tracktion Engine 3.2**: the strongest PROGRAMMATIC authoring surface
   (first-class MIDI API, GUI-independent `Renderer`, ProjectManager
   persistence), but it is an engine, not a DAW: Riff would build and own a
@@ -93,7 +111,7 @@ Why not the others first (all reversible, evidence in the cited docs):
 
 | Axis (C1–C12) | LMMS 1.3.0-alpha.2 | Ardour 9.8 | Tracktion 3.2 |
 | --- | --- | --- | --- |
-| License/distribution | GPLv2; separate-process precedent applies | GPLv2+ + plugin clarification | GPLv3/commercial + JUCE license |
+| License/distribution | GPLv2 (LICENSE.txt); obligations follow actual distributed artifacts — inventory probe assigned | GPLv2+ + plugin clarification; bundle inventory probe assigned | GPLv3/commercial + JUCE license |
 | Headless operation | render/rendertracks QCoreApplication-only `[probe]`; dump/upgrade need display | `ardour9-lua` + `ardour9-export` `[probe]` | `Renderer` GUI-independent (source) |
 | Project construction | agent-written XML `[probe]` + dump round-trip | template-swap + 2-track template `[probe]`; general generator unproven | C++ API by design (source); unprobed |
 | Per-instrument MIDI | per-track patterns in XML; MIDI import is GUI-only (correction) | SMF sources per track `[probe]`; Lua import binding absent | first-class MIDI API (source) |
@@ -176,8 +194,10 @@ the operator's instruction.
 
 1. LMMS: GM instrument path (Sf2Player + a license-reviewed pinned
    soundfont — the AppImage contains zero .sf2/.sf3 files, GLM-verified;
-   vs per-track synth presets); macOS headless render (unverified —
-   AppImage probe was Linux); .mmp reopen round-trip beyond dump;
+   vs per-track synth presets); macOS arm64 headless render (unverified —
+   AppImage probe was Linux; this gate qualifies the BUNDLED-DESKTOP
+   backend only — a homelab-hosted backend can be proven on Linux without
+   it, per root review item 6); .mmp reopen round-trip beyond dump;
    stem-vs-mix signal semantics (stems did not sample-sum to the mix in
    cross-check — DeepSeek reproduced: mix peak 32767, stem-sum peak 32768,
    difference RMS 7775; document pre/post-master behavior); render
@@ -219,7 +239,9 @@ the operator's instruction.
   unmerged — no dependence on `family.*`. No changes to existing YuE2
   generation; no deployment; musician session preserved.
 - No macOS run was possible from this host: every macOS claim is
-  official-page evidence, not a receipt.
+  official-page evidence, not a receipt. Scoped per root review: macOS
+  qualification gates the BUNDLED-DESKTOP backend; a homelab-hosted
+  backend can be established without it.
 
 ## 7. Ensemble review status
 
