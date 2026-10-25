@@ -35,12 +35,12 @@ import platform_support
 
 WEB = ROOT / "web"
 TRACK_ROUTE = re.compile(r"/api/tracks/([a-f0-9]{32})(?:/(audio|recipe|visualization|video-exports|lineage))?")
-VIDEO_ROUTE = re.compile(r"/api/video-exports/([a-f0-9]{32})(?:/(frames|finish|cancel|download))?")
+VIDEO_ROUTE = re.compile(r"/api/video-exports/([a-f0-9]{32})(?:/(frames|finish|cancel|download|live))?")
 JOB_ROUTE = re.compile(r"/api/jobs/([a-f0-9]{32})(?:/(cancel|retry|move))?")
 PRESET_ROUTE = re.compile(r"/api/presets/([a-z0-9-]+)")
 TRACK_REVIEWS_ROUTE = re.compile(r"/api/tracks/([a-f0-9]{32})/reviews")
 REVIEW_ROUTE = re.compile(r"/api/reviews/([a-f0-9]{32})(?:/(cancel))?")
-LORA_ROUTE = re.compile(r"/api/loras/([a-f0-9]{64})(?:/(updates))?")
+LORA_ROUTE = re.compile(r"/api/loras/([a-f0-9]{64})(?:/(updates|clean))?")
 LORA_TASK_ROUTE = re.compile(r"/api/loras/tasks/([a-f0-9]{32})(?:/(cancel))?")
 OPERATION_ROUTE = re.compile(r"/api/v1/operations(?:/([a-f0-9]{32}|[a-z]+(?:\.[a-z]+)*))?")
 
@@ -143,6 +143,25 @@ class Handler(BaseHTTPRequestHandler):
             return False
         return True
 
+    def video_producer(self, export_id):
+        """Keep the drawing page's connection open while its export accepts frames."""
+        self.server.video_exports.get(export_id)
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Accel-Buffering", "no")
+        self.send_header("Connection", "close")
+        self.end_headers()
+        self.close_connection = True
+
+        def send(data):
+            self.wfile.write(data)
+            self.wfile.flush()
+        try:
+            self.server.video_exports.producer(export_id, send)
+        except ValueError:
+            pass
+
     def json_response(self, status, value):
         body = json.dumps(value, ensure_ascii=False).encode("utf-8")
         # Large catalogs compress well; leave streaming audio/video untouched.
@@ -225,6 +244,8 @@ class Handler(BaseHTTPRequestHandler):
             elif (match := LORA_ROUTE.fullmatch(path)):
                 if match[2] == "updates":
                     self.json_response(200, self.server.store.loras.check_updates(match[1]))
+                elif match[2]:
+                    raise KeyError("Action not found.")
                 else:
                     self.json_response(200, {**self.server.store.loras.get(match[1]),
                                              "references": self.server.store.lora_references(match[1])})
@@ -270,6 +291,8 @@ class Handler(BaseHTTPRequestHandler):
                 if match[2] == "download":
                     file, title = self.server.video_exports.download(match[1])
                     self.send_file(file, "video/mp4", title, ranged=True)
+                elif match[2] == "live":
+                    self.video_producer(match[1])
                 elif not match[2]:
                     self.json_response(200, self.server.video_exports.get(match[1]))
                 else:
@@ -520,6 +543,9 @@ class Handler(BaseHTTPRequestHandler):
                     with self.server.generator.lock:
                         result = self.server.store.loras.delete(match[1], confirm=payload.get("confirm") is True)
                 self.json_response(200, result or {"status": "removed"})
+            elif (match := LORA_ROUTE.fullmatch(path)) and match[2] == "clean" and method == "POST":
+                with self.server.generator.lock:
+                    self.json_response(200, self.server.store.loras.clean(match[1]))
             elif path in ("/api/generations", "/api/plans") and method == "POST":
                 key = payload.pop("idempotency_key") if "idempotency_key" in payload else self.headers.get("Idempotency-Key")
                 recipe = {**payload, "render_mode": "plan" if path == "/api/plans" else payload.get("render_mode", "music")}

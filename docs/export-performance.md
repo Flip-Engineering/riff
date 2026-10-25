@@ -122,6 +122,13 @@ RIFF_DEMO_WAV=/absolute/reference.wav RIFF_BENCH_DURATIONS=2,30 \
   node scripts/benchmark_video.mjs /absolute/fresh-results-directory
 ```
 
+The default driver attaches CDP only to the page. `RIFF_BENCH_DRIVER=playwright`
+selects the diagnostic driver explicitly. Interception, Blob observation,
+single/batch comparisons, repeat counts and caller-supplied wait timeouts select
+Playwright automatically; forcing CDP with those controls is rejected so a
+requested diagnostic is never silently ignored. `RIFF_BENCH_INTERCEPT=1` forces
+Playwright interception. Driver selection is the same through the revision wrapper.
+
 For a matched single-frame versus batched comparison, run serially into different
 fresh directories with `RIFF_BENCH_UPLOAD=single` and `RIFF_BENCH_UPLOAD=batch`.
 Alternatively, `RIFF_BENCH_UPLOAD=compare RIFF_BENCH_REPEATS=2` runs each pair
@@ -149,13 +156,14 @@ both PNG and H.264 transport serially with motion analysis warmed before timing.
 H.264 must actually be available; fallback
 is not scored as accelerated encoding. Results include stage receipts, wall
 time, throughput, final size, decoded-frame hashes, stream duration/count checks,
-sampled process-tree RSS/CPU and relative video SSIM. The MP4 and frame-hash files
+sampled process-tree RSS/CPU. The Playwright driver additionally reports relative
+video SSIM between transports. The MP4 and frame-hash files
 remain beside `results.json`; no raw frames accumulate on disk.
 
 RSS is a sampled sum with shared pages counted in each process, not physical
 footprint. CPU percentages come from `ps`, not an integrated CPU-time counter.
-GPU utilization and peak temporary-disk use require separate profiling and are
-not inferred from these numbers. SSIM compares against the existing lossy
+GPU utilization samples are system-wide and temporary-disk peaks are scoped to
+the isolated run, as described below. SSIM compares against the existing lossy
 PNG/libx264 output, not a lossless master. These limitations and host load belong
 with any reported results; one run does not establish a universal speedup.
 
@@ -266,3 +274,211 @@ do not establish quality across complete pieces. The earlier realtime Share
 trial stalled after one frame; it is retained as failed evidence and excluded
 from the table. Quality-mode draining completed every case. Independent mobile
 players, longer passages and controlled throughput/resource trials remain open.
+
+### Long PNG exports and browser backing storage
+
+The PNG worker can keep browser Blob backing data alive until garbage collection,
+including after `image.arrayBuffer()` completes and its ArrayBuffer is transferred.
+Clearing the JavaScript variable does not itself collect the Blob. In Chromium
+145 incognito, a focused 1024-square noise-frame probe left 200 PNG Blobs and
+about 776 MB live after 200 encodes. `FileReaderSync` retained the same number
+and was rejected as a fix. A long 2160-square/60 export also accumulated live
+PNG Blobs and failed; this is separate from codec throughput.
+
+Workers now retire after their cumulative PNG bytes reach the server's advertised
+batch-byte budget. Standalone encoders derive that budget from one raw RGBA frame.
+The next captured bitmap continues in a fresh worker, in order. Worker retirement
+releases the retained Blobs without depending on browser GC cadence. It does not
+limit the number of frames or duration, change PNG pixels, or change the final
+encoder. Active worker backing data may exceed the budget by one encoded frame.
+The draw/upload loop also removes upload-failure subscriptions as each wait ends;
+a shared pending race promise previously retained successful frame results until
+the export ended.
+
+Read failures preserve the browser exception name, message and one-based frame
+number. The UI suggests checking memory, temporary disk space and permissions;
+it does not infer a specific resource failure from `NotReadableError` alone.
+`tests/video-storage.mjs` forces Chromium's file transport in an isolated profile
+and denies writes only to that profile's Blob directory. This produces a real
+browser read error, checks server-job cleanup, and restores permissions before a
+fresh export. It requires an unprivileged POSIX user. It is a storage-fault test,
+not a recreation of memory pressure on an M4.
+
+Chromium documents [Blob backing storage, GC and quotas](https://chromium.googlesource.com/chromium/src.git/+/refs/heads/main/storage/browser/blob/README.md).
+Its [test transport switches](https://chromium.googlesource.com/chromium/src.git/+/refs/heads/main/storage/browser/blob/blob_storage_constants.h)
+are browser test controls, not Studio configuration.
+
+### Repeating a revision and collecting resources
+
+The current harness can measure any locally available source commit without
+changing the active checkout. Install the current harness's Node dependencies,
+then run:
+
+```sh
+RIFF_DEMO_WAV=/absolute/reference.wav RIFF_BENCH_DURATIONS=2,30 \
+  node scripts/benchmark_video_revision.mjs COMMIT /absolute/new-results-directory
+```
+
+The wrapper checks out the exact commit in a detached temporary worktree and
+runs the current harness against its server and web assets. It records both the
+source and harness revisions (and dirty state), then removes the temporary
+checkout. Refusal to remove a modified checkout preserves that work. Receipts
+and media remain in `measurements/`. For a software comparison, run revisions
+serially in alternating order on the same WAV, dimensions, durations, transport,
+upload mode and browser; compare retained decoded hashes. Shared-host observations
+must be labelled contended, even with matched inputs. A controlled-load matrix
+still requires a reserved quiet interval.
+
+The harness now uses an isolated persistent Chromium profile, like ordinary
+Studio browsing, instead of Playwright's default incognito context. All browser,
+fixture and export temporary files live below the result directory. It reports
+available disk space before running and samples temporary allocated/logical bytes,
+owned process RSS/CPU and host load every 500 ms. Linux also counts owned open
+unlinked files under that temporary directory, deduplicated by device/inode;
+other platforms report that component as unavailable. Inaccessible Linux
+descriptors are listed and mark that component unavailable for that sample;
+known allocated bytes are then a lower bound. These are sampled peaks,
+include fixture WAVs and retained MP4s in the temporary library, and exclude files
+outside the directory and in-memory `memfd` allocations.
+
+NVIDIA counters, where available, are **system-wide**, include unrelated work,
+and are retained with GPU identity and browser graphics information. Software
+WebGL utilization is not inferred from them. Missing GPU samples are unavailable,
+not zero. On Apple hardware a separate platform GPU profiler is still required.
+The browser samples DOM progress and ordinary timer gaps while exporting without
+pointer input; encoder tests also cancel with keyboard input during a pending
+encode and during worker replacement.
+
+Normal batched runs observe network request/response events without intercepting
+uploads. `RIFF_BENCH_INTERCEPT=1` restores interception of capabilities and every
+upload for diagnostics; positive injected latency and single/batch comparisons
+also enable the required routes. Results disclose both routing settings.
+[Playwright routing](https://playwright.dev/docs/api/class-page#page-route) pauses
+matched requests until continued and disables HTTP cache; it is a measurement
+variable, not ordinary Studio behavior. Riff already serves these worker assets
+with `no-store`, so cache behavior alone does not establish the cause of a stall.
+Resource samples also retain cumulative CPU seconds per process and, on Linux,
+renderer and dedicated-worker thread CPU time. They exclude the transient `ps`
+query itself; older results retained that query in their aggregate percentage.
+
+Additional controls:
+
+- `RIFF_BENCH_TRANSPORTS=png` selects the long PNG reproduction alone.
+- `RIFF_BENCH_CONTEXT=incognito` exercises the no-disk-spill Blob context.
+- `RIFF_BENCH_BLOB_INTERNALS=1` retains live `chrome://blob-internals` records
+  every five seconds. `frames` also samples before each worker frame and after
+  each retirement, waiting for the pre-frame sample before posting that bitmap.
+  These profiling modes affect timings; use them for retention evidence, not
+  throughput comparisons. In particular, `frames` blocks frame submission while
+  sampling and can contribute to encoder or backend inactivity deadlines under
+  shared load. Prefer ungated `1` for full export validation. JSONL records
+  preserve native Blob listings and timestamp sampling errors.
+- Worker telemetry records each initialization time, byte budget, encoded-byte
+  total and retirement, including when Blob profiling is disabled.
+- `RIFF_BENCH_BROWSER_ARGS='["--blob-transport-by-file-trigger=1"]'` forces
+  Chromium's test file transport; disclose it with results.
+- `RIFF_BENCH_TIMEOUT_MS` optionally supplies a caller-selected wait timeout.
+  Export/download waits have no default duration cap. Repeat counts, injected
+  latency and streamed frame-hash output have no artificial upper limits.
+
+A supplied WAV must cover the longest passage. The built-in fixture is twelve
+seconds; use the existing two/ten-second defaults for a short matrix, or supply
+longer audio to exceed the recorded failure around frame 1521. Failures retain
+the last server job state, UI error, resource samples and Blob samples in
+`failure.json`, rather than being discarded from the evidence. The harness also
+retains worker request/post/response clocks, page and harness time origins, frame
+upload/acknowledgement events and any available FFmpeg stderr before fixture
+cleanup. An unavailable measurement stays unavailable; old captures cannot be
+retrofitted with timestamps they did not record.
+
+### October 23 validation — partial issue #20 qualification
+
+The [retained evidence](export-performance-20261023.json) includes media hashes, per-worker startup arrays, receipts, quota samples, resource summaries and all retained negative trials. These are reliability and harness controls on a shared host, not a controlled representative-recording throughput claim. The source was a 32-second stereo 48 kHz PCM sine fixture (SHA-256 `9e14482a72195e59cf099535075dce1f14aa57e7ceeea66b4195029e9817d0ee`). Chromium 145.0.7632.6 used ANGLE/SwiftShader on Linux/AMD EPYC 7551. Referenced test-results/ artifacts, including full MP4s, decoded frame hashes, time series and logs, are retained locally in the worker checkout and are not committed to Git. The versioned JSON contains the reviewed summaries and hashes.
+
+The focused quota probe failed on baseline frame 554 after 553 completed frames, with 2,144,680,545 live PNG Blob bytes. The final observation was labelled the end of a 600-frame sample window; 600 was not the failure frame. Retirement completed 650 noise frames, with zero live PNG Blobs at each 50-frame boundary. The full 2160-square export observed a roughly 35 MB PNG plateau through repeated retirement instead of unbounded growth. This establishes a Blob lifetime mechanism; it does not prove the original M4 failure had exactly the same resource cause.
+
+All six two-second PNG/H.264 matrix pairs were byte-identical to baseline `d30b139`, including MP4 hashes and decoded-frame hashes; original WAV downloads also matched. The fix rows used `2bccf31`, whose encoder and draw-loop behavior matches the final runtime apart from opt-in phase instrumentation. These initial measurements used Playwright with interception and worker auto-attachment. The startup share is disclosed as a harness-affected observation, not representative Studio overhead.
+
+| Format / transport | Baseline wall s | Fix wall s | Retirements | Replacement init / wall |
+| --- | --- | --- | --- | --- |
+| 1920x1080x30 png | 22.91 | 24.21 | 1 | 0.80% |
+| 1920x1080x30 h264 | 34.37 | 42.96 | 0 | 0.00% |
+| 2160x2160x30 png | 43.35 | 48.94 | 2 | 5.81% |
+| 2160x2160x30 h264 | 59.28 | 42.71 | 0 | 0.00% |
+| 2160x2160x60 png | 85.67 | 70.11 | 5 | 12.13% |
+| 2160x2160x60 h264 | 86.12 | 87.29 | 0 | 0.00% |
+
+The four-arm PNG control used 1,800 frames at 1920×1080/60, persistent profiles, the same WAV and non-blocking Blob observation. Every arm completed and produced identical MP4 and decoded hashes. Interception increased harness RSS from roughly 0.27 GB to 1.8–2.0 GB and replacement startup substantially; it is now off by default. Playwright worker auto-attachment remained enabled in all four arms. These sequential contended runs isolate a harness variable but do not establish a software speedup.
+
+| Source | Interception | Wall s | Retirements | Median replacement init ms | Peak harness RSS GB |
+| --- | --- | --- | --- | --- | --- |
+| 286e2cc | off | 191.79 | 40 | 108.9 | 0.27 |
+| 286e2cc | on | 268.55 | 40 | 1112.2 | 1.82 |
+| d30b139 | off | 201.87 | 0 | — | 0.28 |
+| d30b139 | on | 492.96 | 0 | — | 1.99 |
+
+The first three arms used a sampler version that mislabelled Chromium process roles when Linux flattened their command lines. Their per-PID CPU data remains available, but renderer/worker attribution is unavailable. The final arm and subsequent long no-interception runs use corrected role parsing. Sampled process CPU counters include setup and harness cost; worker thread totals are lower bounds because a short-lived thread may end between samples.
+
+Successful 1,800-frame 2160×2160/60 PNG runs follow. All output hashes match (MP4 SHA-256 `22e052d4882c1c928c455fdc55471a3d7b9ac065de24c154fa347475bb5c61e9`), with exact frame count, dimensions, frame rate and audio/video duration validated. Progress completed without pointer input and every worker was terminated. Each run retired 81 workers.
+
+| Driver / context | Interception | Blob observer | Wall s | Replacement init median / p95 / max ms | Replacement init / wall |
+| --- | --- | --- | --- | --- | --- |
+| Playwright incognito | on | ungated | 1166.97 | 2287.6 / 26911.6 / 49289.5 | 34.96% |
+| Playwright persistent | on | none | 993.15 | 2592.4 / 16631.1 / 32813.7 | 35.57% |
+| Playwright persistent | off | ungated | 449.14 | 250.3 / 422.4 / 832.5 | 5.05% |
+| Page-only CDP | off | none | 927.71 | 443.3 / 929.6 / 1728.3 | 4.28% |
+
+The page-only CDP export completed all 1,800 frames with 81 retirements. Replacement startup totaled 39.684 s (4.28% of wall time); its p95 was 929.6 ms and maximum 1728.3 ms. The maximum remains far below the existing 60 s wait. We keep one worker at a time and defer prewarming: this measured overhead does not justify another live canvas and concurrent initialization in this reliability fix. The measured fraction includes script loading and scheduling and is not a direct subtraction from overlapped export time. This is one shared-host observation, not a bound for all browsers.
+
+Startup phase summaries and every per-worker initialization are retained in the JSON. Script loading, worker scheduling and delivery dominate the measured initialization; canvas construction and getContext are recorded separately on the worker clock. Worker requests are observed without routing or pauses; no worker debugger attached, and CDP reported zero frame postData characters. Chromium's resource-timing entries can have negative durations in these captures; those entries are retained and counted as invalid rather than used to claim an HTTP duration. CSP, no-store and both runtime deadlines remain unchanged.
+
+| Startup observation | Median ms | p95 ms | Max ms |
+| --- | --- | --- | --- |
+| construct_ms | 0.3 | 3.7 | 7.9 |
+| script_received_after_open_ms | 441.4 | 926.2 | 1712.5 |
+| script_to_init_ms | 2.4 | 12.4 | 17.2 |
+| canvas_create_ms | 0.1 | 0.7 | 3.0 |
+| get_context_ms | 0.5 | 2.9 | 9.0 |
+| context_ready_to_reply_ms | 0.1 | 0.3 | 3.4 |
+
+The page-only run peaked at 6,268,694,528 summed RSS bytes and 52,875,264 scoped allocated temporary bytes. The harness peaked at 450,764,800 RSS bytes. The maximum ordinary 100 ms timer gap was 3349.2 ms. Host one-minute load rose from 52.58 to 129.68 on 64 logical CPUs. Progress required no pointer movement, but this contended capture does not establish a 100 ms response bound under load.
+
+The no-interception Playwright run peaked at 6,401,888,256 summed RSS bytes and 54,685,696 scoped allocated temporary bytes; live PNG Blob bytes peaked at 34,910,224. The larger RSS in intercepted runs includes the harness retaining request data and must not be read as Studio footprint. RSS sums count shared pages repeatedly. Temporary samples include the fixture WAV and output MP4 and owned open unlinked files, exclude in-memory memfd allocations, and are lower bounds when descriptor access is unavailable. NVIDIA counters are system-wide and include unrelated work; they do not measure this software-rendered export's GPU cost.
+
+Three earlier trials stopped at 1,216, 1,408 and 1,712 accepted frames. They were interrupted by backend 120 s inactivity cleanup during an observer stall under shared load; causation unresolved. They occurred under Playwright interception and worker auto-attach; harness inflation demonstrated; sole causation not proven. The first two gated each frame on Blob inspection; the third did not. The persistent gated trial peaked at 8,657,354,752 summed RSS bytes and 50,769,920 scoped allocated temporary bytes; available disk stayed above 547,368,624,128 bytes. Its last native sample was at elapsed 1461.205 s and its final resource sample at 1533.906 s; the 30 s observer timeout lacked a start timestamp. Old FFmpeg stderr/stdin totals and exact timeout overlap were not retained. The original baseline's 1,216 count was only a live poll, not a terminal count. The separate diagnostic baseline was aborted by a sampler EACCES error; later samplers preserve that component as unavailable.
+
+Two harness-validation negatives are retained separately: a caller-set 1 ms wait timeout exercised failure capture, and a completed 12-frame single-batch export failed an incorrect intermediate-progress assertion. The latter now requires final progress 1; consecutive exports pass after correction. Neither is evidence of a product export failure.
+
+Regression coverage includes exact pixels and ordering through forced retirement, cancellation during replacement with all queued bitmaps closed, a real Chromium backing-file permissions error and fresh retry, and both actual PNG/H.264 upload paths through temporary retry, fatal upload failure, fresh export and keyboard cancellation. The upload-wait cleanup has its own commit. The Python video suite and resource sampler checks pass. Short harness validation additionally checks consecutive page reloads, zero captured frame bodies and unattached worker targets.
+
+Remaining issue #20 qualification: a reserved quiet interval with representative recordings and repeated alternating baselines, hardware-GPU measurements, and M4 memory-pressure behavior. Neither the benchmark fixture nor the successful homelab runs close those items.
+
+### Page-only CDP validation
+
+`scripts/benchmark_video_cdp.mjs` is the default through both entry points;
+`RIFF_BENCH_DRIVER=cdp` selects it explicitly. It requires Node's built-in
+WebSocket API. It launches an
+isolated Chromium itself, attaches only to the page, and never enables worker
+auto-attachment or request interception. Worker target samples must remain
+unattached. Native browser fetches carry the frames; the driver retains only
+small upload metadata and media validation artifacts. Use
+`RIFF_BROWSER_EXECUTABLE` to match the browser binary between driver comparisons.
+The executable path and full launch arguments are recorded.
+The page-only launcher and Playwright have different browser launch defaults;
+their timing comparison does not isolate worker auto-attachment by itself.
+
+```sh
+RIFF_BENCH_DRIVER=cdp RIFF_DEMO_WAV=/absolute/reference.wav \
+  RIFF_BENCH_DURATIONS=30 RIFF_BENCH_DIMENSIONS=2160x2160x60 \
+  node scripts/benchmark_video_revision.mjs COMMIT /absolute/new-results-directory
+```
+
+The optional worker profile name enables script-evaluated, canvas-construction,
+context-creation and PNG encoding/read phases in the traces. Normal Studio
+workers emit no profiling packets. The main handler ignores progress packets;
+they do not complete a frame or reset the existing 60-second encoder deadline,
+which also covers worker initialization. Neither that deadline, the backend
+inactivity deadline, the asset's `no-store` policy, nor the CSP changed.
+Profiled timings include the optional packet and observer overhead. Prefer this
+driver for ordinary export timing; retain the Playwright driver for explicit
+request interception, injected latency and native Blob inspection controls.

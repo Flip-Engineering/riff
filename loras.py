@@ -409,6 +409,35 @@ def _atomic_json(path, value):
         temporary.unlink(missing_ok=True)
 
 
+def _referenced(files):
+    """Names of the distinct files that the manifest descriptors reference."""
+    return {name for file in files for name in (file["original_file"], file["engine_file"], file["config_file"]) if name}
+
+
+def _payload_bytes(directory, files):
+    """Total size of the distinct files that the manifest descriptors reference."""
+    return sum(lora_format.regular_file(Path(directory) / name)[1] for name in _referenced(files))
+
+
+def _retained(directory, files):
+    """What an installation holds on disk: (total bytes of every file under it, unreferenced files).
+
+    Counts manifest.json and any file the manifest does not reference. A symbolic link counts as
+    itself and is never followed. The listing uses paths relative to the installation, never absolute ones.
+    """
+    root, referenced = Path(directory), _referenced(files) | {"manifest.json"}
+    total, unreferenced = 0, []
+    for current, folders, names in os.walk(root, followlinks=False):
+        for name in names + [folder for folder in folders if (Path(current) / folder).is_symlink()]:
+            path = Path(current) / name
+            size = path.lstat().st_size
+            total += size
+            relative = path.relative_to(root).as_posix()
+            if relative not in referenced:
+                unreferenced.append({"path": relative, "bytes": size})
+    return total, sorted(unreferenced, key=lambda item: item["path"])
+
+
 class LoRALibrary:
     def __init__(self, root=None, references=None, hub=None, cache_ttl=None,
                  cache_entries=64, cache_bytes=32 * 1024 * 1024):
@@ -496,6 +525,20 @@ class LoRALibrary:
                     raise ValueError("Installed LoRA provenance has changed; import the adapter again.")
             except (KeyError, TypeError, OSError) as exc:
                 raise ValueError("Installed LoRA is missing or its manifest is invalid.") from exc
+            # Earlier versions stored the size of everything in the staging
+            # directory. Report the referenced payload size; `bytes` is not part
+            # of the identity, and a missing file keeps the stored value.
+            try:
+                manifest["bytes"] = _payload_bytes(path.parent, manifest["files"])
+            except (KeyError, TypeError, ValueError):
+                pass
+            # Everything the installation occupies, computed on read like `bytes` and never stored:
+            # manifest.json plus any file the manifest does not reference. Reported, not deleted;
+            # clean() removes the unreferenced files when asked.
+            try:
+                manifest["retained_bytes"], manifest["unreferenced"] = _retained(path.parent, manifest["files"])
+            except (KeyError, TypeError, OSError):
+                pass
             return manifest
 
     def list(self):
@@ -599,7 +642,7 @@ class LoRALibrary:
             if not manifest["name"]:
                 raise ValueError("Give the adapter a name.")
             manifest["id"] = hashlib.sha256(canonical(self._identity(manifest)).encode()).hexdigest()
-            manifest["bytes"] = sum(p.stat().st_size for p in staging.iterdir() if p.is_file())
+            manifest["bytes"] = _payload_bytes(staging, files)
             manifest["adapter_bytes"] = sum(f["adapter_bytes"] for f in files)
             manifest["merge_scratch_bytes"] = max(f["merge_scratch_bytes"] for f in files)
             _atomic_json(staging / "manifest.json", manifest)
@@ -623,10 +666,11 @@ class LoRALibrary:
         if "name" in changes and not changes["name"]:
             raise ValueError("Give the adapter a name.")
         with self.lock:
-            result = self.get(value)
+            # The read adds figures computed from the directory; they are not part of the manifest.
+            result = {key: item for key, item in self.get(value).items() if key not in ("retained_bytes", "unreferenced")}
             result.update(changes)
             _atomic_json(self._directory(value) / "manifest.json", result)
-            return result
+            return self.get(value)
 
     def delete(self, value, confirm=False):
         if type(confirm) is not bool:
@@ -646,6 +690,34 @@ class LoRALibrary:
             path.rename(tombstone)
             shutil.rmtree(tombstone)
             return {"deleted": True, "id": value, "references": references}
+
+    def clean(self, value):
+        """Delete the files an installation holds that its manifest does not reference.
+
+        Referenced files and manifest.json are never touched, symbolic links are removed without
+        following them, and nothing is removed unless this is called.
+        """
+        with self.lock:
+            manifest = self.get(value)
+            directory = self._directory(value)
+            referenced = _referenced(manifest["files"]) | {"manifest.json"}
+            removed = []
+            for current, folders, names in os.walk(directory, topdown=False, followlinks=False):
+                for name in names + [folder for folder in folders if (Path(current) / folder).is_symlink()]:
+                    path = Path(current) / name
+                    relative = path.relative_to(directory).as_posix()
+                    if relative not in referenced:
+                        removed.append({"path": relative, "bytes": path.lstat().st_size})
+                        path.unlink()
+                for folder in folders:
+                    try:
+                        (Path(current) / folder).rmdir()
+                    except OSError:
+                        pass  # Not empty (it holds a referenced file) or a link already handled.
+            retained = self.get(value)
+            return {"id": value, "removed": sorted(removed, key=lambda item: item["path"]),
+                    "reclaimed_bytes": sum(item["bytes"] for item in removed),
+                    "retained_bytes": retained.get("retained_bytes"), "bytes": retained["bytes"]}
 
     def _verify(self, manifest):
         directory = self._directory(manifest["id"])
