@@ -99,7 +99,7 @@ def _identity(path):
         info = Path(path).stat()
     except OSError:
         return None
-    return (str(path), info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns)
+    return (str(path), info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
 
 
 def engine_key(session):
