@@ -75,21 +75,32 @@ jobs:
           elixir-version: '1.18.4'
           version-type: strict
 
-      - name: Build the pinned Metal engine
+      - name: Build the pinned Metal engine and run CPU LoRA arithmetic checks
         run: |
           set -euo pipefail
-          elixir scripts/build_cached_native.exs --backend metal --build-only --jobs 2 2>&1 | tee "$EVIDENCE/native-metal-build.log"
+          elixir scripts/build_cached_native.exs --backend metal --compile-only --jobs 2 2>&1 | tee "$EVIDENCE/native-metal-build.log"
+          python3 scripts/configure_native_checks.py
           python3 scripts/check_native_lora.py --output "$EVIDENCE/native-lora" 2>&1 | tee "$EVIDENCE/native-lora-tests.log"
 
+      - name: Check Metal device eligibility (not inference qualification)
+        id: device
+        run: |
+          set -euo pipefail
+          BINARY=$(python3 -c 'import json; from paths import WORKSPACE; r = json.load(open("native-cache-receipts/build.json")); print(WORKSPACE / "engines" / (r["native_fingerprint"] + "-metal") / "build/bin/audiocpp_cli")')
+          echo "RIFF_METAL_BINARY=$BINARY" >> "$GITHUB_ENV"
+          python3 scripts/check_metal_device.py --binary "$BINARY" --output "$EVIDENCE"
+
       - name: Fetch and verify pinned base weights
+        if: steps.device.outputs.eligible == 'true'
         run: |
           set -euo pipefail
           python3 fetch-models.py --directory "$MODELS" 2>&1 | tee "$EVIDENCE/models.log"
 
       - name: Run actual Metal baseline and adapter inference
+        if: steps.device.outputs.eligible == 'true'
         run: |
           set -euo pipefail
-          python3 scripts/check_lora_inference.py --backend metal --models "$MODELS" \
+          python3 scripts/check_lora_inference.py --backend metal --binary "$RIFF_METAL_BINARY" --models "$MODELS" \
             --threads 2 --output "$EVIDENCE/inference" \
             --metadata-arena model_weight_context=32 --metadata-arena vae_weight_context=32 \
             --metadata-arena ar_prefill_graph_arena=64 --metadata-arena ar_decode_graph_arena=32 \
@@ -104,6 +115,7 @@ jobs:
           path: |
             ${{ runner.temp }}/riff-metal-lora-evidence/*.log
             ${{ runner.temp }}/riff-metal-lora-evidence/hardware.json
+            ${{ runner.temp }}/riff-metal-lora-evidence/metal-eligibility.json
             ${{ runner.temp }}/riff-metal-lora-evidence/native-lora/*.json
             ${{ runner.temp }}/riff-metal-lora-evidence/native-lora/*.log
             ${{ runner.temp }}/riff-metal-lora-evidence/inference/receipt.json

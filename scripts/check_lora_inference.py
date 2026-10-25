@@ -25,6 +25,7 @@ sys.path.insert(0, str(ROOT))
 from loras import LoRALibrary
 from platform_support import ProcessMemory
 from setup_engine import fingerprint
+from engine_devices import metal_device_capability
 
 ADAPTER = {
     "repo": "becausereasons/yue2-trbdr-folk-troubadour",
@@ -335,6 +336,11 @@ def main():
         registry = {"cpu": "CPU", "metal": "MTL", "cuda": "CUDA"}[args.backend]
         if not re.search(r"^" + registry + r":\d+", receipt["engine"]["devices"], re.MULTILINE):
             raise ValueError("Requested backend has no enumerated native device: " + args.backend)
+        if args.backend == "metal":
+            device = metal_device_capability(receipt["engine"]["devices"])
+            receipt["engine"]["device_capability"] = device
+            if device.get("error"):
+                raise ValueError(device["error"])
         version = subprocess.run([str(binary), "--version"], text=True, capture_output=True, check=True)
         receipt["engine"]["version"] = version.stdout + version.stderr
         item = import_adapter(library)

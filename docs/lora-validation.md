@@ -37,6 +37,27 @@ The native harness and its limits are documented in
 the CPU numerical harness in CPU and Metal builds. CUDA remains a compilation
 gate; a CPU harness inside a Metal build is not Metal inference evidence.
 
+## Metal runner eligibility (October 25, 2026)
+
+[Run 40199464372](https://github.com/Flip-Engineering/riff/actions/runs/40199464372)
+on c074c8a enumerated an Apple Paravirtual device with simdgroup reduction and
+matrix multiplication both false. Baseline inference aborted on `RMS_NORM`
+before any adapter run. This runner did not qualify Metal LoRA inference.
+
+Setup, readiness and generation now check the selected device's simdgroup
+reduction diagnostic from the pinned engine's model-free `--list-devices`
+output. Missing or changed diagnostics fail closed. This checks the minimum
+known YuE2 requirement; it does not establish support for every graph operation.
+Unsupported devices offer CPU setup. The qualification workflow records a
+`not-qualified` eligibility receipt and explicitly skips weights and inference
+on confirmed unsupported hardware. Probe/build errors and inference failures on
+eligible devices remain failures.
+
+The paravirtual test fixture is captured from that run; the true-flag M-series
+fixture is representative, not physical-device evidence. A physical Apple GPU
+run remains required for actual Metal inference qualification. No new native
+build or model inference was run for this guard.
+
 ## Actual public file import
 
 The live Hub client retrieved and fully validated
@@ -206,10 +227,16 @@ page cache, initialization and sampling remain part of these cold observations.
 `runs-on: macos-14`, the [hosted Apple Silicon runner](https://docs.github.com/en/actions/reference/runners/github-hosted-runners).
 It verifies an exact 40-character source SHA and actual Darwin/arm64 identity,
 builds through the same cached Metal build driver as Apple Silicon validation,
-runs the native LoRA checks, downloads the pinned base weights with
-`fetch-models.py`, and executes the same helper on Metal. Normal CI never downloads
-these model weights. The manual job downloads about 2.93 GB of base/VAE/sidecars
-and the separate 117.5 MB adapter; its purpose is qualification only.
+runs the native LoRA checks, then probes the device without model weights.
+Confirmed unsupported hardware produces an explicit `not-qualified` receipt and
+summary with device facts; weight download and inference steps are skipped, and
+no LoRA inference qualification is claimed. Missing diagnostics or a failed
+device probe fail the job. An eligible device still needs actual inference:
+the workflow downloads pinned base weights with `fetch-models.py`, executes the
+same helper on Metal, and retains any inference failure as a failed job. Normal
+CI never downloads these model weights. An eligible manual job downloads about
+2.93 GB of base/VAE/sidecars and the separate 117.5 MB adapter; its purpose is
+qualification only.
 
 After review and after the workflow exists on the default branch, the root can
 run the following with the reviewed full commit substituted. GitHub

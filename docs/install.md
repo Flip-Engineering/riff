@@ -24,6 +24,13 @@ desktop release.
 | Linux x86-64 | NVIDIA CUDA or CPU | Python 3.9+, Git, C++ compiler, Python venv support; optional: OpenSSL libcrypto development files for faster model verification |
 | NVIDIA acceleration | CUDA | Compatible NVIDIA driver, CUDA Toolkit and `nvcc` on PATH |
 
+Metal requires the selected device to report simdgroup reduction support for
+YuE2's `RMS_NORM`. macOS virtual machines can expose a paravirtual GPU without
+this capability. Setup and Settings report it as unsupported and offer CPU;
+select **CPU**, then **Download and set up**, or run
+`python3 setup_engine.py --backend cpu`. Unverified Metal capabilities also block
+generation with a clear message before model launch.
+
 Linux engine builds discover dynamic system libcrypto at build time. It is never
 bundled or statically linked; without the development headers and library, setup
 builds portable SHA-256. After a distro upgrade, a missing system libcrypto,
