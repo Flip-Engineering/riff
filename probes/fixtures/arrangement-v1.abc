@@ -1,0 +1,22 @@
+X:1
+T:DAW bridge probe arrangement v1
+M:4/4
+L:1/8
+Q:1/4=100
+K:G
+V:Flute name="Flute" clef=treble
+%%MIDI program 73
+V:Bass name="Bass" clef=bass
+%%MIDI program 33
+V:PianoRH name="PianoRH" clef=treble
+%%MIDI program 0
+V:PianoLH name="PianoLH" clef=bass
+%%MIDI program 0
+V:Flute
+z8 | z8 | "G"!f!d4 g2 b2 | "C"a2 g2 e4 | [Q:1/4=72]"G"d2 B2 G4 | "D7"z8 | [M:3/4]"G"g4 f2 | [M:4/4][Q:1/4=100]"C"e8 |
+V:Bass
+!p!"G"G,2 B,2 D2 G2 | "C"E2 G2 c2 G2 | "G"G,2 B,2 D2 G2 | "C"E2 G2 c2 G2 | [Q:1/4=72]"G"G,2 B,2 D2 G2 | "D7"D2 A2 c2 A2 | [M:3/4]"G"G,2 B,2 D2 | [M:4/4][Q:1/4=100]"C"C2 E2 G4 |
+V:PianoRH
+"G"z2 B2 d2 B2 | "C"z2 c2 e2 c2 | "G"z2 B2 d2 B2 | "C"z2 c2 e2 c2 | [Q:1/4=72]"G"z2 B2 d2 B2 | "D7"z2 c2 f2 c2 | [M:3/4]"G"B2 d2 g2 | [M:4/4][Q:1/4=100]"C"c8 |
+V:PianoLH
+"G"G,,4 G,,4 | "C"C,4 C,4 | "G"G,,4 G,,4 | "C"C,4 C,4 | [Q:1/4=72]"G"G,,4 G,,4 | "D7"D,4 D,4 | [M:3/4]"G"G,,4 G,,2 | [M:4/4][Q:1/4=100]"C"C,8 |
