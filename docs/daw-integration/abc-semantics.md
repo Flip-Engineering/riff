@@ -38,8 +38,8 @@ it cannot silently reuse the UI export and call it authoritative.
 
 ## 2. Method and corpus
 
-Ten small ABC cases plus a two-voice smoke probe were converted with both
-tools and parsed with a dependency-free SMF parser. The command shape was:
+Eighteen small ABC cases plus a two-voice smoke probe were converted with
+both tools and parsed with a dependency-free SMF parser. The command shape was:
 
 ```sh
 # from the shared checkout

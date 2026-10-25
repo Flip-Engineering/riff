@@ -145,5 +145,74 @@
       ".probe-tmp/deepseek/ardour-probe/two-session/export/stem1.wav",
       ".probe-tmp/deepseek/ardour-probe/two-session/export/stem2.wav"
     ]
+  },
+  "four_track": {
+    "session": "four-session/1region.ardour -> four.ardour",
+    "structure": {
+      "routes": 5,
+      "midi_tracks": 4,
+      "sources": 4,
+      "playlists": 4,
+      "midi_notes": 16
+    },
+    "sources": [
+      "v1 C D E F",
+      "v2 G A B c",
+      "v3 c B A G",
+      "v4 E G B d"
+    ],
+    "generator": "fourtrack/build_session.py (deterministic clone of 1region XML blocks with new IDs)",
+    "instrument": "gmsynth LV2 on all four tracks, default program 0",
+    "master": {
+      "file": "four-session/export/four.wav",
+      "format": "pcm_s16le 48kHz stereo 16-bit",
+      "duration_s": 11.655729,
+      "peak_dbfs": -4.547775,
+      "rms_dbfs": -25.015218,
+      "sha256": "d3e15a8e36853b37cb99f33c80e27077dc1792a6f0d3c395288b3c42ed7e7a9f"
+    },
+    "stems": [
+      {
+        "name": "fstem1",
+        "peak_dbfs": -13.130774,
+        "rms_dbfs": -32.25203,
+        "sha256": "2b24541ae07e5a5a4fbdf089abd3ad85d6443e4d5e9953ac40f124c8e32b9165"
+      },
+      {
+        "name": "fstem2",
+        "peak_dbfs": -12.5227,
+        "rms_dbfs": -31.15727,
+        "sha256": "5bea3f4b05f795417224e5bce134b72cedef3be2ee50decf3ad9d61f4139de82"
+      },
+      {
+        "name": "fstem3",
+        "peak_dbfs": -12.008128,
+        "rms_dbfs": -31.37674,
+        "sha256": "e77b064a384128e2f398209269e30471bddf5d9ee1cde587e65ea83a1767744b"
+      },
+      {
+        "name": "fstem4",
+        "peak_dbfs": -12.662798,
+        "rms_dbfs": -32.126983,
+        "sha256": "a274c970807b25eab307ef4e49f0bcc167a2262364b7eb90bf05386ca9ef5c17"
+      }
+    ],
+    "reconstruction": {
+      "comparison": "sum of fstem1..fstem4 vs four.wav",
+      "identical": false,
+      "difference_rms_linear": 0,
+      "difference_peak_linear": 2,
+      "sum_peak": 19411,
+      "master_peak": 19411,
+      "note": "equal within 2 LSB"
+    },
+    "proven": "four-track session generation; four gmsynth tracks; all four solo stems nonzero/distinct; stems reconstruct master within 2 LSB",
+    "not_proven": [
+      "production generator",
+      "distinct programs/banks",
+      "batch/raw stems",
+      "reopen/edit",
+      "macOS"
+    ]
   }
 }

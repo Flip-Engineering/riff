@@ -1,4 +1,4 @@
-# Ardour two-track template generation + render probe (#78)
+# Ardour multi-track template generation + render probe (#78)
 
 Author: riff-daw-deepseek-20261025. Status: reversible feasibility evidence,
 2026-10-25. This addresses the conductor's remaining "Ardour session
@@ -98,6 +98,42 @@ This is **solo-render stem evidence**, not Ardour's GUI stem-export dialog or
 a per-route `SimpleExport` API. It proves each MIDI track can be isolated,
 rendered, and reconstructed; it does not prove raw pre-fader stems, batch
 stem export, or stem export without changing session solo state.
+
+### 3.2 Four-track follow-up
+
+The same generator was run with **four** MIDI tracks and four single-voice
+SMFs (`C D E F`, `G A B c`, `c B A G`, `E G B d`), each with its own gmsynth
+instance. The generated `four.ardour` contains five routes (master + four MIDI
+tracks), four sources and four playlists, with 16 notes total.
+
+Master render:
+
+| Property | Value |
+| --- | --- |
+| File | `four-session/export/four.wav` |
+| Format | WAV, `pcm_s16le`, 48 kHz, stereo |
+| Duration | 11.655729 s |
+| Peak | **-4.547775 dBFS** |
+| RMS | **-25.015218 dBFS** |
+| sha256 | `d3e15a8e36853b37cb99f33c80e27077dc1792a6f0d3c395288b3c42ed7e7a9f` |
+
+Per-track solo stems (same method as §3.1):
+
+| Stem | Peak | RMS | sha256 |
+| --- | --- | --- | --- |
+| fstem1 | -13.130774 dBFS | -32.252030 dBFS | `2b24541a…` |
+| fstem2 | -12.522700 dBFS | -31.157270 dBFS | `5bea3f4b…` |
+| fstem3 | -12.008128 dBFS | -31.376740 dBFS | `e77b064a…` |
+| fstem4 | -12.662798 dBFS | -32.126983 dBFS | `a274c970…` |
+
+All four stems are distinct and nonzero. Adding fstem1…fstem4 sample-wise
+reconstructs the four-track master within **2 LSB** (difference RMS 0, peak 2;
+sum peak 19411 equals master peak 19411).
+
+This strengthens the N-track result from N=2 to N=4 and gives per-track stem
+receipts for all four tracks. It is still the same hand-patched template
+pattern, with default gmsynth program 0 on every track; it does not validate
+a production generator, distinct programs/banks, batch stem export, or macOS.
 
 ## 4. What this proves and does not prove
 
