@@ -62,6 +62,7 @@ int main(int argc,char ** argv) {
     try {
         check(argc==2,"Usage: format-test NEW_FIXTURE_DIRECTORY");const fs::path root(argv[1]);
         check(fs::create_directory(root),"fixture directory must be new");
+        std::cout << "sha256_backend=" << cp::sha_backend() << '\n';
         const std::vector<std::pair<std::string,std::string>> vectors={
             {"","e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"},
             {"abc","ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"},
@@ -72,7 +73,7 @@ int main(int argc,char ** argv) {
             pass("SHA256 known vector "+std::to_string(i));
         }
         std::ofstream hash_evidence(root/"hashes.jsonl");
-        for(size_t n:{0,1,55,56,57,63,64,65,127,128,129,65535,65536,65537}) {
+        for(size_t n:{0,1,55,56,57,63,64,65,127,128,129,65535,65536,65537,1048577}) {
             std::vector<uint8_t> bytes(n);for(size_t i=0;i<n;++i) bytes[i]=uint8_t(i*131+17);
             const auto path=root/("hash-"+std::to_string(n)+".bin");write(path,bytes);
             const auto digest=cp::hash_bytes(bytes.data(),bytes.size());

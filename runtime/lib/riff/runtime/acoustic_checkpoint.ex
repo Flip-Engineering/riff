@@ -20,8 +20,13 @@ defmodule Riff.Runtime.AcousticCheckpoint do
   @max_u64 0xFFFFFFFFFFFFFFFF
   @hash_names ~w(payload model decoder model_config decoder_config tokenizer generation_config conditioning semantic_codes producer_binary)
 
-  @doc "Verify a regular owned file and return metadata, never the latent payload."
-  def inspect!(root, path) when is_binary(root) and is_binary(path) do
+  @doc """
+  Verify a regular owned file and return metadata, never the latent payload.
+
+  The optional observer runs after the descriptor's identity is verified and
+  before reading, so callers can coordinate inspection with filesystem work.
+  """
+  def inspect!(root, path, after_open \\ nil) when is_binary(root) and is_binary(path) do
     check!(Path.expand(root) == root, "The acoustic library path is not canonical.")
 
     check!(
@@ -41,6 +46,7 @@ defmodule Riff.Runtime.AcousticCheckpoint do
     try do
       opened = opened_stat!(file)
       check!(identity(opened) == identity(before), "The saved sound changed while opening.")
+      if after_open, do: after_open.()
       header = read!(file, @header_bytes)
       metadata = parse_header!(header)
 
@@ -215,8 +221,12 @@ defmodule Riff.Runtime.AcousticCheckpoint do
     end
   end
 
+  # Publishing an independent copy links its temporary inode into the final
+  # name, then removes the temporary alias. A peer can inspect that final name
+  # while cleanup changes only link count and ctime. Neither describes content;
+  # keep file identity/mtime checks and authenticate every header/payload byte.
   defp identity(info),
-    do: {info.type, info.major_device, info.inode, info.size, info.mtime, info.ctime}
+    do: {info.type, info.major_device, info.inode, info.size, info.mtime}
 
   defp hex(value), do: Base.encode16(value, case: :lower)
   defp check!(true, _), do: :ok
