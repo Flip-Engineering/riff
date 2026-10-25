@@ -26,6 +26,7 @@ state = Path(os.environ["FAKE_ENGINE_STATE"])
 (state / ("start-%d" % os.getpid())).write_text(json.dumps(sys.argv[1:]))
 print("fake engine startup", flush=True)
 print("@@riff-engine-ready riff.jobs.v1", flush=True)
+loaded = False
 for line in sys.stdin:
     if not line.strip():
         continue
@@ -35,6 +36,12 @@ for line in sys.stdin:
         log.write(json.dumps({"pid": os.getpid(), **job}) + "\\n")
     print("@@riff-job-begin " + ident, flush=True)
     print("[TIMING] yue2.ar.init_ms 1 seed=%s lyrics=%s" % (job.get("seed"), job.get("lyrics")), flush=True)
+    if not loaded:
+        # Only the first job in an engine process uploads weights; later jobs reuse them.
+        print("[TIMING ts=20261024-100000] yue2.ar.weights_upload_ms 250", flush=True)
+        loaded = True
+    else:
+        print("[TIMING ts=20261024-100000] yue2.ar.resident_reuse 1", flush=True)
     if mode == "crash":
         print("about to crash", flush=True)
         os._exit(7)
@@ -53,6 +60,8 @@ for line in sys.stdin:
         continue
     print("[TIMING] yue2.nar.progress 0.5", flush=True)
     print("[TIMING] framework.oobleck_audio_vae.decode.total_ms 1", flush=True)
+    print("[TIMING ts=20261024-100001] yue2.nar_ms 3000", flush=True)
+    print("[TIMING ts=20261024-100001] yue2.vae_decode_ms 500", flush=True)
     if job.get("out"):
         with wave.open(job["out"], "wb") as audio:
             audio.setparams((2, 2, 48000, 0, "NONE", "not compressed"))
