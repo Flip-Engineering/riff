@@ -1,0 +1,1126 @@
+{
+  "schema": "riff.acoustic-pin-investigation.v1",
+  "utc_started": "2026-10-24T01:22:15.218656+00:00",
+  "source_sha": "8e6c28177af27fd377c219fbb38a66179dcfb627",
+  "runtime": "fbe3eedbf6c504e45189e2cdcf1b257740a28863",
+  "model": {
+    "repo": "audio-cpp/Yue2-3B-GGUF",
+    "revision": "9c31f1c64f73d36799693aa89295b410c76928c3",
+    "files": {
+      "yue2-3b-q4_0.gguf": {
+        "bytes": 2665632320,
+        "sha256": "97af67d7f800b362faee6e6bec806bddfcccb93f25fd3f9a1012724d95af6f4a"
+      },
+      "yue2-vae-f16.gguf": {
+        "bytes": 265218656,
+        "sha256": "d4f4a05d8f291ae820cd1e43609da3fa91b56465810091a2b08c3350b751719d"
+      },
+      "sidecars/yue2-model-config.json": {
+        "bytes": 959,
+        "sha256": "ad3477bbef890bf98ae196c1e4b44779494a6231c4ab66f32708eabadf265329"
+      },
+      "sidecars/yue2-generation-config.json": {
+        "bytes": 466,
+        "sha256": "203830cebde6e3644eb291925362990d198e66c3b6006cd11f1aaa21904bcc61"
+      },
+      "sidecars/yue2-qwen.tiktoken": {
+        "bytes": 2561218,
+        "sha256": "b2b1b8dfb5cc5f024bafc373121c6aba3f66f9a5a0269e243470a1de16a33186"
+      },
+      "sidecars/yue2-vae-config.json": {
+        "bytes": 1378,
+        "sha256": "f0191bb9694009956de44e0c361a6f1334760be4c8f848e599bde242a54a0970"
+      }
+    }
+  },
+  "rows": [
+    {
+      "file": "yue2-3b-q4_0.gguf",
+      "bytes": 2665632320,
+      "wall_ms": 21270.090714,
+      "cpu_ms": 21201.156,
+      "input_blocks": 0,
+      "output_blocks": 0,
+      "sha256": "97af67d7f800b362faee6e6bec806bddfcccb93f25fd3f9a1012724d95af6f4a",
+      "role": "main",
+      "cache_state": "shared-warm",
+      "residency_before": {
+        "pages": 650790,
+        "resident_pages": 650790
+      },
+      "residency_after": {
+        "pages": 650790,
+        "resident_pages": 650790
+      },
+      "load_average": [
+        60.25048828125,
+        46.13916015625,
+        46.06298828125
+      ]
+    },
+    {
+      "file": "yue2-3b-q4_0.gguf",
+      "bytes": 2665632320,
+      "wall_ms": 23257.408379,
+      "cpu_ms": 23039.387,
+      "input_blocks": 5206320,
+      "output_blocks": 0,
+      "sha256": "97af67d7f800b362faee6e6bec806bddfcccb93f25fd3f9a1012724d95af6f4a",
+      "role": "main",
+      "cache_state": "private-evicted",
+      "residency_before": {
+        "pages": 650790,
+        "resident_pages": 0
+      },
+      "residency_after": {
+        "pages": 650790,
+        "resident_pages": 650790
+      },
+      "load_average": [
+        50.833984375,
+        45.66650390625,
+        45.91845703125
+      ]
+    },
+    {
+      "file": "yue2-3b-q4_0.gguf",
+      "bytes": 2665632320,
+      "wall_ms": 20539.088673,
+      "cpu_ms": 20530.827,
+      "input_blocks": 0,
+      "output_blocks": 0,
+      "sha256": "97af67d7f800b362faee6e6bec806bddfcccb93f25fd3f9a1012724d95af6f4a",
+      "role": "main",
+      "cache_state": "private-immediate-repeat",
+      "residency_before": {
+        "pages": 650790,
+        "resident_pages": 650790
+      },
+      "residency_after": {
+        "pages": 650790,
+        "resident_pages": 650790
+      },
+      "load_average": [
+        45.9580078125,
+        44.89794921875,
+        45.65478515625
+      ]
+    },
+    {
+      "file": "yue2-vae-f16.gguf",
+      "bytes": 265218656,
+      "wall_ms": 2044.398457,
+      "cpu_ms": 2043.506,
+      "input_blocks": 0,
+      "output_blocks": 0,
+      "sha256": "d4f4a05d8f291ae820cd1e43609da3fa91b56465810091a2b08c3350b751719d",
+      "role": "vae",
+      "cache_state": "shared-warm",
+      "residency_before": {
+        "pages": 64751,
+        "resident_pages": 64751
+      },
+      "residency_after": {
+        "pages": 64751,
+        "resident_pages": 64751
+      },
+      "load_average": [
+        45.9580078125,
+        44.89794921875,
+        45.65478515625
+      ]
+    },
+    {
+      "file": "yue2-vae-f16.gguf",
+      "bytes": 265218656,
+      "wall_ms": 2487.383241,
+      "cpu_ms": 2315.301,
+      "input_blocks": 518008,
+      "output_blocks": 0,
+      "sha256": "d4f4a05d8f291ae820cd1e43609da3fa91b56465810091a2b08c3350b751719d",
+      "role": "vae",
+      "cache_state": "private-evicted",
+      "residency_before": {
+        "pages": 64751,
+        "resident_pages": 0
+      },
+      "residency_after": {
+        "pages": 64751,
+        "resident_pages": 64751
+      },
+      "load_average": [
+        46.84228515625,
+        45.09912109375,
+        45.7158203125
+      ]
+    },
+    {
+      "file": "yue2-vae-f16.gguf",
+      "bytes": 265218656,
+      "wall_ms": 1957.430832,
+      "cpu_ms": 1955.539,
+      "input_blocks": 0,
+      "output_blocks": 0,
+      "sha256": "d4f4a05d8f291ae820cd1e43609da3fa91b56465810091a2b08c3350b751719d",
+      "role": "vae",
+      "cache_state": "private-immediate-repeat",
+      "residency_before": {
+        "pages": 64751,
+        "resident_pages": 64751
+      },
+      "residency_after": {
+        "pages": 64751,
+        "resident_pages": 64751
+      },
+      "load_average": [
+        46.84228515625,
+        45.09912109375,
+        45.7158203125
+      ]
+    },
+    {
+      "file": "yue2-qwen.tiktoken",
+      "bytes": 2561218,
+      "wall_ms": 23.1801,
+      "cpu_ms": 23.123,
+      "input_blocks": 0,
+      "output_blocks": 0,
+      "sha256": "b2b1b8dfb5cc5f024bafc373121c6aba3f66f9a5a0269e243470a1de16a33186",
+      "role": "tokenizer",
+      "cache_state": "shared-warm",
+      "residency_before": {
+        "pages": 626,
+        "resident_pages": 626
+      },
+      "residency_after": {
+        "pages": 626,
+        "resident_pages": 626
+      },
+      "load_average": [
+        46.84228515625,
+        45.09912109375,
+        45.7158203125
+      ]
+    },
+    {
+      "file": "yue2-qwen.tiktoken",
+      "bytes": 2561218,
+      "wall_ms": 21.240881,
+      "cpu_ms": 21.186,
+      "input_blocks": 5008,
+      "output_blocks": 0,
+      "sha256": "b2b1b8dfb5cc5f024bafc373121c6aba3f66f9a5a0269e243470a1de16a33186",
+      "role": "tokenizer",
+      "cache_state": "private-evicted",
+      "residency_before": {
+        "pages": 626,
+        "resident_pages": 0
+      },
+      "residency_after": {
+        "pages": 626,
+        "resident_pages": 626
+      },
+      "load_average": [
+        46.84228515625,
+        45.09912109375,
+        45.7158203125
+      ]
+    },
+    {
+      "file": "yue2-qwen.tiktoken",
+      "bytes": 2561218,
+      "wall_ms": 19.815058,
+      "cpu_ms": 19.865,
+      "input_blocks": 0,
+      "output_blocks": 0,
+      "sha256": "b2b1b8dfb5cc5f024bafc373121c6aba3f66f9a5a0269e243470a1de16a33186",
+      "role": "tokenizer",
+      "cache_state": "private-immediate-repeat",
+      "residency_before": {
+        "pages": 626,
+        "resident_pages": 626
+      },
+      "residency_after": {
+        "pages": 626,
+        "resident_pages": 626
+      },
+      "load_average": [
+        46.84228515625,
+        45.09912109375,
+        45.7158203125
+      ]
+    },
+    {
+      "file": "audiocpp_cli",
+      "bytes": 6265232,
+      "wall_ms": 48.033944,
+      "cpu_ms": 47.93,
+      "input_blocks": 0,
+      "output_blocks": 0,
+      "sha256": "24f6f481920ac46b58da59010115747b13c10eb5ae4ca7698f72de0828c5bfdb",
+      "role": "engine",
+      "cache_state": "shared-warm",
+      "residency_before": {
+        "pages": 1530,
+        "resident_pages": 1530
+      },
+      "residency_after": {
+        "pages": 1530,
+        "resident_pages": 1530
+      },
+      "load_average": [
+        46.84228515625,
+        45.09912109375,
+        45.7158203125
+      ]
+    },
+    {
+      "file": "audiocpp_cli",
+      "bytes": 6265232,
+      "wall_ms": 56.489251,
+      "cpu_ms": 55.39,
+      "input_blocks": 12240,
+      "output_blocks": 0,
+      "sha256": "24f6f481920ac46b58da59010115747b13c10eb5ae4ca7698f72de0828c5bfdb",
+      "role": "engine",
+      "cache_state": "private-evicted",
+      "residency_before": {
+        "pages": 1530,
+        "resident_pages": 0
+      },
+      "residency_after": {
+        "pages": 1530,
+        "resident_pages": 1530
+      },
+      "load_average": [
+        46.84228515625,
+        45.09912109375,
+        45.7158203125
+      ]
+    },
+    {
+      "file": "audiocpp_cli",
+      "bytes": 6265232,
+      "wall_ms": 43.683327,
+      "cpu_ms": 43.491,
+      "input_blocks": 0,
+      "output_blocks": 0,
+      "sha256": "24f6f481920ac46b58da59010115747b13c10eb5ae4ca7698f72de0828c5bfdb",
+      "role": "engine",
+      "cache_state": "private-immediate-repeat",
+      "residency_before": {
+        "pages": 1530,
+        "resident_pages": 1530
+      },
+      "residency_after": {
+        "pages": 1530,
+        "resident_pages": 1530
+      },
+      "load_average": [
+        46.84228515625,
+        45.09912109375,
+        45.7158203125
+      ]
+    }
+  ],
+  "python_digest": [
+    {
+      "iteration": "first",
+      "wall_ms": 4586.008679005317,
+      "cache": "CacheInfo(hits=0, misses=7, maxsize=32, currsize=7)"
+    },
+    {
+      "iteration": "cached",
+      "wall_ms": 1.6933510196395218,
+      "cache": "CacheInfo(hits=7, misses=7, maxsize=32, currsize=7)"
+    }
+  ],
+  "engine_sha256": "24f6f481920ac46b58da59010115747b13c10eb5ae4ca7698f72de0828c5bfdb",
+  "object_sha256": "a8bd54b0ba1a2e53f0ccf509588ee1249cebf6dad84016c9d1c9ab03fa7d297e",
+  "probe_sha256": "9bbc8608847e3cd2f0968ad35eb8a33d6574dc9cd10f2504768b2b818da32934",
+  "probe_source_sha256": "8f7a67305a6329aaee6d32d6c9cf3e13a9325f5b03e9f255b8fcf298011b4637",
+  "warm_command": [
+    "<engine>",
+    "--task",
+    "gen",
+    "--family",
+    "yue2",
+    "--model",
+    "<models>",
+    "--backend",
+    "cpu",
+    "--threads",
+    "2",
+    "--session-option",
+    "yue2.model_gguf=yue2-3b-q4_0.gguf",
+    "--session-option",
+    "yue2.vae_gguf=yue2-vae-f16.gguf",
+    "--session-option",
+    "yue2.model_weight_context_mb=32",
+    "--session-option",
+    "yue2.vae_weight_context_mb=32",
+    "--session-option",
+    "yue2.ar_prefill_graph_arena_mb=64",
+    "--session-option",
+    "yue2.ar_decode_graph_arena_mb=32",
+    "--session-option",
+    "yue2.nar_graph_arena_mb=64",
+    "--session-option",
+    "yue2.vae_graph_arena_mb=64",
+    "--session-option",
+    "yue2.keep_resident=true",
+    "--log",
+    "--metrics",
+    "--jobs",
+    "-"
+  ],
+  "warm_jobs": [
+    {
+      "options": {
+        "cot": "off",
+        "cfg_scale": "1",
+        "semantic_temperature": "1",
+        "style": "trbdr, acoustic folk, guitar, instrumental",
+        "semantic_min_tokens": "25",
+        "semantic_max_tokens": "25",
+        "num_inference_steps": "2",
+        "ode_method": "midpoint",
+        "semantic_codes_out": "<output>/warm-first.codes.i32",
+        "acoustic_latents_out": "<output>/warm-first.yac"
+      },
+      "seed": "1234",
+      "lyrics": "[Instrumental]",
+      "out": "<output>/warm-first.wav",
+      "id": "warm-first",
+      "metrics": true
+    },
+    {
+      "options": {
+        "cot": "off",
+        "cfg_scale": "1",
+        "semantic_temperature": "1",
+        "style": "trbdr, acoustic folk, guitar, instrumental",
+        "semantic_min_tokens": "25",
+        "semantic_max_tokens": "25",
+        "num_inference_steps": "2",
+        "ode_method": "midpoint",
+        "semantic_codes_out": "<output>/warm-second.codes.i32",
+        "acoustic_latents_out": "<output>/warm-second.yac"
+      },
+      "seed": "1234",
+      "lyrics": "[Instrumental]",
+      "out": "<output>/warm-second.wav",
+      "id": "warm-second",
+      "metrics": true
+    }
+  ],
+  "warm_process": {
+    "exit_code": 0,
+    "wall_ms": 117394.3982530036
+  },
+  "warm_results": [
+    {
+      "name": "warm-first",
+      "timings": {
+        "yue2.acoustic.pin_sources_ms": [
+          21556.132003
+        ],
+        "yue2.plan.prefix_tokens": [
+          36.0
+        ],
+        "yue2.plan.abc_tokens": [
+          0.0
+        ],
+        "yue2.plan_ms": [
+          1622.189446
+        ],
+        "yue2.ar.weights_load_ms": [
+          1.706858
+        ],
+        "yue2.ar.prefix_weights_upload_ms": [
+          2537.0299
+        ],
+        "yue2.ar.weights_upload_ms": [
+          2537.127485
+        ],
+        "yue2.ar.init_total_ms": [
+          2538.936147
+        ],
+        "yue2.ar.init_ms": [
+          2538.963559
+        ],
+        "yue2.semantic.negative_prefix_ms": [
+          0.246349
+        ],
+        "yue2.semantic.positive_prefix_tokens": [
+          36.0
+        ],
+        "yue2.semantic.negative_prefix_tokens": [
+          12.0
+        ],
+        "yue2.ar.generation_weights_bind_ms": [
+          0.014568
+        ],
+        "yue2.ar.generation_weights_upload_ms": [
+          354.532935
+        ],
+        "yue2.ar.runtime_build_ms": [
+          0.064893
+        ],
+        "yue2.ar.ensure_generation_ms": [
+          354.810022
+        ],
+        "yue2.ar.generate.prefix_tokens": [
+          36.0
+        ],
+        "yue2.ar.generate.max_tokens": [
+          25.0
+        ],
+        "yue2.ar.prefill.graph.build_ms": [
+          3.089428
+        ],
+        "yue2.ar.generate.prefill_ms": [
+          3777.141958
+        ],
+        "yue2.ar.decode.graph.build_ms": [
+          4.754846
+        ],
+        "yue2.ar.generate.start_decode_ms": [
+          31.892274
+        ],
+        "yue2.ar.generate.sample_ms": [
+          5.680269999999999
+        ],
+        "yue2.ar.generate.decode_ms": [
+          4054.693428
+        ],
+        "yue2.ar.generate.refill_prefill_ms": [
+          0.0
+        ],
+        "yue2.ar.generate.refill_count": [
+          0.0
+        ],
+        "yue2.ar.generate.emitted_tokens": [
+          25.0
+        ],
+        "yue2.ar.generate.total_ms": [
+          7869.957672
+        ],
+        "yue2.semantic.music_generate_ms": [
+          8224.785638
+        ],
+        "yue2.semantic.tokens": [
+          25.0
+        ],
+        "yue2.semantic.truncated": [
+          1.0
+        ],
+        "yue2.semantic.total_inner_ms": [
+          10764.046973
+        ],
+        "yue2.semantic_ms": [
+          10771.663453
+        ],
+        "yue2.nar.codec_extract_ms": [
+          0.00024
+        ],
+        "yue2.nar.codec_tokens": [
+          25.0
+        ],
+        "yue2.nar.weights_bind_ms": [
+          1.421895
+        ],
+        "yue2.nar.weights_upload_ms": [
+          1316.480779
+        ],
+        "yue2.nar.weights_total_ms": [
+          1318.01636
+        ],
+        "yue2.nar.init_total_ms": [
+          1318.024616
+        ],
+        "yue2.nar.init_ms": [
+          1318.053261
+        ],
+        "yue2.ar.resident_reuse": [
+          1.0
+        ],
+        "yue2.nar.synthesize.prefix_tokens": [
+          36.0
+        ],
+        "yue2.nar.synthesize.codec_tokens": [
+          25.0
+        ],
+        "yue2.nar.synthesize.chunks": [
+          1.0
+        ],
+        "yue2.nar.synthesize.ode_steps": [
+          2.0
+        ],
+        "yue2.nar.synthesize.context": [
+          24576.0
+        ],
+        "yue2.nar.synthesize.noise_ms": [
+          0.04209
+        ],
+        "yue2.ar.prefill_state.tokens": [
+          62.0
+        ],
+        "yue2.ar.prefix_state.graph.build_ms": [
+          2.908103
+        ],
+        "yue2.ar.prefix_state.graph.total_ms": [
+          3.000559
+        ],
+        "yue2.ar.prefix_state.input_upload_ms": [
+          0.001363
+        ],
+        "yue2.ar.prefix_state.graph_compute_ms": [
+          6324.473582
+        ],
+        "yue2.ar.prefix_state.device_copy_ms": [
+          0.0
+        ],
+        "yue2.ar.prefix_state.released_graph_bytes": [
+          10928160.0
+        ],
+        "yue2.ar.prefix_state.released_mask_bytes": [
+          7688.0
+        ],
+        "yue2.ar.prefill_state_ms": [
+          6328.076076
+        ],
+        "yue2.nar.graph.build_ms": [
+          2.325074
+        ],
+        "yue2.nar.graph.alloc_ms": [
+          1.033426
+        ],
+        "yue2.nar.graph.static_upload_ms": [
+          0.0
+        ],
+        "yue2.nar.graph.frames": [
+          25.0
+        ],
+        "yue2.nar.graph.ar_tokens": [
+          62.0
+        ],
+        "yue2.nar.graph.nar_tokens": [
+          27.0
+        ],
+        "yue2.nar.graph.total_ms": [
+          3.485151
+        ],
+        "yue2.nar.progress": [
+          0.0,
+          0.5,
+          1.0
+        ],
+        "yue2.nar.chunk.frames": [
+          25.0
+        ],
+        "yue2.nar.chunk.ode_steps": [
+          2.0
+        ],
+        "yue2.nar.chunk.velocity_runs": [
+          4.0
+        ],
+        "yue2.nar.chunk.host_pad_ms": [
+          0.012373
+        ],
+        "yue2.nar.chunk.host_timestep_ms": [
+          0.015028999999999999
+        ],
+        "yue2.nar.chunk.host_update_ms": [
+          0.199228999999832
+        ],
+        "yue2.nar.chunk.input_upload_ms": [
+          0.015049
+        ],
+        "yue2.nar.chunk.graph_compute_ms": [
+          11313.929477
+        ],
+        "yue2.nar.chunk.output_read_ms": [
+          0.282188
+        ],
+        "yue2.nar.chunk.total_ms": [
+          11318.042343
+        ],
+        "yue2.nar.synthesize.token_build_ms": [
+          0.009989
+        ],
+        "yue2.nar.synthesize.noise_slice_ms": [
+          0.001312
+        ],
+        "yue2.nar.synthesize.prefill_state_ms": [
+          6328.085774
+        ],
+        "yue2.nar.synthesize.solve_chunks_ms": [
+          11318.064545
+        ],
+        "yue2.nar.synthesize.output_append_ms": [
+          0.053702
+        ],
+        "yue2.nar.synthesize.output_latents": [
+          1600.0
+        ],
+        "yue2.nar.synthesize.total_ms": [
+          17646.352303
+        ],
+        "yue2.nar_ms": [
+          18964.450168
+        ],
+        "yue2.resident.retained": [
+          1.0
+        ],
+        "yue2.acoustic.save_ms": [
+          7.428573
+        ],
+        "yue2.vae.init_ms": [
+          0.002385
+        ],
+        "yue2.vae_decode.latent_frames": [
+          25.0
+        ],
+        "yue2.vae_decode.channels": [
+          64.0
+        ],
+        "framework.oobleck_audio_vae.weights_bind_ms": [
+          0.941
+        ],
+        "framework.oobleck_audio_vae.weights_upload_ms": [
+          377.296101
+        ],
+        "framework.oobleck_audio_vae.weights_total_ms": [
+          378.402385
+        ],
+        "framework.oobleck_audio_vae.require_weights_ms": [
+          379.015752
+        ],
+        "framework.oobleck_audio_vae.decode.graph_batch": [
+          1.0
+        ],
+        "framework.oobleck_audio_vae.decode.graph_latent_frames": [
+          25.0
+        ],
+        "framework.oobleck_audio_vae.decode.graph_output_frames": [
+          47936.0
+        ],
+        "framework.oobleck_audio_vae.decode.graph_build_ms": [
+          2.084095
+        ],
+        "framework.oobleck_audio_vae.decode.input_upload_ms": [
+          0.005661
+        ],
+        "framework.oobleck_audio_vae.decode.graph_compute_ms": [
+          6858.074647
+        ],
+        "framework.oobleck_audio_vae.decode.output_read_ms": [
+          0.362169
+        ],
+        "framework.oobleck_audio_vae.decode.total_ms": [
+          6858.580709
+        ],
+        "framework.oobleck_audio_vae.decode_planar_ms": [
+          7239.717988
+        ],
+        "framework.oobleck_audio_vae.decode.interleave_ms": [
+          0.41549
+        ],
+        "framework.oobleck_audio_vae.decode.audio_frames": [
+          47936.0
+        ],
+        "framework.oobleck_audio_vae.decode.full_ms": [
+          7240.164858
+        ],
+        "yue2.vae_decode.tiles": [
+          1.0
+        ],
+        "yue2.vae_decode.planar_pack_ms": [
+          0.013706
+        ],
+        "yue2.vae_decode.tile_decode_ms": [
+          7240.232616
+        ],
+        "yue2.vae_decode.tile_copy_ms": [
+          0.0
+        ],
+        "yue2.vae_decode.output_frames": [
+          47936.0
+        ],
+        "yue2.vae_decode_ms": [
+          7240.331144
+        ],
+        "session.wall_ms": [
+          60192.68701
+        ]
+      },
+      "wav_sha256": "568aeda41727e0ee8e2ac573b7092f87f8df6f09d582b74d6a042edab747d68e",
+      "acoustic_sha256": "63e4c94a55ff87c01a244991daaf17e6fa9cf9b529aee758ee87afa3b91a8dc5",
+      "checkpoint_checks": {
+        "header_sha256_valid": true,
+        "payload_sha256_valid": true,
+        "all_selected_file_hashes_match_pins": true,
+        "producer_binary_matches_engine": true,
+        "frames": 25,
+        "latent_dim": 64,
+        "bytes": 6912
+      }
+    },
+    {
+      "name": "warm-second",
+      "timings": {
+        "yue2.acoustic.pin_sources_ms": [
+          22437.148497
+        ],
+        "yue2.plan.prefix_tokens": [
+          36.0
+        ],
+        "yue2.plan.abc_tokens": [
+          0.0
+        ],
+        "yue2.plan_ms": [
+          5.49833
+        ],
+        "yue2.ar.resident_reuse": [
+          1.0,
+          1.0
+        ],
+        "yue2.semantic.negative_prefix_ms": [
+          0.209489
+        ],
+        "yue2.semantic.positive_prefix_tokens": [
+          36.0
+        ],
+        "yue2.semantic.negative_prefix_tokens": [
+          12.0
+        ],
+        "yue2.ar.generate.prefix_tokens": [
+          36.0
+        ],
+        "yue2.ar.generate.max_tokens": [
+          25.0
+        ],
+        "yue2.ar.prefill.graph.build_ms": [
+          3.847109
+        ],
+        "yue2.ar.generate.prefill_ms": [
+          4100.78834
+        ],
+        "yue2.ar.decode.graph.build_ms": [
+          2.293434
+        ],
+        "yue2.ar.generate.start_decode_ms": [
+          18.908343
+        ],
+        "yue2.ar.generate.sample_ms": [
+          6.226557000000001
+        ],
+        "yue2.ar.generate.decode_ms": [
+          4690.273790000001
+        ],
+        "yue2.ar.generate.refill_prefill_ms": [
+          0.0
+        ],
+        "yue2.ar.generate.refill_count": [
+          0.0
+        ],
+        "yue2.ar.generate.emitted_tokens": [
+          25.0
+        ],
+        "yue2.ar.generate.total_ms": [
+          8816.540139
+        ],
+        "yue2.semantic.music_generate_ms": [
+          8816.555519
+        ],
+        "yue2.semantic.tokens": [
+          25.0
+        ],
+        "yue2.semantic.truncated": [
+          1.0
+        ],
+        "yue2.semantic.total_inner_ms": [
+          8816.840992
+        ],
+        "yue2.semantic_ms": [
+          8837.950653
+        ],
+        "yue2.nar.codec_extract_ms": [
+          0.000291
+        ],
+        "yue2.nar.codec_tokens": [
+          25.0
+        ],
+        "yue2.nar.resident_reuse": [
+          1.0
+        ],
+        "yue2.nar.synthesize.prefix_tokens": [
+          36.0
+        ],
+        "yue2.nar.synthesize.codec_tokens": [
+          25.0
+        ],
+        "yue2.nar.synthesize.chunks": [
+          1.0
+        ],
+        "yue2.nar.synthesize.ode_steps": [
+          2.0
+        ],
+        "yue2.nar.synthesize.context": [
+          24576.0
+        ],
+        "yue2.nar.synthesize.noise_ms": [
+          0.110611
+        ],
+        "yue2.ar.prefill_state.tokens": [
+          62.0
+        ],
+        "yue2.ar.prefix_state.graph.build_ms": [
+          7.327901
+        ],
+        "yue2.ar.prefix_state.graph.total_ms": [
+          7.536088
+        ],
+        "yue2.ar.prefix_state.input_upload_ms": [
+          0.002355
+        ],
+        "yue2.ar.prefix_state.graph_compute_ms": [
+          6958.696286
+        ],
+        "yue2.ar.prefix_state.device_copy_ms": [
+          0.0
+        ],
+        "yue2.ar.prefix_state.released_graph_bytes": [
+          10928160.0
+        ],
+        "yue2.ar.prefix_state.released_mask_bytes": [
+          7688.0
+        ],
+        "yue2.ar.prefill_state_ms": [
+          6966.882371
+        ],
+        "yue2.nar.graph.build_ms": [
+          2.007208
+        ],
+        "yue2.nar.graph.alloc_ms": [
+          0.832934
+        ],
+        "yue2.nar.graph.static_upload_ms": [
+          0.0
+        ],
+        "yue2.nar.graph.frames": [
+          25.0
+        ],
+        "yue2.nar.graph.ar_tokens": [
+          62.0
+        ],
+        "yue2.nar.graph.nar_tokens": [
+          27.0
+        ],
+        "yue2.nar.graph.total_ms": [
+          2.969089
+        ],
+        "yue2.nar.progress": [
+          0.0,
+          0.5,
+          1.0
+        ],
+        "yue2.nar.chunk.frames": [
+          25.0
+        ],
+        "yue2.nar.chunk.ode_steps": [
+          2.0
+        ],
+        "yue2.nar.chunk.velocity_runs": [
+          4.0
+        ],
+        "yue2.nar.chunk.host_pad_ms": [
+          0.007164
+        ],
+        "yue2.nar.chunk.host_timestep_ms": [
+          0.017292
+        ],
+        "yue2.nar.chunk.host_update_ms": [
+          0.17881000000124914
+        ],
+        "yue2.nar.chunk.input_upload_ms": [
+          0.017795
+        ],
+        "yue2.nar.chunk.graph_compute_ms": [
+          11700.139803
+        ],
+        "yue2.nar.chunk.output_read_ms": [
+          0.034716
+        ],
+        "yue2.nar.chunk.total_ms": [
+          11703.488062
+        ],
+        "yue2.nar.synthesize.token_build_ms": [
+          0.002996
+        ],
+        "yue2.nar.synthesize.noise_slice_ms": [
+          0.001593
+        ],
+        "yue2.nar.synthesize.prefill_state_ms": [
+          6966.893853
+        ],
+        "yue2.nar.synthesize.solve_chunks_ms": [
+          11703.498012
+        ],
+        "yue2.nar.synthesize.output_append_ms": [
+          0.016992
+        ],
+        "yue2.nar.synthesize.output_latents": [
+          1600.0
+        ],
+        "yue2.nar.synthesize.total_ms": [
+          18670.673039
+        ],
+        "yue2.nar_ms": [
+          18670.755806
+        ],
+        "yue2.resident.retained": [
+          1.0
+        ],
+        "yue2.acoustic.save_ms": [
+          1.517846
+        ],
+        "yue2.vae_decode.latent_frames": [
+          25.0
+        ],
+        "yue2.vae_decode.channels": [
+          64.0
+        ],
+        "framework.oobleck_audio_vae.decode.graph_batch": [
+          1.0
+        ],
+        "framework.oobleck_audio_vae.decode.graph_latent_frames": [
+          25.0
+        ],
+        "framework.oobleck_audio_vae.decode.graph_output_frames": [
+          47936.0
+        ],
+        "framework.oobleck_audio_vae.decode.graph_build_ms": [
+          1.347693
+        ],
+        "framework.oobleck_audio_vae.decode.input_upload_ms": [
+          0.007624
+        ],
+        "framework.oobleck_audio_vae.decode.graph_compute_ms": [
+          5928.927503
+        ],
+        "framework.oobleck_audio_vae.decode.output_read_ms": [
+          0.217973
+        ],
+        "framework.oobleck_audio_vae.decode.total_ms": [
+          5929.251437
+        ],
+        "framework.oobleck_audio_vae.decode_planar_ms": [
+          5930.612384
+        ],
+        "framework.oobleck_audio_vae.decode.interleave_ms": [
+          0.241468
+        ],
+        "framework.oobleck_audio_vae.decode.audio_frames": [
+          47936.0
+        ],
+        "framework.oobleck_audio_vae.decode.full_ms": [
+          5930.932782
+        ],
+        "yue2.vae_decode.tiles": [
+          1.0
+        ],
+        "yue2.vae_decode.planar_pack_ms": [
+          0.006482
+        ],
+        "yue2.vae_decode.tile_decode_ms": [
+          5930.975813
+        ],
+        "yue2.vae_decode.tile_copy_ms": [
+          0.0
+        ],
+        "yue2.vae_decode.output_frames": [
+          47936.0
+        ],
+        "yue2.vae_decode_ms": [
+          5930.997264
+        ],
+        "session.wall_ms": [
+          55901.671417
+        ]
+      },
+      "wav_sha256": "568aeda41727e0ee8e2ac573b7092f87f8df6f09d582b74d6a042edab747d68e",
+      "acoustic_sha256": "63e4c94a55ff87c01a244991daaf17e6fa9cf9b529aee758ee87afa3b91a8dc5",
+      "checkpoint_checks": {
+        "header_sha256_valid": true,
+        "payload_sha256_valid": true,
+        "all_selected_file_hashes_match_pins": true,
+        "producer_binary_matches_engine": true,
+        "frames": 25,
+        "latent_dim": 64,
+        "bytes": 6912
+      }
+    }
+  ],
+  "shared_identities_unchanged": true,
+  "utc_finished": "2026-10-24T01:25:59.828097+00:00",
+  "environment": {
+    "os": "Linux",
+    "architecture": "x86_64",
+    "kernel": "6.14.0-37-generic",
+    "cpu": "AMD EPYC 7551 32-Core Processor",
+    "inference_threads": 2,
+    "OMP_NUM_THREADS": "2",
+    "OPENBLAS_NUM_THREADS": "2",
+    "native_build": "Release GCC 13.3.0, queued CPU engine, all 14 source patches",
+    "native_fingerprint": "a97282a0cd11f431-cpu"
+  },
+  "native_build_receipt": {
+    "backend": "cpu",
+    "build_exit_status": 0,
+    "build_milliseconds": 503008,
+    "cache_backend": "disabled",
+    "cache_enabled": false,
+    "cache_mode": "DISABLED",
+    "cache_service_version": null,
+    "cache_status": "GitHub compiler cache is unavailable; compiling normally",
+    "inputs_sha256": "13c86c9f4dab48a72d32658e99c8e9d164495008c1814ce02639b57a3bc3776e",
+    "namespace_sha256": "acebb1c62d850cbdfabed8cbab88de19d22b52dd1af6b2123a72bb488f42c1e3",
+    "native_fingerprint": "a97282a0cd11f431",
+    "schema": "riff.native-cache-build.v1",
+    "source_sha256": "316b95d3ef2b34657ad3fea03f7e10de0c90c81a8fb119ffc3193d26a4bb3cc7",
+    "statistics": {},
+    "tool": null
+  },
+  "method": {
+    "execution": "Sequential; one observation per role/cache-state cell; native hash_file from original queued object. First Python pass and initial pin verification prewarm shared files. No parallel benchmark jobs.",
+    "cold": "Independent private copies written with ordinary read/write, fsynced, hash-verified, then POSIX_FADV_DONTNEED on those copies only; mincore before/after. No global cache eviction. Device/controller caches not controlled.",
+    "warm": "Every page resident before every shared-warm and immediate-repeat native read.",
+    "shared_files": "Read only; all six files verified against sources.json; device/inode/size/mtime_ns/ctime_ns unchanged after measurement.",
+    "native_compilation": "Probe harness also compiled through the shared compile queue, linking a byte-identical copy of the existing acoustic_checkpoint.cpp.o. No native source or patch edits.",
+    "reproduction": "After a queued CPU build, compile docs/evidence/acoustic-pin-probe.cpp with that build/CMakeFiles/engine_model_yue2.dir/src/models/yue2/acoustic_checkpoint.cpp.o. On the homelab submit the harness compile through the queue too. Run acoustic-pin-probe FILE for per-file JSON. The normalized warm command and job lines in this receipt reproduce both takes; close stdin after the second line. Replace <engine>, <models>, <output> with owned paths.",
+    "limits": "One busy Linux host; CPU only; one sample per cache/file cell; two approximately one-second inference requests. No proposed cache implemented or speedup qualified. Raw process logs, build material and orchestration retained locally."
+  },
+  "existing_python_cache_mutation_checks": {
+    "same_size_restored_mtime": {
+      "size_equal": true,
+      "mtime_equal": true,
+      "ctime_changed": true,
+      "digest_changed": true
+    },
+    "replacement_restored_mtime": {
+      "size_equal": true,
+      "mtime_equal": true,
+      "inode_changed": true,
+      "digest_changed": true
+    },
+    "scope": "Existing Python cache only; proposed native cache not implemented."
+  },
+  "checks": {
+    "all_native_probe_hashes_match_expected": true,
+    "warm_wav_bytes_identical": true,
+    "warm_checkpoint_bytes_identical": true,
+    "shared_file_identities_unchanged": true
+  }
+}

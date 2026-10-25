@@ -45,6 +45,7 @@ def describe():
             "lora_cancel": {"method": "POST", "path": "/api/loras/tasks/{task_id}/cancel", "body": "Empty object."},
             "lora_edit": {"method": "PATCH", "path": "/api/loras/{adapter_id}", "body": "name, notes, tags, default_strength or trigger_words."},
             "lora_updates": {"method": "GET", "path": "/api/loras/{adapter_id}/updates"},
+            "lora_clean": {"method": "POST", "path": "/api/loras/{adapter_id}/clean", "body": "Empty object. Deletes only the files the installation holds that its manifest does not reference (listed as unreferenced, counted in retained_bytes); referenced files and manifest.json are never touched. Returns what was removed and the bytes reclaimed."},
             "lora_delete": {"method": "DELETE", "path": "/api/loras/{adapter_id}", "body": "Empty object; confirm:true acknowledges recorded references. Queued/active take references always prevent deletion."},
             "library": {"method": "GET", "path": "/api/state"},
             "lineage": {"method": "GET", "path": "/api/tracks/{track_id}/lineage",

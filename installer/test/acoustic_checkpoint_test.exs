@@ -32,6 +32,82 @@ defmodule Riff.Runtime.AcousticCheckpointTest do
     refute Map.has_key?(saved, "payload")
   end
 
+  test "removing a publisher's temporary alias during inspection preserves unchanged content",
+       c do
+    expected = Checkpoint.inspect!(c.root, c.path)
+    alias_path = c.path <> ".publishing"
+    File.ln!(c.path, alias_path)
+    before = File.stat!(c.path, time: :posix)
+    assert before.links == 2
+
+    result =
+      Checkpoint.inspect!(c.root, c.path, fn ->
+        changed = unlink_after_ctime_tick!(c.path, alias_path, before.ctime)
+        assert changed.ctime != before.ctime
+        assert changed.links == 1
+
+        assert {changed.major_device, changed.inode, changed.size, changed.mtime} ==
+                 {before.major_device, before.inode, before.size, before.mtime}
+      end)
+
+    assert result == expected
+    assert File.read!(c.path) == c.bytes
+  end
+
+  test "same-size payload corruption during inspection is rejected even with mtime restored", c do
+    before = File.stat!(c.path, time: :posix)
+    <<header::binary-size(512), first, rest::binary>> = c.bytes
+
+    assert_raise Checkpoint.Error, "The saved sound data has changed.", fn ->
+      Checkpoint.inspect!(c.root, c.path, fn ->
+        File.write!(c.path, header <> <<Bitwise.bxor(first, 1)>> <> rest)
+        File.touch!(c.path, before.mtime)
+      end)
+    end
+  end
+
+  test "replacing the path with identical bytes during inspection is still rejected", c do
+    assert_raise Checkpoint.Error, "The saved sound changed during inspection.", fn ->
+      Checkpoint.inspect!(c.root, c.path, fn ->
+        File.rename!(c.path, c.path <> ".old")
+        File.write!(c.path, c.bytes)
+      end)
+    end
+  end
+
+  test "header edits and truncation after opening remain invalid", c do
+    <<first, rest::binary>> = c.bytes
+
+    for {replacement, message} <- [
+          {<<Bitwise.bxor(first, 1)>> <> rest, "The saved sound header has changed."},
+          {binary_part(c.bytes, 0, byte_size(c.bytes) - 1),
+           "The saved sound ended before its data was complete."}
+        ] do
+      File.write!(c.path, c.bytes)
+
+      assert_raise Checkpoint.Error, message, fn ->
+        Checkpoint.inspect!(c.root, c.path, fn -> File.write!(c.path, replacement) end)
+      end
+    end
+  end
+
+  defp unlink_after_ctime_tick!(path, alias_path, original_ctime) do
+    # File.Stat's POSIX timestamps have one-second precision. Wait for that
+    # observed bucket to change, rather than hoping the race crosses a tick.
+    remaining = (original_ctime + 1) * 1000 - System.os_time(:millisecond)
+    if remaining > 0, do: Process.sleep(remaining)
+    File.rm!(alias_path)
+    changed = File.stat!(path, time: :posix)
+
+    if changed.ctime == original_ctime do
+      # A filesystem's cached timestamp can lag the wall clock at the edge.
+      File.ln!(path, alias_path)
+      unlink_after_ctime_tick!(path, alias_path, original_ctime)
+    else
+      changed
+    end
+  end
+
   test "interrupted publication, trailing bytes and changed acoustic data are not reusable", c do
     for size <- [0, 8, 511, byte_size(c.bytes) - 1] do
       File.write!(c.path, binary_part(c.bytes, 0, size))

@@ -458,13 +458,24 @@ $("#preset-form").addEventListener("submit", async (event) => {
   const button = $("button[type=submit]", $("#preset-form"));
   button.disabled = true;
   try {
-    await api("/api/presets", "POST", {
+    const preset = await api("/api/presets", "POST", {
       name: $("#preset-name").value,
       style: $("#style").value,
     });
-    await refresh();
+    // The sound is already accepted. Discard refreshes that started before it,
+    // then show it without waiting for the background state refresh.
+    appliedRefreshRequest = ++refreshRequest;
+    state.presets = [
+      ...state.presets.filter((item) => item.id !== preset.id),
+      preset,
+    ];
+    renderPresets();
     $("#preset-dialog").close();
     notify("Sound saved for another day.");
+    refresh().catch(() => {
+      connected = false;
+      renderQueue();
+    });
   } catch (error) {
     errorMessage("#preset-error", error.message);
   } finally {

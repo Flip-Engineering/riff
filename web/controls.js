@@ -54,8 +54,8 @@
     const feedback = $("#system-feedback"), slot = $(updateTask ? "#update-task-slot" : "#engine-task-slot");
     if (feedback.parentElement !== slot) slot.append(feedback);
     $("#setup-invitation").hidden = next.engine.ready;
-    $("#system-task").textContent = system.task.message || (system.engine.ready ? "Music engine ready" : "Choose an engine to get started");
-    $("#system-task").classList.toggle("form-error", system.task.status === "failed");
+    $("#system-task").textContent = (system.task.status !== "running" && system.engine.error) || system.task.message || (system.engine.ready ? "Music engine ready" : "Choose an engine to get started");
+    $("#system-task").classList.toggle("form-error", system.task.status === "failed" || (system.task.status !== "running" && !!system.engine.error));
     $("#system-progress").hidden = system.task.status !== "running";
     $("#system-progress").setAttribute("aria-label", updateTask ? "Update progress" : "Setup progress");
     $("#system-log").textContent = updateTask ? "Update log" : "Setup log";

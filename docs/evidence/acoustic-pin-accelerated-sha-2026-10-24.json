@@ -1,0 +1,27 @@
+{
+  "qualification": "CLI throughput reference, not an integrated native implementation; sequential warm page-cache reads, one sample each on busy host",
+  "openssl_version": "OpenSSL 3.0.13 30 Jan 2024 (Library: OpenSSL 3.0.13 30 Jan 2024)",
+  "measurements": [
+    {
+      "command": ["openssl", "dgst", "-sha256"],
+      "stdin": "verified shared main GGUF, read-only",
+      "bytes": 2665632320,
+      "sha256": "97af67d7f800b362faee6e6bec806bddfcccb93f25fd3f9a1012724d95af6f4a",
+      "wall_seconds": 3.0644102800001747,
+      "user_seconds": 2.339406,
+      "system_seconds": 0.724125,
+      "input_blocks": 0
+    },
+    {
+      "command": ["sha256sum"],
+      "stdin": "verified shared main GGUF, read-only",
+      "bytes": 2665632320,
+      "sha256": "97af67d7f800b362faee6e6bec806bddfcccb93f25fd3f9a1012724d95af6f4a",
+      "wall_seconds": 3.2562565440000526,
+      "user_seconds": 2.186772,
+      "system_seconds": 0.872319,
+      "input_blocks": 0
+    }
+  ],
+  "shared_identity_unchanged": true
+}

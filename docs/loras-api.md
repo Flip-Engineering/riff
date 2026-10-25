@@ -56,6 +56,7 @@ All routes use the studio's existing same-origin request checks.
 | `GET /api/loras/{id}` | — | Manifest with current references |
 | `POST /api/loras/import` | Streamed `application/octet-stream` safetensors upload; filename and metadata use the studio upload controls | Installed manifest |
 | `PATCH /api/loras/{id}` | Any editable metadata fields below | Updated manifest |
+| `POST /api/loras/{id}/clean` | `{}` | `{id, removed: [{path, bytes}], reclaimed_bytes, retained_bytes, bytes}`; deletes only unreferenced files |
 | `DELETE /api/loras/{id}` | `{confirm: false}` or `{confirm: true}` | Deleted receipt, or a references warning requiring confirmation |
 | `GET /api/loras/hub` | `q`, `genre`, `license`, `stage`, `compatibility`, `sort`, `page`, `limit` query parameters | `{models, page, limit, has_more, query, genre, sort}` plus selected filters |
 | `GET /api/loras/hub/detail` | `repo`, optional `revision` (defaults to `main`) | Revision-pinned repository details, compatible files, README text and demo files |
@@ -195,6 +196,34 @@ selected files; local uploads retain their original filenames. The manifest's
   "config_sha256": null
 }
 ```
+
+The manifest's top-level `bytes` is the size of the distinct files its `files`
+descriptors reference: each original upload, each normalized engine file and each
+retained PEFT configuration, counted once. A combined AR/NAR upload is counted
+once even though two descriptors name it. It excludes `manifest.json` and any
+other file in the installation directory.
+Reads recompute it from the installed files, so installations made by earlier
+versions report the same value without a rewritten manifest. If a referenced file
+is missing, the stored value is returned.
+
+Next to it, reads report what the installation actually occupies on disk:
+
+- `retained_bytes`: the size of every file under the adapter's directory, including
+  `manifest.json` and any file the manifest does not reference. A symbolic link counts
+  as itself and is never followed.
+- `unreferenced`: the files the manifest does not reference (and that are not
+  `manifest.json`), each as `{path, bytes}` with a path relative to the installation.
+
+Both are computed on every read and never stored in `manifest.json`, so a stray file
+changes `retained_bytes` and `unreferenced` and leaves `bytes` and the adapter ID alone.
+With nothing stray, `retained_bytes` is `bytes` plus the size of `manifest.json`.
+
+Riff reports unreferenced files and never deletes them by itself: a leftover file is
+evidence of an interrupted or foreign write, and removing it silently would hide that and
+could remove something another tool put there. `POST /api/loras/{id}/clean` with `{}`
+deletes exactly the unreferenced files, removes directories left empty, and returns what it
+removed and the bytes reclaimed. It never touches a referenced file or `manifest.json`, never
+follows a link out of the installation, and does not run unless called.
 
 Editable fields are `name`, `notes`, `license`, `tags`, `trigger_words`, and
 `default_strength`. `license` records a creator's stated license or the user's

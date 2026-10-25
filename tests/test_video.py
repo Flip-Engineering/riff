@@ -7,8 +7,10 @@ import struct
 import subprocess
 import sys
 import threading
+import time
 import unittest
 import zlib
+from unittest.mock import patch
 
 from studio import StudioServer
 from test_studio import StudioFixture, recipe
@@ -337,6 +339,71 @@ class VideoTests(StudioFixture):
                 self.assertEqual(exports.get(job["id"])["status"], "failed")
                 self.assertNotIn("download_url", exports.get(job["id"]))
                 self.assertFalse((exports.output / (job["id"] + ".part.mp4")).exists())
+
+    def settle(self, export_id, status):
+        """Wait for an export's status by observing it, with no wall-clock deadline."""
+        while (job := self.server.video_exports.get(export_id))["status"] != status:
+            time.sleep(0.02)
+        return job
+
+    def attach_producer(self, export_id):
+        connection = http.client.HTTPConnection("127.0.0.1", self.server.server_port)
+        connection.request("GET", f"/api/video-exports/{export_id}/live", headers={"X-Riff-Request": "1"})
+        response = connection.getresponse()
+        self.assertEqual(response.status, 200)
+        self.assertEqual(response.read(1), b"\n")
+        return connection, response
+
+    def test_an_export_is_not_ended_by_elapsed_time_between_frames(self):
+        """A slow frame is not a dead producer. The previous rule interrupted an export
+        120 s after its last frame, checked every 15 s, while both sides were alive."""
+        job = self.start()
+        real = time.monotonic
+        with patch("video.time.monotonic", lambda: real() + 3600):
+            time.sleep(16)
+            self.assertEqual(self.server.video_exports.get(job["id"])["status"], "rendering")
+        frame = png(32, 24, (40, 120, 200))
+        status, _ = self.request("POST", f"/api/video-exports/{job['id']}/frames", frame,
+                                 {"Content-Type": "image/png", "X-Riff-Frame": "0"})
+        self.assertEqual(status, 200)
+
+    def test_closing_the_drawing_page_interrupts_and_names_the_producer(self):
+        job = self.start()
+        connection, response = self.attach_producer(job["id"])
+        response.close()
+        connection.close()
+        stopped = self.settle(job["id"], "interrupted")
+        self.assertIn("page drawing this video closed", stopped["error"])
+        self.assertFalse((self.server.video_exports.output / (job["id"] + ".part.mp4")).exists())
+
+    def test_encoder_exit_fails_the_export_without_waiting_for_a_frame(self):
+        job = self.start()
+        with self.server.video_exports.lock:
+            process = self.server.video_exports.active[job["id"]]["process"]
+        process.kill()
+        stopped = self.settle(job["id"], "failed")
+        self.assertIn("video encoder exited with status", stopped["error"])
+        status, body = self.request("POST", f"/api/video-exports/{job['id']}/frames", png(32, 24, (1, 2, 3)),
+                                    {"Content-Type": "image/png", "X-Riff-Frame": "0"})
+        self.assertEqual(status, 400)
+
+    def test_a_finished_export_releases_its_producer_connection(self):
+        job = self.start()
+        connection, response = self.attach_producer(job["id"])
+        try:
+            frame = png(32, 24, (90, 30, 160))
+            for index in range(job["frames"]):
+                status, _ = self.request("POST", f"/api/video-exports/{job['id']}/frames", frame,
+                                         {"Content-Type": "image/png", "X-Riff-Frame": str(index)})
+                self.assertEqual(status, 200)
+            status, done = self.request("POST", f"/api/video-exports/{job['id']}/finish", {})
+            self.assertEqual((status, done["status"]), (200, "done"), done)
+            # The stream ends once the export leaves the active set.
+            while response.read(1):
+                pass
+        finally:
+            response.close()
+            connection.close()
 
     def test_frame_origin_order_size_and_cancel_are_enforced(self):
         job = self.start()
