@@ -60,6 +60,7 @@ OobleckAudioVaeRuntime::OobleckAudioVaeRuntime(std::shared_ptr<const assets::Ten
 OobleckAudioVaeRuntime::~OobleckAudioVaeRuntime()=default;
 std::vector<runtime::AudioBuffer> OobleckAudioVaeRuntime::decode(const std::vector<float> & planar,int64_t batch,int64_t frames){
     auto & c=e06_test::calls;++c.decode;c.decoded_frames.push_back(frames);
+    if(c.during_decode)c.during_decode();
     if(c.fail_vae)throw std::runtime_error("injected VAE failure after completed acoustic synthesis");
     if(batch!=1 || planar.size()!=size_t(frames*64))throw std::runtime_error("invalid actual planar packing");
     runtime::AudioBuffer out;out.sample_rate=int(impl_->config.sample_rate);out.channels=int(impl_->config.audio_channels);

@@ -183,10 +183,12 @@ defmodule Riff.Native.ScoreReplayCheck do
     # unset (as in this oracle comparison) the pipeline releases AR/NAR exactly
     # as before. The weight-adapter patch returns the original TensorSource
     # when no adapter is selected; this oracle keeps adapter selection empty.
+    # The digest patch guards selected source identities and caches hashes only;
+    # it changes neither symbolic sampling nor prefix construction.
     unless downstream ==
              Enum.map(
                [@patch, "patches/yue2-vae-checkpoint.patch", "patches/yue2-warm-engine.patch",
-                "patches/yue2-weight-adapters.patch"],
+                "patches/yue2-weight-adapters.patch", "patches/yue2-weight-digests.patch"],
                &Path.join(@app, &1)
              ),
            do: raise("Review the original-pipeline oracle after changing downstream patches")
