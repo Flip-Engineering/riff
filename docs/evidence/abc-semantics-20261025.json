@@ -1,0 +1,6883 @@
+{
+  "schema": "riff.daw.abc-midi-fidelity.v1",
+  "created_utc": "2026-10-25T22:24:42.783259+00:00",
+  "issue": "https://github.com/Flip-Engineering/riff/issues/78",
+  "author": "riff-daw-deepseek-20261025",
+  "repo_head": "161f79117643539552a2f999c47d37afffe91836",
+  "abcjs": {
+    "version": "6.7.0",
+    "signature": "abcjs-basic v6.7.0",
+    "bundle_sha256": "b0cde4bc52bb33949181683a245005fff8a024a8c1f07ec6ce3222cd4bd72e51",
+    "riff_call": "web/score.js:283-286",
+    "riff_pin": "package.json:19"
+  },
+  "abc2midi": {
+    "version": "5.07 October 14 2026",
+    "source_version": "October 14 2026",
+    "upstream": "https://github.com/sshlien/abcmidi",
+    "probe_commit_recorded_by_glm": "6582eb8"
+  },
+  "commands": [
+    "node .probe-tmp/deepseek/abc2js.js cases/CASE.abc out/CASE.abcjs.mid",
+    ".probe-tmp/abcmidi/src/abc2midi cases/CASE.abc -o out/CASE.abc2midi.mid",
+    "python3 .probe-tmp/deepseek/midi_summary.py out/CASE.abc2midi.mid",
+    "python3 .probe-tmp/deepseek/midi_summary.py out/CASE.abcjs.mid"
+  ],
+  "cases": [
+    {
+      "case": "a_headers",
+      "expected_note_count": 8,
+      "abc": "X:1\nT:Case A headers and voices\nM:3/4\nL:1/8\nQ:1/4=90\nK:G\nV:Melody clef=treble\n%%MIDI program 73\nG2 A2 B2 | c4 z2 |\nV:Harmony clef=bass\n%%MIDI program 33\nG,2 A,2 B,2 | C,4 z2 |\n",
+      "abc2midi": {
+        "format": 1,
+        "division": 480,
+        "track_count": 3,
+        "tracks": [
+          {
+            "track": 0,
+            "name": "Case A headers and voices",
+            "channels": [],
+            "programs": [],
+            "tempos": [
+              {
+                "tick": 0,
+                "us_per_qn": 666666,
+                "bpm": 90.0
+              }
+            ],
+            "time_sigs": [
+              {
+                "tick": 0,
+                "num": 3,
+                "den_pow2": 2
+              }
+            ],
+            "key_sigs": [
+              {
+                "tick": 0,
+                "sharps": 1,
+                "minor": 0
+              }
+            ],
+            "texts": [
+              "note track"
+            ],
+            "lyrics": [],
+            "note_count": 0,
+            "notes": []
+          },
+          {
+            "track": 1,
+            "name": "Case A headers and voices",
+            "channels": [
+              0
+            ],
+            "programs": [
+              {
+                "tick": 1,
+                "ch": 0,
+                "program": 73
+              }
+            ],
+            "tempos": [],
+            "time_sigs": [],
+            "key_sigs": [],
+            "texts": [
+              "note track",
+              "X:1"
+            ],
+            "lyrics": [],
+            "note_count": 4,
+            "notes": [
+              {
+                "start": 1,
+                "dur": 479,
+                "pitch": 67,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 481,
+                "dur": 479,
+                "pitch": 69,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 961,
+                "dur": 479,
+                "pitch": 71,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 1441,
+                "dur": 959,
+                "pitch": 72,
+                "vel": 105,
+                "ch": 0
+              }
+            ]
+          },
+          {
+            "track": 2,
+            "name": null,
+            "channels": [
+              1
+            ],
+            "programs": [
+              {
+                "tick": 1,
+                "ch": 1,
+                "program": 33
+              }
+            ],
+            "tempos": [],
+            "time_sigs": [],
+            "key_sigs": [],
+            "texts": [
+              "note track"
+            ],
+            "lyrics": [],
+            "note_count": 4,
+            "notes": [
+              {
+                "start": 1,
+                "dur": 479,
+                "pitch": 55,
+                "vel": 105,
+                "ch": 1
+              },
+              {
+                "start": 481,
+                "dur": 479,
+                "pitch": 57,
+                "vel": 80,
+                "ch": 1
+              },
+              {
+                "start": 961,
+                "dur": 479,
+                "pitch": 59,
+                "vel": 80,
+                "ch": 1
+              },
+              {
+                "start": 1441,
+                "dur": 959,
+                "pitch": 48,
+                "vel": 105,
+                "ch": 1
+              }
+            ]
+          }
+        ]
+      },
+      "abcjs": {
+        "format": 1,
+        "division": 480,
+        "track_count": 3,
+        "tracks": [
+          {
+            "track": 0,
+            "name": null,
+            "channels": [],
+            "programs": [],
+            "tempos": [
+              {
+                "tick": 0,
+                "us_per_qn": 666667,
+                "bpm": 90.0
+              }
+            ],
+            "time_sigs": [
+              {
+                "tick": 0,
+                "num": 3,
+                "den_pow2": 2
+              }
+            ],
+            "key_sigs": [
+              {
+                "tick": 0,
+                "sharps": 1,
+                "minor": 0
+              }
+            ],
+            "texts": [
+              "Case A headers and voices"
+            ],
+            "lyrics": [],
+            "note_count": 0,
+            "notes": []
+          },
+          {
+            "track": 1,
+            "name": null,
+            "channels": [
+              0
+            ],
+            "programs": [
+              {
+                "tick": 0,
+                "ch": 0,
+                "program": 73
+              }
+            ],
+            "tempos": [],
+            "time_sigs": [],
+            "key_sigs": [],
+            "texts": [],
+            "lyrics": [],
+            "note_count": 4,
+            "notes": [
+              {
+                "start": 0,
+                "dur": 480,
+                "pitch": 67,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 480,
+                "dur": 480,
+                "pitch": 69,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 960,
+                "dur": 480,
+                "pitch": 71,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 1440,
+                "dur": 960,
+                "pitch": 72,
+                "vel": 105,
+                "ch": 0
+              }
+            ]
+          },
+          {
+            "track": 2,
+            "name": null,
+            "channels": [
+              0,
+              1
+            ],
+            "programs": [
+              {
+                "tick": 0,
+                "ch": 0,
+                "program": 33
+              }
+            ],
+            "tempos": [],
+            "time_sigs": [],
+            "key_sigs": [],
+            "texts": [],
+            "lyrics": [],
+            "note_count": 4,
+            "notes": [
+              {
+                "start": 0,
+                "dur": 480,
+                "pitch": 55,
+                "vel": 105,
+                "ch": 1
+              },
+              {
+                "start": 480,
+                "dur": 480,
+                "pitch": 57,
+                "vel": 95,
+                "ch": 1
+              },
+              {
+                "start": 960,
+                "dur": 480,
+                "pitch": 59,
+                "vel": 95,
+                "ch": 1
+              },
+              {
+                "start": 1440,
+                "dur": 960,
+                "pitch": 48,
+                "vel": 105,
+                "ch": 1
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "case": "b_inline",
+      "expected_note_count": 16,
+      "abc": "X:1\nT:Case B inline changes\nM:4/4\nL:1/8\nQ:1/4=120\nK:C\nCDEF GABc |\n[M:3/4][K:G][Q:1/4=60] GAB c2B | A2G2F2 |\n",
+      "abc2midi": {
+        "format": 0,
+        "division": 480,
+        "track_count": 1,
+        "tracks": [
+          {
+            "track": 0,
+            "name": "Case B inline changes",
+            "channels": [
+              0
+            ],
+            "programs": [],
+            "tempos": [
+              {
+                "tick": 0,
+                "us_per_qn": 500000,
+                "bpm": 120.0
+              },
+              {
+                "tick": 1921,
+                "us_per_qn": 1000000,
+                "bpm": 60.0
+              }
+            ],
+            "time_sigs": [
+              {
+                "tick": 0,
+                "num": 4,
+                "den_pow2": 2
+              },
+              {
+                "tick": 1920,
+                "num": 3,
+                "den_pow2": 2
+              }
+            ],
+            "key_sigs": [
+              {
+                "tick": 0,
+                "sharps": 0,
+                "minor": 0
+              },
+              {
+                "tick": 1920,
+                "sharps": 1,
+                "minor": 0
+              }
+            ],
+            "texts": [
+              "note track",
+              "X:1"
+            ],
+            "lyrics": [],
+            "note_count": 16,
+            "notes": [
+              {
+                "start": 1,
+                "dur": 239,
+                "pitch": 60,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 241,
+                "dur": 239,
+                "pitch": 62,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 481,
+                "dur": 239,
+                "pitch": 64,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 721,
+                "dur": 239,
+                "pitch": 65,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 961,
+                "dur": 239,
+                "pitch": 67,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 1201,
+                "dur": 239,
+                "pitch": 69,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 1441,
+                "dur": 239,
+                "pitch": 71,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 1681,
+                "dur": 239,
+                "pitch": 72,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 1921,
+                "dur": 239,
+                "pitch": 67,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 2161,
+                "dur": 239,
+                "pitch": 69,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 2401,
+                "dur": 239,
+                "pitch": 71,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 2641,
+                "dur": 479,
+                "pitch": 72,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 3121,
+                "dur": 239,
+                "pitch": 71,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 3361,
+                "dur": 479,
+                "pitch": 69,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 3841,
+                "dur": 479,
+                "pitch": 67,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 4321,
+                "dur": 479,
+                "pitch": 66,
+                "vel": 80,
+                "ch": 0
+              }
+            ]
+          }
+        ]
+      },
+      "abcjs": {
+        "format": 1,
+        "division": 480,
+        "track_count": 2,
+        "tracks": [
+          {
+            "track": 0,
+            "name": null,
+            "channels": [],
+            "programs": [],
+            "tempos": [
+              {
+                "tick": 0,
+                "us_per_qn": 500000,
+                "bpm": 120.0
+              }
+            ],
+            "time_sigs": [
+              {
+                "tick": 0,
+                "num": 4,
+                "den_pow2": 2
+              }
+            ],
+            "key_sigs": [
+              {
+                "tick": 0,
+                "sharps": 0,
+                "minor": 0
+              }
+            ],
+            "texts": [
+              "Case B inline changes"
+            ],
+            "lyrics": [],
+            "note_count": 0,
+            "notes": []
+          },
+          {
+            "track": 1,
+            "name": null,
+            "channels": [
+              0
+            ],
+            "programs": [
+              {
+                "tick": 0,
+                "ch": 0,
+                "program": 0
+              }
+            ],
+            "tempos": [],
+            "time_sigs": [],
+            "key_sigs": [],
+            "texts": [],
+            "lyrics": [],
+            "note_count": 16,
+            "notes": [
+              {
+                "start": 0,
+                "dur": 240,
+                "pitch": 60,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 240,
+                "dur": 240,
+                "pitch": 62,
+                "vel": 85,
+                "ch": 0
+              },
+              {
+                "start": 480,
+                "dur": 240,
+                "pitch": 64,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 720,
+                "dur": 240,
+                "pitch": 65,
+                "vel": 85,
+                "ch": 0
+              },
+              {
+                "start": 960,
+                "dur": 240,
+                "pitch": 67,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 1200,
+                "dur": 240,
+                "pitch": 69,
+                "vel": 85,
+                "ch": 0
+              },
+              {
+                "start": 1440,
+                "dur": 240,
+                "pitch": 71,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 1680,
+                "dur": 240,
+                "pitch": 72,
+                "vel": 85,
+                "ch": 0
+              },
+              {
+                "start": 1920,
+                "dur": 480,
+                "pitch": 67,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 2400,
+                "dur": 480,
+                "pitch": 69,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 2880,
+                "dur": 480,
+                "pitch": 71,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 3360,
+                "dur": 960,
+                "pitch": 72,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 4320,
+                "dur": 480,
+                "pitch": 71,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 4800,
+                "dur": 960,
+                "pitch": 69,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 5760,
+                "dur": 960,
+                "pitch": 67,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 6720,
+                "dur": 960,
+                "pitch": 66,
+                "vel": 95,
+                "ch": 0
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "case": "b1_meter",
+      "expected_note_count": 16,
+      "abc": "X:1\nT:Case B1 inline meter only\nM:4/4\nL:1/8\nQ:1/4=120\nK:C\nCDEF GABc |\n[M:3/4] GAB c2B | A2G2F2 |\n",
+      "abc2midi": {
+        "format": 0,
+        "division": 480,
+        "track_count": 1,
+        "tracks": [
+          {
+            "track": 0,
+            "name": "Case B1 inline meter only",
+            "channels": [
+              0
+            ],
+            "programs": [],
+            "tempos": [
+              {
+                "tick": 0,
+                "us_per_qn": 500000,
+                "bpm": 120.0
+              }
+            ],
+            "time_sigs": [
+              {
+                "tick": 0,
+                "num": 4,
+                "den_pow2": 2
+              },
+              {
+                "tick": 1920,
+                "num": 3,
+                "den_pow2": 2
+              }
+            ],
+            "key_sigs": [
+              {
+                "tick": 0,
+                "sharps": 0,
+                "minor": 0
+              }
+            ],
+            "texts": [
+              "note track",
+              "X:1"
+            ],
+            "lyrics": [],
+            "note_count": 16,
+            "notes": [
+              {
+                "start": 1,
+                "dur": 239,
+                "pitch": 60,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 241,
+                "dur": 239,
+                "pitch": 62,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 481,
+                "dur": 239,
+                "pitch": 64,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 721,
+                "dur": 239,
+                "pitch": 65,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 961,
+                "dur": 239,
+                "pitch": 67,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 1201,
+                "dur": 239,
+                "pitch": 69,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 1441,
+                "dur": 239,
+                "pitch": 71,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 1681,
+                "dur": 239,
+                "pitch": 72,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 1921,
+                "dur": 239,
+                "pitch": 67,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 2161,
+                "dur": 239,
+                "pitch": 69,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 2401,
+                "dur": 239,
+                "pitch": 71,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 2641,
+                "dur": 479,
+                "pitch": 72,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 3121,
+                "dur": 239,
+                "pitch": 71,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 3361,
+                "dur": 479,
+                "pitch": 69,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 3841,
+                "dur": 479,
+                "pitch": 67,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 4321,
+                "dur": 479,
+                "pitch": 65,
+                "vel": 80,
+                "ch": 0
+              }
+            ]
+          }
+        ]
+      },
+      "abcjs": {
+        "format": 1,
+        "division": 480,
+        "track_count": 2,
+        "tracks": [
+          {
+            "track": 0,
+            "name": null,
+            "channels": [],
+            "programs": [],
+            "tempos": [
+              {
+                "tick": 0,
+                "us_per_qn": 500000,
+                "bpm": 120.0
+              }
+            ],
+            "time_sigs": [
+              {
+                "tick": 0,
+                "num": 4,
+                "den_pow2": 2
+              }
+            ],
+            "key_sigs": [
+              {
+                "tick": 0,
+                "sharps": 0,
+                "minor": 0
+              }
+            ],
+            "texts": [
+              "Case B1 inline meter only"
+            ],
+            "lyrics": [],
+            "note_count": 0,
+            "notes": []
+          },
+          {
+            "track": 1,
+            "name": null,
+            "channels": [
+              0
+            ],
+            "programs": [
+              {
+                "tick": 0,
+                "ch": 0,
+                "program": 0
+              }
+            ],
+            "tempos": [],
+            "time_sigs": [],
+            "key_sigs": [],
+            "texts": [],
+            "lyrics": [],
+            "note_count": 16,
+            "notes": [
+              {
+                "start": 0,
+                "dur": 240,
+                "pitch": 60,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 240,
+                "dur": 240,
+                "pitch": 62,
+                "vel": 85,
+                "ch": 0
+              },
+              {
+                "start": 480,
+                "dur": 240,
+                "pitch": 64,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 720,
+                "dur": 240,
+                "pitch": 65,
+                "vel": 85,
+                "ch": 0
+              },
+              {
+                "start": 960,
+                "dur": 240,
+                "pitch": 67,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 1200,
+                "dur": 240,
+                "pitch": 69,
+                "vel": 85,
+                "ch": 0
+              },
+              {
+                "start": 1440,
+                "dur": 240,
+                "pitch": 71,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 1680,
+                "dur": 240,
+                "pitch": 72,
+                "vel": 85,
+                "ch": 0
+              },
+              {
+                "start": 1920,
+                "dur": 240,
+                "pitch": 67,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 2160,
+                "dur": 240,
+                "pitch": 69,
+                "vel": 85,
+                "ch": 0
+              },
+              {
+                "start": 2400,
+                "dur": 240,
+                "pitch": 71,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 2640,
+                "dur": 480,
+                "pitch": 72,
+                "vel": 85,
+                "ch": 0
+              },
+              {
+                "start": 3120,
+                "dur": 240,
+                "pitch": 71,
+                "vel": 85,
+                "ch": 0
+              },
+              {
+                "start": 3360,
+                "dur": 480,
+                "pitch": 69,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 3840,
+                "dur": 480,
+                "pitch": 67,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 4320,
+                "dur": 480,
+                "pitch": 65,
+                "vel": 95,
+                "ch": 0
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "case": "b2_key",
+      "expected_note_count": 16,
+      "abc": "X:1\nT:Case B2 inline key only\nM:4/4\nL:1/8\nQ:1/4=120\nK:C\nCDEF GABc |\n[K:G] GAB c2B | A2G2F2 |\n",
+      "abc2midi": {
+        "format": 0,
+        "division": 480,
+        "track_count": 1,
+        "tracks": [
+          {
+            "track": 0,
+            "name": "Case B2 inline key only",
+            "channels": [
+              0
+            ],
+            "programs": [],
+            "tempos": [
+              {
+                "tick": 0,
+                "us_per_qn": 500000,
+                "bpm": 120.0
+              }
+            ],
+            "time_sigs": [
+              {
+                "tick": 0,
+                "num": 4,
+                "den_pow2": 2
+              }
+            ],
+            "key_sigs": [
+              {
+                "tick": 0,
+                "sharps": 0,
+                "minor": 0
+              },
+              {
+                "tick": 1920,
+                "sharps": 1,
+                "minor": 0
+              }
+            ],
+            "texts": [
+              "note track",
+              "X:1"
+            ],
+            "lyrics": [],
+            "note_count": 16,
+            "notes": [
+              {
+                "start": 1,
+                "dur": 239,
+                "pitch": 60,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 241,
+                "dur": 239,
+                "pitch": 62,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 481,
+                "dur": 239,
+                "pitch": 64,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 721,
+                "dur": 239,
+                "pitch": 65,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 961,
+                "dur": 239,
+                "pitch": 67,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 1201,
+                "dur": 239,
+                "pitch": 69,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 1441,
+                "dur": 239,
+                "pitch": 71,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 1681,
+                "dur": 239,
+                "pitch": 72,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 1921,
+                "dur": 239,
+                "pitch": 67,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 2161,
+                "dur": 239,
+                "pitch": 69,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 2401,
+                "dur": 239,
+                "pitch": 71,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 2641,
+                "dur": 479,
+                "pitch": 72,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 3121,
+                "dur": 239,
+                "pitch": 71,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 3361,
+                "dur": 479,
+                "pitch": 69,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 3841,
+                "dur": 479,
+                "pitch": 67,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 4321,
+                "dur": 479,
+                "pitch": 66,
+                "vel": 95,
+                "ch": 0
+              }
+            ]
+          }
+        ]
+      },
+      "abcjs": {
+        "format": 1,
+        "division": 480,
+        "track_count": 2,
+        "tracks": [
+          {
+            "track": 0,
+            "name": null,
+            "channels": [],
+            "programs": [],
+            "tempos": [
+              {
+                "tick": 0,
+                "us_per_qn": 500000,
+                "bpm": 120.0
+              }
+            ],
+            "time_sigs": [
+              {
+                "tick": 0,
+                "num": 4,
+                "den_pow2": 2
+              }
+            ],
+            "key_sigs": [
+              {
+                "tick": 0,
+                "sharps": 0,
+                "minor": 0
+              }
+            ],
+            "texts": [
+              "Case B2 inline key only"
+            ],
+            "lyrics": [],
+            "note_count": 0,
+            "notes": []
+          },
+          {
+            "track": 1,
+            "name": null,
+            "channels": [
+              0
+            ],
+            "programs": [
+              {
+                "tick": 0,
+                "ch": 0,
+                "program": 0
+              }
+            ],
+            "tempos": [],
+            "time_sigs": [],
+            "key_sigs": [],
+            "texts": [],
+            "lyrics": [],
+            "note_count": 16,
+            "notes": [
+              {
+                "start": 0,
+                "dur": 240,
+                "pitch": 60,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 240,
+                "dur": 240,
+                "pitch": 62,
+                "vel": 85,
+                "ch": 0
+              },
+              {
+                "start": 480,
+                "dur": 240,
+                "pitch": 64,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 720,
+                "dur": 240,
+                "pitch": 65,
+                "vel": 85,
+                "ch": 0
+              },
+              {
+                "start": 960,
+                "dur": 240,
+                "pitch": 67,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 1200,
+                "dur": 240,
+                "pitch": 69,
+                "vel": 85,
+                "ch": 0
+              },
+              {
+                "start": 1440,
+                "dur": 240,
+                "pitch": 71,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 1680,
+                "dur": 240,
+                "pitch": 72,
+                "vel": 85,
+                "ch": 0
+              },
+              {
+                "start": 1920,
+                "dur": 240,
+                "pitch": 67,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 2160,
+                "dur": 240,
+                "pitch": 69,
+                "vel": 85,
+                "ch": 0
+              },
+              {
+                "start": 2400,
+                "dur": 240,
+                "pitch": 71,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 2640,
+                "dur": 480,
+                "pitch": 72,
+                "vel": 85,
+                "ch": 0
+              },
+              {
+                "start": 3120,
+                "dur": 240,
+                "pitch": 71,
+                "vel": 85,
+                "ch": 0
+              },
+              {
+                "start": 3360,
+                "dur": 480,
+                "pitch": 69,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 3840,
+                "dur": 480,
+                "pitch": 67,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 4320,
+                "dur": 480,
+                "pitch": 66,
+                "vel": 95,
+                "ch": 0
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "case": "b3_tempo",
+      "expected_note_count": 16,
+      "abc": "X:1\nT:Case B3 inline tempo only\nM:4/4\nL:1/8\nQ:1/4=120\nK:C\nCDEF GABc |\n[Q:1/4=60] GAB c2B | A2G2F2 |\n",
+      "abc2midi": {
+        "format": 0,
+        "division": 480,
+        "track_count": 1,
+        "tracks": [
+          {
+            "track": 0,
+            "name": "Case B3 inline tempo only",
+            "channels": [
+              0
+            ],
+            "programs": [],
+            "tempos": [
+              {
+                "tick": 0,
+                "us_per_qn": 500000,
+                "bpm": 120.0
+              },
+              {
+                "tick": 1921,
+                "us_per_qn": 1000000,
+                "bpm": 60.0
+              }
+            ],
+            "time_sigs": [
+              {
+                "tick": 0,
+                "num": 4,
+                "den_pow2": 2
+              }
+            ],
+            "key_sigs": [
+              {
+                "tick": 0,
+                "sharps": 0,
+                "minor": 0
+              }
+            ],
+            "texts": [
+              "note track",
+              "X:1"
+            ],
+            "lyrics": [],
+            "note_count": 16,
+            "notes": [
+              {
+                "start": 1,
+                "dur": 239,
+                "pitch": 60,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 241,
+                "dur": 239,
+                "pitch": 62,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 481,
+                "dur": 239,
+                "pitch": 64,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 721,
+                "dur": 239,
+                "pitch": 65,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 961,
+                "dur": 239,
+                "pitch": 67,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 1201,
+                "dur": 239,
+                "pitch": 69,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 1441,
+                "dur": 239,
+                "pitch": 71,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 1681,
+                "dur": 239,
+                "pitch": 72,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 1921,
+                "dur": 239,
+                "pitch": 67,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 2161,
+                "dur": 239,
+                "pitch": 69,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 2401,
+                "dur": 239,
+                "pitch": 71,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 2641,
+                "dur": 479,
+                "pitch": 72,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 3121,
+                "dur": 239,
+                "pitch": 71,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 3361,
+                "dur": 479,
+                "pitch": 69,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 3841,
+                "dur": 479,
+                "pitch": 67,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 4321,
+                "dur": 479,
+                "pitch": 65,
+                "vel": 95,
+                "ch": 0
+              }
+            ]
+          }
+        ]
+      },
+      "abcjs": {
+        "format": 1,
+        "division": 480,
+        "track_count": 2,
+        "tracks": [
+          {
+            "track": 0,
+            "name": null,
+            "channels": [],
+            "programs": [],
+            "tempos": [
+              {
+                "tick": 0,
+                "us_per_qn": 500000,
+                "bpm": 120.0
+              }
+            ],
+            "time_sigs": [
+              {
+                "tick": 0,
+                "num": 4,
+                "den_pow2": 2
+              }
+            ],
+            "key_sigs": [
+              {
+                "tick": 0,
+                "sharps": 0,
+                "minor": 0
+              }
+            ],
+            "texts": [
+              "Case B3 inline tempo only"
+            ],
+            "lyrics": [],
+            "note_count": 0,
+            "notes": []
+          },
+          {
+            "track": 1,
+            "name": null,
+            "channels": [
+              0
+            ],
+            "programs": [
+              {
+                "tick": 0,
+                "ch": 0,
+                "program": 0
+              }
+            ],
+            "tempos": [],
+            "time_sigs": [],
+            "key_sigs": [],
+            "texts": [],
+            "lyrics": [],
+            "note_count": 16,
+            "notes": [
+              {
+                "start": 0,
+                "dur": 240,
+                "pitch": 60,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 240,
+                "dur": 240,
+                "pitch": 62,
+                "vel": 85,
+                "ch": 0
+              },
+              {
+                "start": 480,
+                "dur": 240,
+                "pitch": 64,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 720,
+                "dur": 240,
+                "pitch": 65,
+                "vel": 85,
+                "ch": 0
+              },
+              {
+                "start": 960,
+                "dur": 240,
+                "pitch": 67,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 1200,
+                "dur": 240,
+                "pitch": 69,
+                "vel": 85,
+                "ch": 0
+              },
+              {
+                "start": 1440,
+                "dur": 240,
+                "pitch": 71,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 1680,
+                "dur": 240,
+                "pitch": 72,
+                "vel": 85,
+                "ch": 0
+              },
+              {
+                "start": 1920,
+                "dur": 480,
+                "pitch": 67,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 2400,
+                "dur": 480,
+                "pitch": 69,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 2880,
+                "dur": 480,
+                "pitch": 71,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 3360,
+                "dur": 960,
+                "pitch": 72,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 4320,
+                "dur": 480,
+                "pitch": 71,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 4800,
+                "dur": 960,
+                "pitch": 69,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 5760,
+                "dur": 960,
+                "pitch": 67,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 6720,
+                "dur": 960,
+                "pitch": 65,
+                "vel": 95,
+                "ch": 0
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "case": "c_repeats",
+      "expected_note_count": 16,
+      "abc": "X:1\nT:Case C repeats endings\nM:4/4\nL:1/4\nQ:1/4=100\nK:C\n|: C D E F |1 G A B c :|2 c B A G |]\n",
+      "abc2midi": {
+        "format": 0,
+        "division": 480,
+        "track_count": 1,
+        "tracks": [
+          {
+            "track": 0,
+            "name": "Case C repeats endings",
+            "channels": [
+              0
+            ],
+            "programs": [],
+            "tempos": [
+              {
+                "tick": 0,
+                "us_per_qn": 600000,
+                "bpm": 100.0
+              }
+            ],
+            "time_sigs": [
+              {
+                "tick": 0,
+                "num": 4,
+                "den_pow2": 2
+              }
+            ],
+            "key_sigs": [
+              {
+                "tick": 0,
+                "sharps": 0,
+                "minor": 0
+              }
+            ],
+            "texts": [
+              "note track",
+              "X:1"
+            ],
+            "lyrics": [],
+            "note_count": 16,
+            "notes": [
+              {
+                "start": 1,
+                "dur": 479,
+                "pitch": 60,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 481,
+                "dur": 479,
+                "pitch": 62,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 961,
+                "dur": 479,
+                "pitch": 64,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 1441,
+                "dur": 479,
+                "pitch": 65,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 1921,
+                "dur": 479,
+                "pitch": 67,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 2401,
+                "dur": 479,
+                "pitch": 69,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 2881,
+                "dur": 479,
+                "pitch": 71,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 3361,
+                "dur": 479,
+                "pitch": 72,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 3841,
+                "dur": 479,
+                "pitch": 60,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 4321,
+                "dur": 479,
+                "pitch": 62,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 4801,
+                "dur": 479,
+                "pitch": 64,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 5281,
+                "dur": 479,
+                "pitch": 65,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 5761,
+                "dur": 479,
+                "pitch": 72,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 6241,
+                "dur": 479,
+                "pitch": 71,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 6721,
+                "dur": 479,
+                "pitch": 69,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 7201,
+                "dur": 479,
+                "pitch": 67,
+                "vel": 80,
+                "ch": 0
+              }
+            ]
+          }
+        ]
+      },
+      "abcjs": {
+        "format": 1,
+        "division": 480,
+        "track_count": 2,
+        "tracks": [
+          {
+            "track": 0,
+            "name": null,
+            "channels": [],
+            "programs": [],
+            "tempos": [
+              {
+                "tick": 0,
+                "us_per_qn": 600000,
+                "bpm": 100.0
+              }
+            ],
+            "time_sigs": [
+              {
+                "tick": 0,
+                "num": 4,
+                "den_pow2": 2
+              }
+            ],
+            "key_sigs": [
+              {
+                "tick": 0,
+                "sharps": 0,
+                "minor": 0
+              }
+            ],
+            "texts": [
+              "Case C repeats endings"
+            ],
+            "lyrics": [],
+            "note_count": 0,
+            "notes": []
+          },
+          {
+            "track": 1,
+            "name": null,
+            "channels": [
+              0
+            ],
+            "programs": [
+              {
+                "tick": 0,
+                "ch": 0,
+                "program": 0
+              }
+            ],
+            "tempos": [],
+            "time_sigs": [],
+            "key_sigs": [],
+            "texts": [],
+            "lyrics": [],
+            "note_count": 16,
+            "notes": [
+              {
+                "start": 0,
+                "dur": 480,
+                "pitch": 60,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 480,
+                "dur": 480,
+                "pitch": 62,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 960,
+                "dur": 480,
+                "pitch": 64,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 1440,
+                "dur": 480,
+                "pitch": 65,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 1920,
+                "dur": 480,
+                "pitch": 67,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 2400,
+                "dur": 480,
+                "pitch": 69,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 2880,
+                "dur": 480,
+                "pitch": 71,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 3360,
+                "dur": 480,
+                "pitch": 72,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 3840,
+                "dur": 480,
+                "pitch": 60,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 4320,
+                "dur": 480,
+                "pitch": 62,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 4800,
+                "dur": 480,
+                "pitch": 64,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 5280,
+                "dur": 480,
+                "pitch": 65,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 5760,
+                "dur": 480,
+                "pitch": 72,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 6240,
+                "dur": 480,
+                "pitch": 71,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 6720,
+                "dur": 480,
+                "pitch": 69,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 7200,
+                "dur": 480,
+                "pitch": 67,
+                "vel": 95,
+                "ch": 0
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "case": "d_dynamics",
+      "expected_note_count": 8,
+      "abc": "X:1\nT:Case D dynamics\nM:4/4\nL:1/4\nK:C\n!pp!C !p!D !mp!E !mf!F | !f!G !ff!A !accent!B !staccato!c |\n",
+      "abc2midi": {
+        "format": 0,
+        "division": 480,
+        "track_count": 1,
+        "tracks": [
+          {
+            "track": 0,
+            "name": "Case D dynamics",
+            "channels": [
+              0
+            ],
+            "programs": [],
+            "tempos": [
+              {
+                "tick": 0,
+                "us_per_qn": 500000,
+                "bpm": 120.0
+              }
+            ],
+            "time_sigs": [
+              {
+                "tick": 0,
+                "num": 4,
+                "den_pow2": 2
+              }
+            ],
+            "key_sigs": [
+              {
+                "tick": 0,
+                "sharps": 0,
+                "minor": 0
+              }
+            ],
+            "texts": [
+              "note track",
+              "X:1"
+            ],
+            "lyrics": [],
+            "note_count": 8,
+            "notes": [
+              {
+                "start": 1,
+                "dur": 479,
+                "pitch": 60,
+                "vel": 45,
+                "ch": 0
+              },
+              {
+                "start": 481,
+                "dur": 479,
+                "pitch": 62,
+                "vel": 50,
+                "ch": 0
+              },
+              {
+                "start": 961,
+                "dur": 479,
+                "pitch": 64,
+                "vel": 65,
+                "ch": 0
+              },
+              {
+                "start": 1441,
+                "dur": 479,
+                "pitch": 65,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 1921,
+                "dur": 479,
+                "pitch": 67,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 2401,
+                "dur": 479,
+                "pitch": 69,
+                "vel": 110,
+                "ch": 0
+              },
+              {
+                "start": 2881,
+                "dur": 479,
+                "pitch": 71,
+                "vel": 110,
+                "ch": 0
+              },
+              {
+                "start": 3361,
+                "dur": 479,
+                "pitch": 72,
+                "vel": 110,
+                "ch": 0
+              }
+            ]
+          }
+        ]
+      },
+      "abcjs": {
+        "format": 1,
+        "division": 480,
+        "track_count": 2,
+        "tracks": [
+          {
+            "track": 0,
+            "name": null,
+            "channels": [],
+            "programs": [],
+            "tempos": [
+              {
+                "tick": 0,
+                "us_per_qn": 333333,
+                "bpm": 180.0
+              }
+            ],
+            "time_sigs": [
+              {
+                "tick": 0,
+                "num": 4,
+                "den_pow2": 2
+              }
+            ],
+            "key_sigs": [
+              {
+                "tick": 0,
+                "sharps": 0,
+                "minor": 0
+              }
+            ],
+            "texts": [
+              "Case D dynamics"
+            ],
+            "lyrics": [],
+            "note_count": 0,
+            "notes": []
+          },
+          {
+            "track": 1,
+            "name": null,
+            "channels": [
+              0
+            ],
+            "programs": [
+              {
+                "tick": 0,
+                "ch": 0,
+                "program": 0
+              }
+            ],
+            "tempos": [],
+            "time_sigs": [],
+            "key_sigs": [],
+            "texts": [],
+            "lyrics": [],
+            "note_count": 8,
+            "notes": [
+              {
+                "start": 0,
+                "dur": 480,
+                "pitch": 60,
+                "vel": 45,
+                "ch": 0
+              },
+              {
+                "start": 480,
+                "dur": 480,
+                "pitch": 62,
+                "vel": 50,
+                "ch": 0
+              },
+              {
+                "start": 960,
+                "dur": 480,
+                "pitch": 64,
+                "vel": 65,
+                "ch": 0
+              },
+              {
+                "start": 1440,
+                "dur": 480,
+                "pitch": 65,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 1920,
+                "dur": 480,
+                "pitch": 67,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 2400,
+                "dur": 480,
+                "pitch": 69,
+                "vel": 110,
+                "ch": 0
+              },
+              {
+                "start": 2880,
+                "dur": 480,
+                "pitch": 71,
+                "vel": 127,
+                "ch": 0
+              },
+              {
+                "start": 3360,
+                "dur": 480,
+                "pitch": 72,
+                "vel": 110,
+                "ch": 0
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "case": "e_articulations",
+      "expected_note_count": 11,
+      "abc": "X:1\nT:Case E articulations\nM:4/4\nL:1/8\nK:C\n!staccato!C2 !tenuto!D2 !accent!E2 !marcato!F2 | (G2 A2) B2 c2 |\nC4- C4 | {g}A4 z4 |\n",
+      "abc2midi": {
+        "format": 0,
+        "division": 480,
+        "track_count": 1,
+        "tracks": [
+          {
+            "track": 0,
+            "name": "Case E articulations",
+            "channels": [
+              0
+            ],
+            "programs": [],
+            "tempos": [
+              {
+                "tick": 0,
+                "us_per_qn": 500000,
+                "bpm": 120.0
+              }
+            ],
+            "time_sigs": [
+              {
+                "tick": 0,
+                "num": 4,
+                "den_pow2": 2
+              }
+            ],
+            "key_sigs": [
+              {
+                "tick": 0,
+                "sharps": 0,
+                "minor": 0
+              }
+            ],
+            "texts": [
+              "note track",
+              "X:1"
+            ],
+            "lyrics": [],
+            "note_count": 11,
+            "notes": [
+              {
+                "start": 1,
+                "dur": 479,
+                "pitch": 60,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 481,
+                "dur": 479,
+                "pitch": 62,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 961,
+                "dur": 479,
+                "pitch": 64,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 1441,
+                "dur": 479,
+                "pitch": 65,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 1921,
+                "dur": 479,
+                "pitch": 67,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 2401,
+                "dur": 479,
+                "pitch": 69,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 2881,
+                "dur": 479,
+                "pitch": 71,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 3361,
+                "dur": 479,
+                "pitch": 72,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 3841,
+                "dur": 1919,
+                "pitch": 60,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 5761,
+                "dur": 59,
+                "pitch": 79,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 5821,
+                "dur": 899,
+                "pitch": 69,
+                "vel": 80,
+                "ch": 0
+              }
+            ]
+          }
+        ]
+      },
+      "abcjs": {
+        "format": 1,
+        "division": 480,
+        "track_count": 2,
+        "tracks": [
+          {
+            "track": 0,
+            "name": null,
+            "channels": [],
+            "programs": [],
+            "tempos": [
+              {
+                "tick": 0,
+                "us_per_qn": 333333,
+                "bpm": 180.0
+              }
+            ],
+            "time_sigs": [
+              {
+                "tick": 0,
+                "num": 4,
+                "den_pow2": 2
+              }
+            ],
+            "key_sigs": [
+              {
+                "tick": 0,
+                "sharps": 0,
+                "minor": 0
+              }
+            ],
+            "texts": [
+              "Case E articulations"
+            ],
+            "lyrics": [],
+            "note_count": 0,
+            "notes": []
+          },
+          {
+            "track": 1,
+            "name": null,
+            "channels": [
+              0
+            ],
+            "programs": [
+              {
+                "tick": 0,
+                "ch": 0,
+                "program": 0
+              }
+            ],
+            "tempos": [],
+            "time_sigs": [],
+            "key_sigs": [],
+            "texts": [],
+            "lyrics": [],
+            "note_count": 11,
+            "notes": [
+              {
+                "start": 0,
+                "dur": 480,
+                "pitch": 60,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 480,
+                "dur": 486,
+                "pitch": 62,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 960,
+                "dur": 480,
+                "pitch": 64,
+                "vel": 127,
+                "ch": 0
+              },
+              {
+                "start": 1440,
+                "dur": 480,
+                "pitch": 65,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 1920,
+                "dur": 486,
+                "pitch": 67,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 2400,
+                "dur": 480,
+                "pitch": 69,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 2880,
+                "dur": 480,
+                "pitch": 71,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 3360,
+                "dur": 480,
+                "pitch": 72,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 3840,
+                "dur": 1920,
+                "pitch": 60,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 5760,
+                "dur": 480,
+                "pitch": 79,
+                "vel": 70,
+                "ch": 0
+              },
+              {
+                "start": 6240,
+                "dur": 480,
+                "pitch": 69,
+                "vel": 105,
+                "ch": 0
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "case": "e1_grace",
+      "expected_note_count": 3,
+      "abc": "X:1\nT:Case E1 grace and tie\nM:4/4\nL:1/8\nQ:1/4=120\nK:C\nC4- C4 | {g}A4 z4 |\n",
+      "abc2midi": {
+        "format": 0,
+        "division": 480,
+        "track_count": 1,
+        "tracks": [
+          {
+            "track": 0,
+            "name": "Case E1 grace and tie",
+            "channels": [
+              0
+            ],
+            "programs": [],
+            "tempos": [
+              {
+                "tick": 0,
+                "us_per_qn": 500000,
+                "bpm": 120.0
+              }
+            ],
+            "time_sigs": [
+              {
+                "tick": 0,
+                "num": 4,
+                "den_pow2": 2
+              }
+            ],
+            "key_sigs": [
+              {
+                "tick": 0,
+                "sharps": 0,
+                "minor": 0
+              }
+            ],
+            "texts": [
+              "note track",
+              "X:1"
+            ],
+            "lyrics": [],
+            "note_count": 3,
+            "notes": [
+              {
+                "start": 1,
+                "dur": 1919,
+                "pitch": 60,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 1921,
+                "dur": 59,
+                "pitch": 79,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 1981,
+                "dur": 899,
+                "pitch": 69,
+                "vel": 80,
+                "ch": 0
+              }
+            ]
+          }
+        ]
+      },
+      "abcjs": {
+        "format": 1,
+        "division": 480,
+        "track_count": 2,
+        "tracks": [
+          {
+            "track": 0,
+            "name": null,
+            "channels": [],
+            "programs": [],
+            "tempos": [
+              {
+                "tick": 0,
+                "us_per_qn": 500000,
+                "bpm": 120.0
+              }
+            ],
+            "time_sigs": [
+              {
+                "tick": 0,
+                "num": 4,
+                "den_pow2": 2
+              }
+            ],
+            "key_sigs": [
+              {
+                "tick": 0,
+                "sharps": 0,
+                "minor": 0
+              }
+            ],
+            "texts": [
+              "Case E1 grace and tie"
+            ],
+            "lyrics": [],
+            "note_count": 0,
+            "notes": []
+          },
+          {
+            "track": 1,
+            "name": null,
+            "channels": [
+              0
+            ],
+            "programs": [
+              {
+                "tick": 0,
+                "ch": 0,
+                "program": 0
+              }
+            ],
+            "tempos": [],
+            "time_sigs": [],
+            "key_sigs": [],
+            "texts": [],
+            "lyrics": [],
+            "note_count": 3,
+            "notes": [
+              {
+                "start": 0,
+                "dur": 1920,
+                "pitch": 60,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 1920,
+                "dur": 480,
+                "pitch": 79,
+                "vel": 70,
+                "ch": 0
+              },
+              {
+                "start": 2400,
+                "dur": 480,
+                "pitch": 69,
+                "vel": 105,
+                "ch": 0
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "case": "f_tuplets",
+      "expected_note_count": 19,
+      "abc": "X:1\nT:Case F tuplets\nM:4/4\nL:1/8\nK:C\n(3CDE (3FGA (5BCDEF | (7CDEFGAB c2 z2 |\n",
+      "abc2midi": {
+        "format": 0,
+        "division": 480,
+        "track_count": 1,
+        "tracks": [
+          {
+            "track": 0,
+            "name": "Case F tuplets",
+            "channels": [
+              0
+            ],
+            "programs": [],
+            "tempos": [
+              {
+                "tick": 0,
+                "us_per_qn": 500000,
+                "bpm": 120.0
+              }
+            ],
+            "time_sigs": [
+              {
+                "tick": 0,
+                "num": 4,
+                "den_pow2": 2
+              }
+            ],
+            "key_sigs": [
+              {
+                "tick": 0,
+                "sharps": 0,
+                "minor": 0
+              }
+            ],
+            "texts": [
+              "note track",
+              "X:1"
+            ],
+            "lyrics": [],
+            "note_count": 19,
+            "notes": [
+              {
+                "start": 1,
+                "dur": 159,
+                "pitch": 60,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 161,
+                "dur": 159,
+                "pitch": 62,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 321,
+                "dur": 159,
+                "pitch": 64,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 481,
+                "dur": 159,
+                "pitch": 65,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 641,
+                "dur": 159,
+                "pitch": 67,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 801,
+                "dur": 159,
+                "pitch": 69,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 961,
+                "dur": 95,
+                "pitch": 71,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 1057,
+                "dur": 95,
+                "pitch": 60,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 1153,
+                "dur": 95,
+                "pitch": 62,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 1249,
+                "dur": 95,
+                "pitch": 64,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 1345,
+                "dur": 95,
+                "pitch": 65,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 1441,
+                "dur": 67,
+                "pitch": 60,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 1509,
+                "dur": 67,
+                "pitch": 62,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 1578,
+                "dur": 67,
+                "pitch": 64,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 1646,
+                "dur": 67,
+                "pitch": 65,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 1715,
+                "dur": 67,
+                "pitch": 67,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 1783,
+                "dur": 67,
+                "pitch": 69,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 1852,
+                "dur": 67,
+                "pitch": 71,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 1921,
+                "dur": 479,
+                "pitch": 72,
+                "vel": 80,
+                "ch": 0
+              }
+            ]
+          }
+        ]
+      },
+      "abcjs": {
+        "format": 1,
+        "division": 480,
+        "track_count": 2,
+        "tracks": [
+          {
+            "track": 0,
+            "name": null,
+            "channels": [],
+            "programs": [],
+            "tempos": [
+              {
+                "tick": 0,
+                "us_per_qn": 333333,
+                "bpm": 180.0
+              }
+            ],
+            "time_sigs": [
+              {
+                "tick": 0,
+                "num": 4,
+                "den_pow2": 2
+              }
+            ],
+            "key_sigs": [
+              {
+                "tick": 0,
+                "sharps": 0,
+                "minor": 0
+              }
+            ],
+            "texts": [
+              "Case F tuplets"
+            ],
+            "lyrics": [],
+            "note_count": 0,
+            "notes": []
+          },
+          {
+            "track": 1,
+            "name": null,
+            "channels": [
+              0
+            ],
+            "programs": [
+              {
+                "tick": 0,
+                "ch": 0,
+                "program": 0
+              }
+            ],
+            "tempos": [],
+            "time_sigs": [],
+            "key_sigs": [],
+            "texts": [],
+            "lyrics": [],
+            "note_count": 19,
+            "notes": [
+              {
+                "start": 0,
+                "dur": 160,
+                "pitch": 60,
+                "vel": 85,
+                "ch": 0
+              },
+              {
+                "start": 160,
+                "dur": 160,
+                "pitch": 62,
+                "vel": 85,
+                "ch": 0
+              },
+              {
+                "start": 320,
+                "dur": 160,
+                "pitch": 64,
+                "vel": 85,
+                "ch": 0
+              },
+              {
+                "start": 480,
+                "dur": 160,
+                "pitch": 65,
+                "vel": 85,
+                "ch": 0
+              },
+              {
+                "start": 640,
+                "dur": 160,
+                "pitch": 67,
+                "vel": 85,
+                "ch": 0
+              },
+              {
+                "start": 800,
+                "dur": 160,
+                "pitch": 69,
+                "vel": 85,
+                "ch": 0
+              },
+              {
+                "start": 960,
+                "dur": 96,
+                "pitch": 71,
+                "vel": 85,
+                "ch": 0
+              },
+              {
+                "start": 1056,
+                "dur": 96,
+                "pitch": 60,
+                "vel": 85,
+                "ch": 0
+              },
+              {
+                "start": 1152,
+                "dur": 96,
+                "pitch": 62,
+                "vel": 85,
+                "ch": 0
+              },
+              {
+                "start": 1248,
+                "dur": 96,
+                "pitch": 64,
+                "vel": 85,
+                "ch": 0
+              },
+              {
+                "start": 1344,
+                "dur": 96,
+                "pitch": 65,
+                "vel": 85,
+                "ch": 0
+              },
+              {
+                "start": 1440,
+                "dur": 69,
+                "pitch": 60,
+                "vel": 85,
+                "ch": 0
+              },
+              {
+                "start": 1509,
+                "dur": 69,
+                "pitch": 62,
+                "vel": 85,
+                "ch": 0
+              },
+              {
+                "start": 1578,
+                "dur": 69,
+                "pitch": 64,
+                "vel": 85,
+                "ch": 0
+              },
+              {
+                "start": 1647,
+                "dur": 69,
+                "pitch": 65,
+                "vel": 85,
+                "ch": 0
+              },
+              {
+                "start": 1716,
+                "dur": 69,
+                "pitch": 67,
+                "vel": 85,
+                "ch": 0
+              },
+              {
+                "start": 1785,
+                "dur": 69,
+                "pitch": 69,
+                "vel": 85,
+                "ch": 0
+              },
+              {
+                "start": 1854,
+                "dur": 69,
+                "pitch": 71,
+                "vel": 85,
+                "ch": 0
+              },
+              {
+                "start": 1923,
+                "dur": 480,
+                "pitch": 72,
+                "vel": 95,
+                "ch": 0
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "case": "g_chords_lyrics",
+      "expected_note_count": 7,
+      "abc": "X:1\nT:Case G chords lyrics\nM:4/4\nL:1/4\nK:C\n\"Am\"C E \"F\"A c | \"G\"B G \"C\"c2 |\nw:Hel-lo world sing now\n",
+      "abc2midi": {
+        "format": 1,
+        "division": 480,
+        "track_count": 3,
+        "tracks": [
+          {
+            "track": 0,
+            "name": "Case G chords lyrics",
+            "channels": [],
+            "programs": [],
+            "tempos": [
+              {
+                "tick": 1,
+                "us_per_qn": 500000,
+                "bpm": 120.0
+              }
+            ],
+            "time_sigs": [
+              {
+                "tick": 1,
+                "num": 4,
+                "den_pow2": 2
+              }
+            ],
+            "key_sigs": [
+              {
+                "tick": 1,
+                "sharps": 0,
+                "minor": 0
+              }
+            ],
+            "texts": [
+              "@KMIDI KARAOKE FILE",
+              "@ICase G chords lyrics",
+              "note track"
+            ],
+            "lyrics": [],
+            "note_count": 0,
+            "notes": []
+          },
+          {
+            "track": 1,
+            "name": null,
+            "channels": [
+              0
+            ],
+            "programs": [],
+            "tempos": [],
+            "time_sigs": [],
+            "key_sigs": [],
+            "texts": [
+              "notes/lyric track",
+              "X:1",
+              "/Hel",
+              "lo",
+              " world",
+              " sing",
+              " now"
+            ],
+            "lyrics": [],
+            "note_count": 7,
+            "notes": [
+              {
+                "start": 1,
+                "dur": 479,
+                "pitch": 60,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 481,
+                "dur": 479,
+                "pitch": 64,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 961,
+                "dur": 479,
+                "pitch": 69,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 1441,
+                "dur": 479,
+                "pitch": 72,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 1921,
+                "dur": 479,
+                "pitch": 71,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 2401,
+                "dur": 479,
+                "pitch": 67,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 2881,
+                "dur": 959,
+                "pitch": 72,
+                "vel": 95,
+                "ch": 0
+              }
+            ]
+          },
+          {
+            "track": 2,
+            "name": null,
+            "channels": [
+              1,
+              2
+            ],
+            "programs": [],
+            "tempos": [],
+            "time_sigs": [],
+            "key_sigs": [],
+            "texts": [
+              "gchord track",
+              "X:1"
+            ],
+            "lyrics": [],
+            "note_count": 16,
+            "notes": [
+              {
+                "start": 1,
+                "dur": 239,
+                "pitch": 45,
+                "vel": 80,
+                "ch": 1
+              },
+              {
+                "start": 481,
+                "dur": 239,
+                "pitch": 57,
+                "vel": 75,
+                "ch": 2
+              },
+              {
+                "start": 481,
+                "dur": 239,
+                "pitch": 60,
+                "vel": 75,
+                "ch": 2
+              },
+              {
+                "start": 481,
+                "dur": 239,
+                "pitch": 64,
+                "vel": 75,
+                "ch": 2
+              },
+              {
+                "start": 961,
+                "dur": 239,
+                "pitch": 41,
+                "vel": 80,
+                "ch": 1
+              },
+              {
+                "start": 1441,
+                "dur": 239,
+                "pitch": 53,
+                "vel": 75,
+                "ch": 2
+              },
+              {
+                "start": 1441,
+                "dur": 239,
+                "pitch": 57,
+                "vel": 75,
+                "ch": 2
+              },
+              {
+                "start": 1441,
+                "dur": 239,
+                "pitch": 60,
+                "vel": 75,
+                "ch": 2
+              },
+              {
+                "start": 1921,
+                "dur": 239,
+                "pitch": 43,
+                "vel": 80,
+                "ch": 1
+              },
+              {
+                "start": 2401,
+                "dur": 239,
+                "pitch": 55,
+                "vel": 75,
+                "ch": 2
+              },
+              {
+                "start": 2401,
+                "dur": 239,
+                "pitch": 59,
+                "vel": 75,
+                "ch": 2
+              },
+              {
+                "start": 2401,
+                "dur": 239,
+                "pitch": 62,
+                "vel": 75,
+                "ch": 2
+              },
+              {
+                "start": 2881,
+                "dur": 239,
+                "pitch": 36,
+                "vel": 80,
+                "ch": 1
+              },
+              {
+                "start": 3361,
+                "dur": 239,
+                "pitch": 48,
+                "vel": 75,
+                "ch": 2
+              },
+              {
+                "start": 3361,
+                "dur": 239,
+                "pitch": 52,
+                "vel": 75,
+                "ch": 2
+              },
+              {
+                "start": 3361,
+                "dur": 239,
+                "pitch": 55,
+                "vel": 75,
+                "ch": 2
+              }
+            ]
+          }
+        ]
+      },
+      "abcjs": {
+        "format": 1,
+        "division": 480,
+        "track_count": 3,
+        "tracks": [
+          {
+            "track": 0,
+            "name": null,
+            "channels": [],
+            "programs": [],
+            "tempos": [
+              {
+                "tick": 0,
+                "us_per_qn": 333333,
+                "bpm": 180.0
+              }
+            ],
+            "time_sigs": [
+              {
+                "tick": 0,
+                "num": 4,
+                "den_pow2": 2
+              }
+            ],
+            "key_sigs": [
+              {
+                "tick": 0,
+                "sharps": 0,
+                "minor": 0
+              }
+            ],
+            "texts": [
+              "Case G chords lyrics"
+            ],
+            "lyrics": [],
+            "note_count": 0,
+            "notes": []
+          },
+          {
+            "track": 1,
+            "name": null,
+            "channels": [
+              0
+            ],
+            "programs": [
+              {
+                "tick": 0,
+                "ch": 0,
+                "program": 0
+              }
+            ],
+            "tempos": [],
+            "time_sigs": [],
+            "key_sigs": [],
+            "texts": [],
+            "lyrics": [],
+            "note_count": 7,
+            "notes": [
+              {
+                "start": 0,
+                "dur": 480,
+                "pitch": 60,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 480,
+                "dur": 480,
+                "pitch": 64,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 960,
+                "dur": 480,
+                "pitch": 69,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 1440,
+                "dur": 480,
+                "pitch": 72,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 1920,
+                "dur": 480,
+                "pitch": 71,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 2400,
+                "dur": 480,
+                "pitch": 67,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 2880,
+                "dur": 960,
+                "pitch": 72,
+                "vel": 95,
+                "ch": 0
+              }
+            ]
+          },
+          {
+            "track": 2,
+            "name": null,
+            "channels": [
+              0,
+              1
+            ],
+            "programs": [
+              {
+                "tick": 0,
+                "ch": 0,
+                "program": 0
+              }
+            ],
+            "tempos": [],
+            "time_sigs": [],
+            "key_sigs": [],
+            "texts": [],
+            "lyrics": [],
+            "note_count": 16,
+            "notes": [
+              {
+                "start": 0,
+                "dur": 240,
+                "pitch": 33,
+                "vel": 64,
+                "ch": 1
+              },
+              {
+                "start": 480,
+                "dur": 240,
+                "pitch": 45,
+                "vel": 48,
+                "ch": 1
+              },
+              {
+                "start": 480,
+                "dur": 240,
+                "pitch": 48,
+                "vel": 48,
+                "ch": 1
+              },
+              {
+                "start": 480,
+                "dur": 240,
+                "pitch": 52,
+                "vel": 48,
+                "ch": 1
+              },
+              {
+                "start": 960,
+                "dur": 240,
+                "pitch": 41,
+                "vel": 64,
+                "ch": 1
+              },
+              {
+                "start": 1440,
+                "dur": 240,
+                "pitch": 53,
+                "vel": 48,
+                "ch": 1
+              },
+              {
+                "start": 1440,
+                "dur": 240,
+                "pitch": 57,
+                "vel": 48,
+                "ch": 1
+              },
+              {
+                "start": 1440,
+                "dur": 240,
+                "pitch": 60,
+                "vel": 48,
+                "ch": 1
+              },
+              {
+                "start": 1920,
+                "dur": 240,
+                "pitch": 43,
+                "vel": 64,
+                "ch": 1
+              },
+              {
+                "start": 2400,
+                "dur": 240,
+                "pitch": 55,
+                "vel": 48,
+                "ch": 1
+              },
+              {
+                "start": 2400,
+                "dur": 240,
+                "pitch": 59,
+                "vel": 48,
+                "ch": 1
+              },
+              {
+                "start": 2400,
+                "dur": 240,
+                "pitch": 62,
+                "vel": 48,
+                "ch": 1
+              },
+              {
+                "start": 2880,
+                "dur": 240,
+                "pitch": 36,
+                "vel": 64,
+                "ch": 1
+              },
+              {
+                "start": 3360,
+                "dur": 240,
+                "pitch": 48,
+                "vel": 48,
+                "ch": 1
+              },
+              {
+                "start": 3360,
+                "dur": 240,
+                "pitch": 52,
+                "vel": 48,
+                "ch": 1
+              },
+              {
+                "start": 3360,
+                "dur": 240,
+                "pitch": 55,
+                "vel": 48,
+                "ch": 1
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "case": "g2_nochords",
+      "expected_note_count": 7,
+      "abc": "X:1\nT:Case G2 melody only\nM:4/4\nL:1/4\nQ:1/4=120\nK:C\nC E A c | B G c2 |\n",
+      "abc2midi": {
+        "format": 0,
+        "division": 480,
+        "track_count": 1,
+        "tracks": [
+          {
+            "track": 0,
+            "name": "Case G2 melody only",
+            "channels": [
+              0
+            ],
+            "programs": [],
+            "tempos": [
+              {
+                "tick": 0,
+                "us_per_qn": 500000,
+                "bpm": 120.0
+              }
+            ],
+            "time_sigs": [
+              {
+                "tick": 0,
+                "num": 4,
+                "den_pow2": 2
+              }
+            ],
+            "key_sigs": [
+              {
+                "tick": 0,
+                "sharps": 0,
+                "minor": 0
+              }
+            ],
+            "texts": [
+              "note track",
+              "X:1"
+            ],
+            "lyrics": [],
+            "note_count": 7,
+            "notes": [
+              {
+                "start": 1,
+                "dur": 479,
+                "pitch": 60,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 481,
+                "dur": 479,
+                "pitch": 64,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 961,
+                "dur": 479,
+                "pitch": 69,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 1441,
+                "dur": 479,
+                "pitch": 72,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 1921,
+                "dur": 479,
+                "pitch": 71,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 2401,
+                "dur": 479,
+                "pitch": 67,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 2881,
+                "dur": 959,
+                "pitch": 72,
+                "vel": 95,
+                "ch": 0
+              }
+            ]
+          }
+        ]
+      },
+      "abcjs": {
+        "format": 1,
+        "division": 480,
+        "track_count": 2,
+        "tracks": [
+          {
+            "track": 0,
+            "name": null,
+            "channels": [],
+            "programs": [],
+            "tempos": [
+              {
+                "tick": 0,
+                "us_per_qn": 500000,
+                "bpm": 120.0
+              }
+            ],
+            "time_sigs": [
+              {
+                "tick": 0,
+                "num": 4,
+                "den_pow2": 2
+              }
+            ],
+            "key_sigs": [
+              {
+                "tick": 0,
+                "sharps": 0,
+                "minor": 0
+              }
+            ],
+            "texts": [
+              "Case G2 melody only"
+            ],
+            "lyrics": [],
+            "note_count": 0,
+            "notes": []
+          },
+          {
+            "track": 1,
+            "name": null,
+            "channels": [
+              0
+            ],
+            "programs": [
+              {
+                "tick": 0,
+                "ch": 0,
+                "program": 0
+              }
+            ],
+            "tempos": [],
+            "time_sigs": [],
+            "key_sigs": [],
+            "texts": [],
+            "lyrics": [],
+            "note_count": 7,
+            "notes": [
+              {
+                "start": 0,
+                "dur": 480,
+                "pitch": 60,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 480,
+                "dur": 480,
+                "pitch": 64,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 960,
+                "dur": 480,
+                "pitch": 69,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 1440,
+                "dur": 480,
+                "pitch": 72,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 1920,
+                "dur": 480,
+                "pitch": 71,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 2400,
+                "dur": 480,
+                "pitch": 67,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 2880,
+                "dur": 960,
+                "pitch": 72,
+                "vel": 95,
+                "ch": 0
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "case": "g3_chordsonly",
+      "expected_note_count": 7,
+      "abc": "X:1\nT:Case G3 chord symbols only\nM:4/4\nL:1/4\nQ:1/4=120\nK:C\n\"Am\"C E \"F\"A c | \"G\"B G \"C\"c2 |\n",
+      "abc2midi": {
+        "format": 1,
+        "division": 480,
+        "track_count": 3,
+        "tracks": [
+          {
+            "track": 0,
+            "name": "Case G3 chord symbols only",
+            "channels": [],
+            "programs": [],
+            "tempos": [
+              {
+                "tick": 0,
+                "us_per_qn": 500000,
+                "bpm": 120.0
+              }
+            ],
+            "time_sigs": [
+              {
+                "tick": 0,
+                "num": 4,
+                "den_pow2": 2
+              }
+            ],
+            "key_sigs": [
+              {
+                "tick": 0,
+                "sharps": 0,
+                "minor": 0
+              }
+            ],
+            "texts": [
+              "note track"
+            ],
+            "lyrics": [],
+            "note_count": 0,
+            "notes": []
+          },
+          {
+            "track": 1,
+            "name": "Case G3 chord symbols only",
+            "channels": [
+              0
+            ],
+            "programs": [],
+            "tempos": [],
+            "time_sigs": [],
+            "key_sigs": [],
+            "texts": [
+              "note track",
+              "X:1"
+            ],
+            "lyrics": [],
+            "note_count": 7,
+            "notes": [
+              {
+                "start": 1,
+                "dur": 479,
+                "pitch": 60,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 481,
+                "dur": 479,
+                "pitch": 64,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 961,
+                "dur": 479,
+                "pitch": 69,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 1441,
+                "dur": 479,
+                "pitch": 72,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 1921,
+                "dur": 479,
+                "pitch": 71,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 2401,
+                "dur": 479,
+                "pitch": 67,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 2881,
+                "dur": 959,
+                "pitch": 72,
+                "vel": 95,
+                "ch": 0
+              }
+            ]
+          },
+          {
+            "track": 2,
+            "name": null,
+            "channels": [
+              1,
+              2
+            ],
+            "programs": [],
+            "tempos": [],
+            "time_sigs": [],
+            "key_sigs": [],
+            "texts": [
+              "gchord track",
+              "X:1"
+            ],
+            "lyrics": [],
+            "note_count": 16,
+            "notes": [
+              {
+                "start": 1,
+                "dur": 239,
+                "pitch": 45,
+                "vel": 80,
+                "ch": 1
+              },
+              {
+                "start": 481,
+                "dur": 239,
+                "pitch": 57,
+                "vel": 75,
+                "ch": 2
+              },
+              {
+                "start": 481,
+                "dur": 239,
+                "pitch": 60,
+                "vel": 75,
+                "ch": 2
+              },
+              {
+                "start": 481,
+                "dur": 239,
+                "pitch": 64,
+                "vel": 75,
+                "ch": 2
+              },
+              {
+                "start": 961,
+                "dur": 239,
+                "pitch": 41,
+                "vel": 80,
+                "ch": 1
+              },
+              {
+                "start": 1441,
+                "dur": 239,
+                "pitch": 53,
+                "vel": 75,
+                "ch": 2
+              },
+              {
+                "start": 1441,
+                "dur": 239,
+                "pitch": 57,
+                "vel": 75,
+                "ch": 2
+              },
+              {
+                "start": 1441,
+                "dur": 239,
+                "pitch": 60,
+                "vel": 75,
+                "ch": 2
+              },
+              {
+                "start": 1921,
+                "dur": 239,
+                "pitch": 43,
+                "vel": 80,
+                "ch": 1
+              },
+              {
+                "start": 2401,
+                "dur": 239,
+                "pitch": 55,
+                "vel": 75,
+                "ch": 2
+              },
+              {
+                "start": 2401,
+                "dur": 239,
+                "pitch": 59,
+                "vel": 75,
+                "ch": 2
+              },
+              {
+                "start": 2401,
+                "dur": 239,
+                "pitch": 62,
+                "vel": 75,
+                "ch": 2
+              },
+              {
+                "start": 2881,
+                "dur": 239,
+                "pitch": 36,
+                "vel": 80,
+                "ch": 1
+              },
+              {
+                "start": 3361,
+                "dur": 239,
+                "pitch": 48,
+                "vel": 75,
+                "ch": 2
+              },
+              {
+                "start": 3361,
+                "dur": 239,
+                "pitch": 52,
+                "vel": 75,
+                "ch": 2
+              },
+              {
+                "start": 3361,
+                "dur": 239,
+                "pitch": 55,
+                "vel": 75,
+                "ch": 2
+              }
+            ]
+          }
+        ]
+      },
+      "abcjs": {
+        "format": 1,
+        "division": 480,
+        "track_count": 3,
+        "tracks": [
+          {
+            "track": 0,
+            "name": null,
+            "channels": [],
+            "programs": [],
+            "tempos": [
+              {
+                "tick": 0,
+                "us_per_qn": 500000,
+                "bpm": 120.0
+              }
+            ],
+            "time_sigs": [
+              {
+                "tick": 0,
+                "num": 4,
+                "den_pow2": 2
+              }
+            ],
+            "key_sigs": [
+              {
+                "tick": 0,
+                "sharps": 0,
+                "minor": 0
+              }
+            ],
+            "texts": [
+              "Case G3 chord symbols only"
+            ],
+            "lyrics": [],
+            "note_count": 0,
+            "notes": []
+          },
+          {
+            "track": 1,
+            "name": null,
+            "channels": [
+              0
+            ],
+            "programs": [
+              {
+                "tick": 0,
+                "ch": 0,
+                "program": 0
+              }
+            ],
+            "tempos": [],
+            "time_sigs": [],
+            "key_sigs": [],
+            "texts": [],
+            "lyrics": [],
+            "note_count": 7,
+            "notes": [
+              {
+                "start": 0,
+                "dur": 480,
+                "pitch": 60,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 480,
+                "dur": 480,
+                "pitch": 64,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 960,
+                "dur": 480,
+                "pitch": 69,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 1440,
+                "dur": 480,
+                "pitch": 72,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 1920,
+                "dur": 480,
+                "pitch": 71,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 2400,
+                "dur": 480,
+                "pitch": 67,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 2880,
+                "dur": 960,
+                "pitch": 72,
+                "vel": 95,
+                "ch": 0
+              }
+            ]
+          },
+          {
+            "track": 2,
+            "name": null,
+            "channels": [
+              0,
+              1
+            ],
+            "programs": [
+              {
+                "tick": 0,
+                "ch": 0,
+                "program": 0
+              }
+            ],
+            "tempos": [],
+            "time_sigs": [],
+            "key_sigs": [],
+            "texts": [],
+            "lyrics": [],
+            "note_count": 16,
+            "notes": [
+              {
+                "start": 0,
+                "dur": 240,
+                "pitch": 33,
+                "vel": 64,
+                "ch": 1
+              },
+              {
+                "start": 480,
+                "dur": 240,
+                "pitch": 45,
+                "vel": 48,
+                "ch": 1
+              },
+              {
+                "start": 480,
+                "dur": 240,
+                "pitch": 48,
+                "vel": 48,
+                "ch": 1
+              },
+              {
+                "start": 480,
+                "dur": 240,
+                "pitch": 52,
+                "vel": 48,
+                "ch": 1
+              },
+              {
+                "start": 960,
+                "dur": 240,
+                "pitch": 41,
+                "vel": 64,
+                "ch": 1
+              },
+              {
+                "start": 1440,
+                "dur": 240,
+                "pitch": 53,
+                "vel": 48,
+                "ch": 1
+              },
+              {
+                "start": 1440,
+                "dur": 240,
+                "pitch": 57,
+                "vel": 48,
+                "ch": 1
+              },
+              {
+                "start": 1440,
+                "dur": 240,
+                "pitch": 60,
+                "vel": 48,
+                "ch": 1
+              },
+              {
+                "start": 1920,
+                "dur": 240,
+                "pitch": 43,
+                "vel": 64,
+                "ch": 1
+              },
+              {
+                "start": 2400,
+                "dur": 240,
+                "pitch": 55,
+                "vel": 48,
+                "ch": 1
+              },
+              {
+                "start": 2400,
+                "dur": 240,
+                "pitch": 59,
+                "vel": 48,
+                "ch": 1
+              },
+              {
+                "start": 2400,
+                "dur": 240,
+                "pitch": 62,
+                "vel": 48,
+                "ch": 1
+              },
+              {
+                "start": 2880,
+                "dur": 240,
+                "pitch": 36,
+                "vel": 64,
+                "ch": 1
+              },
+              {
+                "start": 3360,
+                "dur": 240,
+                "pitch": 48,
+                "vel": 48,
+                "ch": 1
+              },
+              {
+                "start": 3360,
+                "dur": 240,
+                "pitch": 52,
+                "vel": 48,
+                "ch": 1
+              },
+              {
+                "start": 3360,
+                "dur": 240,
+                "pitch": 55,
+                "vel": 48,
+                "ch": 1
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "case": "g4_lyricsonly",
+      "expected_note_count": 7,
+      "abc": "X:1\nT:Case G4 lyrics only\nM:4/4\nL:1/4\nQ:1/4=120\nK:C\nC E A c | B G c2 |\nw:Hel-lo world sing now\n",
+      "abc2midi": {
+        "format": 1,
+        "division": 480,
+        "track_count": 2,
+        "tracks": [
+          {
+            "track": 0,
+            "name": "Case G4 lyrics only",
+            "channels": [],
+            "programs": [],
+            "tempos": [
+              {
+                "tick": 1,
+                "us_per_qn": 500000,
+                "bpm": 120.0
+              }
+            ],
+            "time_sigs": [
+              {
+                "tick": 1,
+                "num": 4,
+                "den_pow2": 2
+              }
+            ],
+            "key_sigs": [
+              {
+                "tick": 1,
+                "sharps": 0,
+                "minor": 0
+              }
+            ],
+            "texts": [
+              "@KMIDI KARAOKE FILE",
+              "@ICase G4 lyrics only",
+              "note track"
+            ],
+            "lyrics": [],
+            "note_count": 0,
+            "notes": []
+          },
+          {
+            "track": 1,
+            "name": null,
+            "channels": [
+              0
+            ],
+            "programs": [],
+            "tempos": [],
+            "time_sigs": [],
+            "key_sigs": [],
+            "texts": [
+              "notes/lyric track",
+              "X:1",
+              "/Hel",
+              "lo",
+              " world",
+              " sing",
+              " now"
+            ],
+            "lyrics": [],
+            "note_count": 7,
+            "notes": [
+              {
+                "start": 1,
+                "dur": 479,
+                "pitch": 60,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 481,
+                "dur": 479,
+                "pitch": 64,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 961,
+                "dur": 479,
+                "pitch": 69,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 1441,
+                "dur": 479,
+                "pitch": 72,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 1921,
+                "dur": 479,
+                "pitch": 71,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 2401,
+                "dur": 479,
+                "pitch": 67,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 2881,
+                "dur": 959,
+                "pitch": 72,
+                "vel": 95,
+                "ch": 0
+              }
+            ]
+          }
+        ]
+      },
+      "abcjs": {
+        "format": 1,
+        "division": 480,
+        "track_count": 2,
+        "tracks": [
+          {
+            "track": 0,
+            "name": null,
+            "channels": [],
+            "programs": [],
+            "tempos": [
+              {
+                "tick": 0,
+                "us_per_qn": 500000,
+                "bpm": 120.0
+              }
+            ],
+            "time_sigs": [
+              {
+                "tick": 0,
+                "num": 4,
+                "den_pow2": 2
+              }
+            ],
+            "key_sigs": [
+              {
+                "tick": 0,
+                "sharps": 0,
+                "minor": 0
+              }
+            ],
+            "texts": [
+              "Case G4 lyrics only"
+            ],
+            "lyrics": [],
+            "note_count": 0,
+            "notes": []
+          },
+          {
+            "track": 1,
+            "name": null,
+            "channels": [
+              0
+            ],
+            "programs": [
+              {
+                "tick": 0,
+                "ch": 0,
+                "program": 0
+              }
+            ],
+            "tempos": [],
+            "time_sigs": [],
+            "key_sigs": [],
+            "texts": [],
+            "lyrics": [],
+            "note_count": 7,
+            "notes": [
+              {
+                "start": 0,
+                "dur": 480,
+                "pitch": 60,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 480,
+                "dur": 480,
+                "pitch": 64,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 960,
+                "dur": 480,
+                "pitch": 69,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 1440,
+                "dur": 480,
+                "pitch": 72,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 1920,
+                "dur": 480,
+                "pitch": 71,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 2400,
+                "dur": 480,
+                "pitch": 67,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 2880,
+                "dur": 960,
+                "pitch": 72,
+                "vel": 95,
+                "ch": 0
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "case": "h_voicelabels",
+      "expected_note_count": 12,
+      "abc": "X:1\nT:Case H voice labels no program\nM:4/4\nL:1/8\nK:C\nV:Bass clef=bass\nC,2 D,2 E,2 F,2 |\nV:Gtr\nC2 D2 E2 F2 |\nV:Arp\nC2 E2 G2 c2 |\n",
+      "abc2midi": {
+        "format": 1,
+        "division": 480,
+        "track_count": 4,
+        "tracks": [
+          {
+            "track": 0,
+            "name": "Case H voice labels no program",
+            "channels": [],
+            "programs": [],
+            "tempos": [
+              {
+                "tick": 0,
+                "us_per_qn": 500000,
+                "bpm": 120.0
+              }
+            ],
+            "time_sigs": [
+              {
+                "tick": 0,
+                "num": 4,
+                "den_pow2": 2
+              }
+            ],
+            "key_sigs": [
+              {
+                "tick": 0,
+                "sharps": 0,
+                "minor": 0
+              }
+            ],
+            "texts": [
+              "note track"
+            ],
+            "lyrics": [],
+            "note_count": 0,
+            "notes": []
+          },
+          {
+            "track": 1,
+            "name": "Case H voice labels no program",
+            "channels": [
+              0
+            ],
+            "programs": [],
+            "tempos": [],
+            "time_sigs": [],
+            "key_sigs": [],
+            "texts": [
+              "note track",
+              "X:1"
+            ],
+            "lyrics": [],
+            "note_count": 4,
+            "notes": [
+              {
+                "start": 1,
+                "dur": 479,
+                "pitch": 48,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 481,
+                "dur": 479,
+                "pitch": 50,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 961,
+                "dur": 479,
+                "pitch": 52,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 1441,
+                "dur": 479,
+                "pitch": 53,
+                "vel": 80,
+                "ch": 0
+              }
+            ]
+          },
+          {
+            "track": 2,
+            "name": null,
+            "channels": [
+              1
+            ],
+            "programs": [],
+            "tempos": [],
+            "time_sigs": [],
+            "key_sigs": [],
+            "texts": [
+              "note track"
+            ],
+            "lyrics": [],
+            "note_count": 4,
+            "notes": [
+              {
+                "start": 1,
+                "dur": 479,
+                "pitch": 60,
+                "vel": 105,
+                "ch": 1
+              },
+              {
+                "start": 481,
+                "dur": 479,
+                "pitch": 62,
+                "vel": 80,
+                "ch": 1
+              },
+              {
+                "start": 961,
+                "dur": 479,
+                "pitch": 64,
+                "vel": 95,
+                "ch": 1
+              },
+              {
+                "start": 1441,
+                "dur": 479,
+                "pitch": 65,
+                "vel": 80,
+                "ch": 1
+              }
+            ]
+          },
+          {
+            "track": 3,
+            "name": null,
+            "channels": [
+              2
+            ],
+            "programs": [],
+            "tempos": [],
+            "time_sigs": [],
+            "key_sigs": [],
+            "texts": [
+              "note track"
+            ],
+            "lyrics": [],
+            "note_count": 4,
+            "notes": [
+              {
+                "start": 1,
+                "dur": 479,
+                "pitch": 60,
+                "vel": 105,
+                "ch": 2
+              },
+              {
+                "start": 481,
+                "dur": 479,
+                "pitch": 64,
+                "vel": 80,
+                "ch": 2
+              },
+              {
+                "start": 961,
+                "dur": 479,
+                "pitch": 67,
+                "vel": 95,
+                "ch": 2
+              },
+              {
+                "start": 1441,
+                "dur": 479,
+                "pitch": 72,
+                "vel": 80,
+                "ch": 2
+              }
+            ]
+          }
+        ]
+      },
+      "abcjs": {
+        "format": 1,
+        "division": 480,
+        "track_count": 4,
+        "tracks": [
+          {
+            "track": 0,
+            "name": null,
+            "channels": [],
+            "programs": [],
+            "tempos": [
+              {
+                "tick": 0,
+                "us_per_qn": 333333,
+                "bpm": 180.0
+              }
+            ],
+            "time_sigs": [
+              {
+                "tick": 0,
+                "num": 4,
+                "den_pow2": 2
+              }
+            ],
+            "key_sigs": [
+              {
+                "tick": 0,
+                "sharps": 0,
+                "minor": 0
+              }
+            ],
+            "texts": [
+              "Case H voice labels no program"
+            ],
+            "lyrics": [],
+            "note_count": 0,
+            "notes": []
+          },
+          {
+            "track": 1,
+            "name": null,
+            "channels": [
+              0
+            ],
+            "programs": [
+              {
+                "tick": 0,
+                "ch": 0,
+                "program": 0
+              }
+            ],
+            "tempos": [],
+            "time_sigs": [],
+            "key_sigs": [],
+            "texts": [],
+            "lyrics": [],
+            "note_count": 4,
+            "notes": [
+              {
+                "start": 0,
+                "dur": 480,
+                "pitch": 48,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 480,
+                "dur": 480,
+                "pitch": 50,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 960,
+                "dur": 480,
+                "pitch": 52,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 1440,
+                "dur": 480,
+                "pitch": 53,
+                "vel": 95,
+                "ch": 0
+              }
+            ]
+          },
+          {
+            "track": 2,
+            "name": null,
+            "channels": [
+              0,
+              1
+            ],
+            "programs": [
+              {
+                "tick": 0,
+                "ch": 0,
+                "program": 0
+              }
+            ],
+            "tempos": [],
+            "time_sigs": [],
+            "key_sigs": [],
+            "texts": [],
+            "lyrics": [],
+            "note_count": 4,
+            "notes": [
+              {
+                "start": 0,
+                "dur": 480,
+                "pitch": 60,
+                "vel": 105,
+                "ch": 1
+              },
+              {
+                "start": 480,
+                "dur": 480,
+                "pitch": 62,
+                "vel": 95,
+                "ch": 1
+              },
+              {
+                "start": 960,
+                "dur": 480,
+                "pitch": 64,
+                "vel": 95,
+                "ch": 1
+              },
+              {
+                "start": 1440,
+                "dur": 480,
+                "pitch": 65,
+                "vel": 95,
+                "ch": 1
+              }
+            ]
+          },
+          {
+            "track": 3,
+            "name": null,
+            "channels": [
+              0,
+              2
+            ],
+            "programs": [
+              {
+                "tick": 0,
+                "ch": 0,
+                "program": 0
+              }
+            ],
+            "tempos": [],
+            "time_sigs": [],
+            "key_sigs": [],
+            "texts": [],
+            "lyrics": [],
+            "note_count": 4,
+            "notes": [
+              {
+                "start": 0,
+                "dur": 480,
+                "pitch": 60,
+                "vel": 105,
+                "ch": 2
+              },
+              {
+                "start": 480,
+                "dur": 480,
+                "pitch": 64,
+                "vel": 95,
+                "ch": 2
+              },
+              {
+                "start": 960,
+                "dur": 480,
+                "pitch": 67,
+                "vel": 95,
+                "ch": 2
+              },
+              {
+                "start": 1440,
+                "dur": 480,
+                "pitch": 72,
+                "vel": 95,
+                "ch": 2
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "case": "i_percussion",
+      "expected_note_count": 4,
+      "abc": "X:1\nT:Case I percussion channel 10\nM:4/4\nL:1/4\nK:C\n%%MIDI channel 10\nC E G c |\n",
+      "abc2midi": {
+        "format": 0,
+        "division": 480,
+        "track_count": 1,
+        "tracks": [
+          {
+            "track": 0,
+            "name": "Case I percussion channel 10",
+            "channels": [
+              9
+            ],
+            "programs": [],
+            "tempos": [
+              {
+                "tick": 0,
+                "us_per_qn": 500000,
+                "bpm": 120.0
+              }
+            ],
+            "time_sigs": [
+              {
+                "tick": 0,
+                "num": 4,
+                "den_pow2": 2
+              }
+            ],
+            "key_sigs": [
+              {
+                "tick": 0,
+                "sharps": 0,
+                "minor": 0
+              }
+            ],
+            "texts": [
+              "note track",
+              "X:1"
+            ],
+            "lyrics": [],
+            "note_count": 4,
+            "notes": [
+              {
+                "start": 1,
+                "dur": 479,
+                "pitch": 60,
+                "vel": 105,
+                "ch": 9
+              },
+              {
+                "start": 481,
+                "dur": 479,
+                "pitch": 64,
+                "vel": 80,
+                "ch": 9
+              },
+              {
+                "start": 961,
+                "dur": 479,
+                "pitch": 67,
+                "vel": 95,
+                "ch": 9
+              },
+              {
+                "start": 1441,
+                "dur": 479,
+                "pitch": 72,
+                "vel": 80,
+                "ch": 9
+              }
+            ]
+          }
+        ]
+      },
+      "abcjs": {
+        "format": 1,
+        "division": 480,
+        "track_count": 2,
+        "tracks": [
+          {
+            "track": 0,
+            "name": null,
+            "channels": [],
+            "programs": [],
+            "tempos": [
+              {
+                "tick": 0,
+                "us_per_qn": 333333,
+                "bpm": 180.0
+              }
+            ],
+            "time_sigs": [
+              {
+                "tick": 0,
+                "num": 4,
+                "den_pow2": 2
+              }
+            ],
+            "key_sigs": [
+              {
+                "tick": 0,
+                "sharps": 0,
+                "minor": 0
+              }
+            ],
+            "texts": [
+              "Case I percussion channel 10"
+            ],
+            "lyrics": [],
+            "note_count": 0,
+            "notes": []
+          },
+          {
+            "track": 1,
+            "name": null,
+            "channels": [
+              0,
+              9
+            ],
+            "programs": [
+              {
+                "tick": 0,
+                "ch": 0,
+                "program": 0
+              }
+            ],
+            "tempos": [],
+            "time_sigs": [],
+            "key_sigs": [],
+            "texts": [],
+            "lyrics": [],
+            "note_count": 4,
+            "notes": [
+              {
+                "start": 0,
+                "dur": 480,
+                "pitch": 60,
+                "vel": 105,
+                "ch": 9
+              },
+              {
+                "start": 480,
+                "dur": 480,
+                "pitch": 64,
+                "vel": 95,
+                "ch": 9
+              },
+              {
+                "start": 960,
+                "dur": 480,
+                "pitch": 67,
+                "vel": 95,
+                "ch": 9
+              },
+              {
+                "start": 1440,
+                "dur": 480,
+                "pitch": 72,
+                "vel": 95,
+                "ch": 9
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "case": "j_channels",
+      "expected_note_count": 12,
+      "abc": "X:1\nT:Case J explicit channels\nM:4/4\nL:1/8\nK:C\nV:One\n%%MIDI channel 1\n%%MIDI program 40\nC2 D2 E2 F2 |\nV:Two\n%%MIDI channel 2\n%%MIDI program 41\nG2 A2 B2 c2 |\nV:Three\n%%MIDI channel 3\n%%MIDI program 42\nc2 B2 A2 G2 |\n",
+      "abc2midi": {
+        "format": 1,
+        "division": 480,
+        "track_count": 4,
+        "tracks": [
+          {
+            "track": 0,
+            "name": "Case J explicit channels",
+            "channels": [],
+            "programs": [],
+            "tempos": [
+              {
+                "tick": 0,
+                "us_per_qn": 500000,
+                "bpm": 120.0
+              }
+            ],
+            "time_sigs": [
+              {
+                "tick": 0,
+                "num": 4,
+                "den_pow2": 2
+              }
+            ],
+            "key_sigs": [
+              {
+                "tick": 0,
+                "sharps": 0,
+                "minor": 0
+              }
+            ],
+            "texts": [
+              "note track"
+            ],
+            "lyrics": [],
+            "note_count": 0,
+            "notes": []
+          },
+          {
+            "track": 1,
+            "name": "Case J explicit channels",
+            "channels": [
+              0
+            ],
+            "programs": [
+              {
+                "tick": 1,
+                "ch": 0,
+                "program": 40
+              }
+            ],
+            "tempos": [],
+            "time_sigs": [],
+            "key_sigs": [],
+            "texts": [
+              "note track",
+              "X:1"
+            ],
+            "lyrics": [],
+            "note_count": 4,
+            "notes": [
+              {
+                "start": 1,
+                "dur": 479,
+                "pitch": 60,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 481,
+                "dur": 479,
+                "pitch": 62,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 961,
+                "dur": 479,
+                "pitch": 64,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 1441,
+                "dur": 479,
+                "pitch": 65,
+                "vel": 80,
+                "ch": 0
+              }
+            ]
+          },
+          {
+            "track": 2,
+            "name": null,
+            "channels": [
+              1
+            ],
+            "programs": [
+              {
+                "tick": 1,
+                "ch": 1,
+                "program": 41
+              }
+            ],
+            "tempos": [],
+            "time_sigs": [],
+            "key_sigs": [],
+            "texts": [
+              "note track"
+            ],
+            "lyrics": [],
+            "note_count": 4,
+            "notes": [
+              {
+                "start": 1,
+                "dur": 479,
+                "pitch": 67,
+                "vel": 105,
+                "ch": 1
+              },
+              {
+                "start": 481,
+                "dur": 479,
+                "pitch": 69,
+                "vel": 80,
+                "ch": 1
+              },
+              {
+                "start": 961,
+                "dur": 479,
+                "pitch": 71,
+                "vel": 95,
+                "ch": 1
+              },
+              {
+                "start": 1441,
+                "dur": 479,
+                "pitch": 72,
+                "vel": 80,
+                "ch": 1
+              }
+            ]
+          },
+          {
+            "track": 3,
+            "name": null,
+            "channels": [
+              2
+            ],
+            "programs": [
+              {
+                "tick": 1,
+                "ch": 2,
+                "program": 42
+              }
+            ],
+            "tempos": [],
+            "time_sigs": [],
+            "key_sigs": [],
+            "texts": [
+              "note track"
+            ],
+            "lyrics": [],
+            "note_count": 4,
+            "notes": [
+              {
+                "start": 1,
+                "dur": 479,
+                "pitch": 72,
+                "vel": 105,
+                "ch": 2
+              },
+              {
+                "start": 481,
+                "dur": 479,
+                "pitch": 71,
+                "vel": 80,
+                "ch": 2
+              },
+              {
+                "start": 961,
+                "dur": 479,
+                "pitch": 69,
+                "vel": 95,
+                "ch": 2
+              },
+              {
+                "start": 1441,
+                "dur": 479,
+                "pitch": 67,
+                "vel": 80,
+                "ch": 2
+              }
+            ]
+          }
+        ]
+      },
+      "abcjs": {
+        "format": 1,
+        "division": 480,
+        "track_count": 4,
+        "tracks": [
+          {
+            "track": 0,
+            "name": null,
+            "channels": [],
+            "programs": [],
+            "tempos": [
+              {
+                "tick": 0,
+                "us_per_qn": 333333,
+                "bpm": 180.0
+              }
+            ],
+            "time_sigs": [
+              {
+                "tick": 0,
+                "num": 4,
+                "den_pow2": 2
+              }
+            ],
+            "key_sigs": [
+              {
+                "tick": 0,
+                "sharps": 0,
+                "minor": 0
+              }
+            ],
+            "texts": [
+              "Case J explicit channels"
+            ],
+            "lyrics": [],
+            "note_count": 0,
+            "notes": []
+          },
+          {
+            "track": 1,
+            "name": null,
+            "channels": [
+              0
+            ],
+            "programs": [
+              {
+                "tick": 0,
+                "ch": 0,
+                "program": 40
+              }
+            ],
+            "tempos": [],
+            "time_sigs": [],
+            "key_sigs": [],
+            "texts": [],
+            "lyrics": [],
+            "note_count": 4,
+            "notes": [
+              {
+                "start": 0,
+                "dur": 480,
+                "pitch": 60,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 480,
+                "dur": 480,
+                "pitch": 62,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 960,
+                "dur": 480,
+                "pitch": 64,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 1440,
+                "dur": 480,
+                "pitch": 65,
+                "vel": 95,
+                "ch": 0
+              }
+            ]
+          },
+          {
+            "track": 2,
+            "name": null,
+            "channels": [
+              0,
+              1
+            ],
+            "programs": [
+              {
+                "tick": 0,
+                "ch": 0,
+                "program": 41
+              }
+            ],
+            "tempos": [],
+            "time_sigs": [],
+            "key_sigs": [],
+            "texts": [],
+            "lyrics": [],
+            "note_count": 4,
+            "notes": [
+              {
+                "start": 0,
+                "dur": 480,
+                "pitch": 67,
+                "vel": 105,
+                "ch": 1
+              },
+              {
+                "start": 480,
+                "dur": 480,
+                "pitch": 69,
+                "vel": 95,
+                "ch": 1
+              },
+              {
+                "start": 960,
+                "dur": 480,
+                "pitch": 71,
+                "vel": 95,
+                "ch": 1
+              },
+              {
+                "start": 1440,
+                "dur": 480,
+                "pitch": 72,
+                "vel": 95,
+                "ch": 1
+              }
+            ]
+          },
+          {
+            "track": 3,
+            "name": null,
+            "channels": [
+              0,
+              2
+            ],
+            "programs": [
+              {
+                "tick": 0,
+                "ch": 0,
+                "program": 42
+              }
+            ],
+            "tempos": [],
+            "time_sigs": [],
+            "key_sigs": [],
+            "texts": [],
+            "lyrics": [],
+            "note_count": 4,
+            "notes": [
+              {
+                "start": 0,
+                "dur": 480,
+                "pitch": 72,
+                "vel": 105,
+                "ch": 2
+              },
+              {
+                "start": 480,
+                "dur": 480,
+                "pitch": 71,
+                "vel": 95,
+                "ch": 2
+              },
+              {
+                "start": 960,
+                "dur": 480,
+                "pitch": 69,
+                "vel": 95,
+                "ch": 2
+              },
+              {
+                "start": 1440,
+                "dur": 480,
+                "pitch": 67,
+                "vel": 95,
+                "ch": 2
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "case": "probe_two_voices",
+      "expected_note_count": 86,
+      "abc": "X:1\nT:Riff DAW integration probe\nM:4/4\nL:1/8\nQ:1/4=108\nK:Dm\nV:Melody clef=treble\n%%MIDI program 73\n|: D2 F2 A2 G2 | F2 E2 D4 | D>E F2 A4 | (3DEF GAB .D2 z2 | !p!D2 !mf!F2 !f!A2 c2 | d8 :|\nV:Bass clef=bass\n%%MIDI program 33\n|: D,2 A,2 D,2 A,2 | D,2 A,2 D,4 | D,2 A,2 D,2 A,2 | D,2 A,2 D,2 A,2 | D,2 C,2 B,,2 A,,2 | D,,8 :|\n",
+      "abc2midi": {
+        "format": 1,
+        "division": 480,
+        "track_count": 3,
+        "tracks": [
+          {
+            "track": 0,
+            "name": "Riff DAW integration probe",
+            "channels": [],
+            "programs": [],
+            "tempos": [
+              {
+                "tick": 0,
+                "us_per_qn": 555555,
+                "bpm": 108.0
+              }
+            ],
+            "time_sigs": [
+              {
+                "tick": 0,
+                "num": 4,
+                "den_pow2": 2
+              }
+            ],
+            "key_sigs": [
+              {
+                "tick": 0,
+                "sharps": -1,
+                "minor": 1
+              }
+            ],
+            "texts": [
+              "note track"
+            ],
+            "lyrics": [],
+            "note_count": 0,
+            "notes": []
+          },
+          {
+            "track": 1,
+            "name": "Riff DAW integration probe",
+            "channels": [
+              0
+            ],
+            "programs": [
+              {
+                "tick": 1,
+                "ch": 0,
+                "program": 73
+              }
+            ],
+            "tempos": [],
+            "time_sigs": [],
+            "key_sigs": [],
+            "texts": [
+              "note track",
+              "X:1"
+            ],
+            "lyrics": [],
+            "note_count": 46,
+            "notes": [
+              {
+                "start": 1,
+                "dur": 479,
+                "pitch": 62,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 481,
+                "dur": 479,
+                "pitch": 65,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 961,
+                "dur": 479,
+                "pitch": 69,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 1441,
+                "dur": 479,
+                "pitch": 67,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 1921,
+                "dur": 479,
+                "pitch": 65,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 2401,
+                "dur": 479,
+                "pitch": 64,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 2881,
+                "dur": 959,
+                "pitch": 62,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 3841,
+                "dur": 359,
+                "pitch": 62,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 4201,
+                "dur": 119,
+                "pitch": 64,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 4321,
+                "dur": 479,
+                "pitch": 65,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 4801,
+                "dur": 959,
+                "pitch": 69,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 5761,
+                "dur": 159,
+                "pitch": 62,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 5921,
+                "dur": 159,
+                "pitch": 64,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 6081,
+                "dur": 159,
+                "pitch": 65,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 6241,
+                "dur": 239,
+                "pitch": 67,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 6481,
+                "dur": 239,
+                "pitch": 69,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 6721,
+                "dur": 239,
+                "pitch": 70,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 6961,
+                "dur": 239,
+                "pitch": 62,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 7921,
+                "dur": 479,
+                "pitch": 62,
+                "vel": 60,
+                "ch": 0
+              },
+              {
+                "start": 8401,
+                "dur": 479,
+                "pitch": 65,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 8881,
+                "dur": 479,
+                "pitch": 69,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 9361,
+                "dur": 479,
+                "pitch": 72,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 9841,
+                "dur": 1919,
+                "pitch": 74,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 11761,
+                "dur": 479,
+                "pitch": 62,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 12241,
+                "dur": 479,
+                "pitch": 65,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 12721,
+                "dur": 479,
+                "pitch": 69,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 13201,
+                "dur": 479,
+                "pitch": 67,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 13681,
+                "dur": 479,
+                "pitch": 65,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 14161,
+                "dur": 479,
+                "pitch": 64,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 14641,
+                "dur": 959,
+                "pitch": 62,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 15601,
+                "dur": 359,
+                "pitch": 62,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 15961,
+                "dur": 119,
+                "pitch": 64,
+                "vel": 80,
+                "ch": 0
+              }
+            ]
+          },
+          {
+            "track": 2,
+            "name": null,
+            "channels": [
+              1
+            ],
+            "programs": [
+              {
+                "tick": 1,
+                "ch": 1,
+                "program": 33
+              }
+            ],
+            "tempos": [],
+            "time_sigs": [],
+            "key_sigs": [],
+            "texts": [
+              "note track"
+            ],
+            "lyrics": [],
+            "note_count": 40,
+            "notes": [
+              {
+                "start": 1,
+                "dur": 479,
+                "pitch": 50,
+                "vel": 105,
+                "ch": 1
+              },
+              {
+                "start": 481,
+                "dur": 479,
+                "pitch": 57,
+                "vel": 80,
+                "ch": 1
+              },
+              {
+                "start": 961,
+                "dur": 479,
+                "pitch": 50,
+                "vel": 95,
+                "ch": 1
+              },
+              {
+                "start": 1441,
+                "dur": 479,
+                "pitch": 57,
+                "vel": 80,
+                "ch": 1
+              },
+              {
+                "start": 1921,
+                "dur": 479,
+                "pitch": 50,
+                "vel": 105,
+                "ch": 1
+              },
+              {
+                "start": 2401,
+                "dur": 479,
+                "pitch": 57,
+                "vel": 80,
+                "ch": 1
+              },
+              {
+                "start": 2881,
+                "dur": 959,
+                "pitch": 50,
+                "vel": 95,
+                "ch": 1
+              },
+              {
+                "start": 3841,
+                "dur": 479,
+                "pitch": 50,
+                "vel": 105,
+                "ch": 1
+              },
+              {
+                "start": 4321,
+                "dur": 479,
+                "pitch": 57,
+                "vel": 80,
+                "ch": 1
+              },
+              {
+                "start": 4801,
+                "dur": 479,
+                "pitch": 50,
+                "vel": 95,
+                "ch": 1
+              },
+              {
+                "start": 5281,
+                "dur": 479,
+                "pitch": 57,
+                "vel": 80,
+                "ch": 1
+              },
+              {
+                "start": 5761,
+                "dur": 479,
+                "pitch": 50,
+                "vel": 105,
+                "ch": 1
+              },
+              {
+                "start": 6241,
+                "dur": 479,
+                "pitch": 57,
+                "vel": 80,
+                "ch": 1
+              },
+              {
+                "start": 6721,
+                "dur": 479,
+                "pitch": 50,
+                "vel": 95,
+                "ch": 1
+              },
+              {
+                "start": 7201,
+                "dur": 479,
+                "pitch": 57,
+                "vel": 80,
+                "ch": 1
+              },
+              {
+                "start": 7681,
+                "dur": 479,
+                "pitch": 50,
+                "vel": 105,
+                "ch": 1
+              },
+              {
+                "start": 8161,
+                "dur": 479,
+                "pitch": 48,
+                "vel": 80,
+                "ch": 1
+              },
+              {
+                "start": 8641,
+                "dur": 479,
+                "pitch": 46,
+                "vel": 95,
+                "ch": 1
+              },
+              {
+                "start": 9121,
+                "dur": 479,
+                "pitch": 45,
+                "vel": 80,
+                "ch": 1
+              },
+              {
+                "start": 9601,
+                "dur": 1919,
+                "pitch": 38,
+                "vel": 105,
+                "ch": 1
+              },
+              {
+                "start": 11521,
+                "dur": 479,
+                "pitch": 50,
+                "vel": 105,
+                "ch": 1
+              },
+              {
+                "start": 12001,
+                "dur": 479,
+                "pitch": 57,
+                "vel": 80,
+                "ch": 1
+              },
+              {
+                "start": 12481,
+                "dur": 479,
+                "pitch": 50,
+                "vel": 95,
+                "ch": 1
+              },
+              {
+                "start": 12961,
+                "dur": 479,
+                "pitch": 57,
+                "vel": 80,
+                "ch": 1
+              },
+              {
+                "start": 13441,
+                "dur": 479,
+                "pitch": 50,
+                "vel": 105,
+                "ch": 1
+              },
+              {
+                "start": 13921,
+                "dur": 479,
+                "pitch": 57,
+                "vel": 80,
+                "ch": 1
+              },
+              {
+                "start": 14401,
+                "dur": 959,
+                "pitch": 50,
+                "vel": 95,
+                "ch": 1
+              },
+              {
+                "start": 15361,
+                "dur": 479,
+                "pitch": 50,
+                "vel": 105,
+                "ch": 1
+              },
+              {
+                "start": 15841,
+                "dur": 479,
+                "pitch": 57,
+                "vel": 80,
+                "ch": 1
+              },
+              {
+                "start": 16321,
+                "dur": 479,
+                "pitch": 50,
+                "vel": 95,
+                "ch": 1
+              },
+              {
+                "start": 16801,
+                "dur": 479,
+                "pitch": 57,
+                "vel": 80,
+                "ch": 1
+              },
+              {
+                "start": 17281,
+                "dur": 479,
+                "pitch": 50,
+                "vel": 105,
+                "ch": 1
+              }
+            ]
+          }
+        ]
+      },
+      "abcjs": {
+        "format": 1,
+        "division": 480,
+        "track_count": 3,
+        "tracks": [
+          {
+            "track": 0,
+            "name": null,
+            "channels": [],
+            "programs": [],
+            "tempos": [
+              {
+                "tick": 0,
+                "us_per_qn": 555556,
+                "bpm": 108.0
+              }
+            ],
+            "time_sigs": [
+              {
+                "tick": 0,
+                "num": 4,
+                "den_pow2": 2
+              }
+            ],
+            "key_sigs": [
+              {
+                "tick": 0,
+                "sharps": -1,
+                "minor": 1
+              }
+            ],
+            "texts": [
+              "Riff DAW integration probe"
+            ],
+            "lyrics": [],
+            "note_count": 0,
+            "notes": []
+          },
+          {
+            "track": 1,
+            "name": null,
+            "channels": [
+              0
+            ],
+            "programs": [
+              {
+                "tick": 0,
+                "ch": 0,
+                "program": 73
+              }
+            ],
+            "tempos": [],
+            "time_sigs": [],
+            "key_sigs": [],
+            "texts": [],
+            "lyrics": [],
+            "note_count": 45,
+            "notes": [
+              {
+                "start": 0,
+                "dur": 480,
+                "pitch": 62,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 480,
+                "dur": 480,
+                "pitch": 65,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 960,
+                "dur": 480,
+                "pitch": 69,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 1440,
+                "dur": 480,
+                "pitch": 67,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 1920,
+                "dur": 480,
+                "pitch": 65,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 2400,
+                "dur": 480,
+                "pitch": 64,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 2880,
+                "dur": 960,
+                "pitch": 62,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 3840,
+                "dur": 360,
+                "pitch": 62,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 4200,
+                "dur": 120,
+                "pitch": 64,
+                "vel": 85,
+                "ch": 0
+              },
+              {
+                "start": 4320,
+                "dur": 480,
+                "pitch": 65,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 4800,
+                "dur": 960,
+                "pitch": 69,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 5760,
+                "dur": 160,
+                "pitch": 62,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 5920,
+                "dur": 160,
+                "pitch": 64,
+                "vel": 85,
+                "ch": 0
+              },
+              {
+                "start": 6080,
+                "dur": 160,
+                "pitch": 65,
+                "vel": 85,
+                "ch": 0
+              },
+              {
+                "start": 6240,
+                "dur": 240,
+                "pitch": 67,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 6480,
+                "dur": 240,
+                "pitch": 69,
+                "vel": 85,
+                "ch": 0
+              },
+              {
+                "start": 6720,
+                "dur": 240,
+                "pitch": 70,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 6960,
+                "dur": 1440,
+                "pitch": 62,
+                "vel": 85,
+                "ch": 0
+              },
+              {
+                "start": 7920,
+                "dur": 4320,
+                "pitch": 62,
+                "vel": 60,
+                "ch": 0
+              },
+              {
+                "start": 8400,
+                "dur": 480,
+                "pitch": 65,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 8880,
+                "dur": 480,
+                "pitch": 69,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 9360,
+                "dur": 480,
+                "pitch": 72,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 9840,
+                "dur": 1920,
+                "pitch": 74,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 11760,
+                "dur": 3840,
+                "pitch": 62,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 12240,
+                "dur": 480,
+                "pitch": 65,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 12720,
+                "dur": 480,
+                "pitch": 69,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 13200,
+                "dur": 480,
+                "pitch": 67,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 13680,
+                "dur": 480,
+                "pitch": 65,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 14160,
+                "dur": 480,
+                "pitch": 64,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 14640,
+                "dur": 1320,
+                "pitch": 62,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 15600,
+                "dur": 2080,
+                "pitch": 62,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 15960,
+                "dur": 120,
+                "pitch": 64,
+                "vel": 80,
+                "ch": 0
+              }
+            ]
+          },
+          {
+            "track": 2,
+            "name": null,
+            "channels": [
+              0,
+              1
+            ],
+            "programs": [
+              {
+                "tick": 0,
+                "ch": 0,
+                "program": 33
+              }
+            ],
+            "tempos": [],
+            "time_sigs": [],
+            "key_sigs": [],
+            "texts": [],
+            "lyrics": [],
+            "note_count": 40,
+            "notes": [
+              {
+                "start": 0,
+                "dur": 480,
+                "pitch": 50,
+                "vel": 105,
+                "ch": 1
+              },
+              {
+                "start": 480,
+                "dur": 480,
+                "pitch": 57,
+                "vel": 95,
+                "ch": 1
+              },
+              {
+                "start": 960,
+                "dur": 480,
+                "pitch": 50,
+                "vel": 95,
+                "ch": 1
+              },
+              {
+                "start": 1440,
+                "dur": 480,
+                "pitch": 57,
+                "vel": 95,
+                "ch": 1
+              },
+              {
+                "start": 1920,
+                "dur": 480,
+                "pitch": 50,
+                "vel": 105,
+                "ch": 1
+              },
+              {
+                "start": 2400,
+                "dur": 480,
+                "pitch": 57,
+                "vel": 95,
+                "ch": 1
+              },
+              {
+                "start": 2880,
+                "dur": 960,
+                "pitch": 50,
+                "vel": 95,
+                "ch": 1
+              },
+              {
+                "start": 3840,
+                "dur": 480,
+                "pitch": 50,
+                "vel": 105,
+                "ch": 1
+              },
+              {
+                "start": 4320,
+                "dur": 480,
+                "pitch": 57,
+                "vel": 95,
+                "ch": 1
+              },
+              {
+                "start": 4800,
+                "dur": 480,
+                "pitch": 50,
+                "vel": 95,
+                "ch": 1
+              },
+              {
+                "start": 5280,
+                "dur": 480,
+                "pitch": 57,
+                "vel": 95,
+                "ch": 1
+              },
+              {
+                "start": 5760,
+                "dur": 480,
+                "pitch": 50,
+                "vel": 105,
+                "ch": 1
+              },
+              {
+                "start": 6240,
+                "dur": 480,
+                "pitch": 57,
+                "vel": 95,
+                "ch": 1
+              },
+              {
+                "start": 6720,
+                "dur": 480,
+                "pitch": 50,
+                "vel": 95,
+                "ch": 1
+              },
+              {
+                "start": 7200,
+                "dur": 480,
+                "pitch": 57,
+                "vel": 95,
+                "ch": 1
+              },
+              {
+                "start": 7680,
+                "dur": 480,
+                "pitch": 50,
+                "vel": 105,
+                "ch": 1
+              },
+              {
+                "start": 8160,
+                "dur": 480,
+                "pitch": 48,
+                "vel": 95,
+                "ch": 1
+              },
+              {
+                "start": 8640,
+                "dur": 480,
+                "pitch": 46,
+                "vel": 95,
+                "ch": 1
+              },
+              {
+                "start": 9120,
+                "dur": 480,
+                "pitch": 45,
+                "vel": 95,
+                "ch": 1
+              },
+              {
+                "start": 9600,
+                "dur": 1920,
+                "pitch": 38,
+                "vel": 105,
+                "ch": 1
+              },
+              {
+                "start": 11520,
+                "dur": 480,
+                "pitch": 50,
+                "vel": 105,
+                "ch": 1
+              },
+              {
+                "start": 12000,
+                "dur": 480,
+                "pitch": 57,
+                "vel": 95,
+                "ch": 1
+              },
+              {
+                "start": 12480,
+                "dur": 480,
+                "pitch": 50,
+                "vel": 95,
+                "ch": 1
+              },
+              {
+                "start": 12960,
+                "dur": 480,
+                "pitch": 57,
+                "vel": 95,
+                "ch": 1
+              },
+              {
+                "start": 13440,
+                "dur": 480,
+                "pitch": 50,
+                "vel": 105,
+                "ch": 1
+              },
+              {
+                "start": 13920,
+                "dur": 480,
+                "pitch": 57,
+                "vel": 95,
+                "ch": 1
+              },
+              {
+                "start": 14400,
+                "dur": 960,
+                "pitch": 50,
+                "vel": 95,
+                "ch": 1
+              },
+              {
+                "start": 15360,
+                "dur": 480,
+                "pitch": 50,
+                "vel": 105,
+                "ch": 1
+              },
+              {
+                "start": 15840,
+                "dur": 480,
+                "pitch": 57,
+                "vel": 95,
+                "ch": 1
+              },
+              {
+                "start": 16320,
+                "dur": 480,
+                "pitch": 50,
+                "vel": 95,
+                "ch": 1
+              },
+              {
+                "start": 16800,
+                "dur": 480,
+                "pitch": 57,
+                "vel": 95,
+                "ch": 1
+              },
+              {
+                "start": 17280,
+                "dur": 480,
+                "pitch": 50,
+                "vel": 105,
+                "ch": 1
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "case": "k_unequal",
+      "expected_note_count": 10,
+      "abc": "X:1\nT:Case K unequal voice lengths\nM:4/4\nL:1/4\nQ:1/4=100\nK:C\nV:One\nC D E F | G A B c |\nV:Two\nC,2 G,2 |\n",
+      "abc2midi": {
+        "format": 1,
+        "division": 480,
+        "track_count": 3,
+        "tracks": [
+          {
+            "track": 0,
+            "name": "Case K unequal voice lengths",
+            "channels": [],
+            "programs": [],
+            "tempos": [
+              {
+                "tick": 0,
+                "us_per_qn": 600000,
+                "bpm": 100.0
+              }
+            ],
+            "time_sigs": [
+              {
+                "tick": 0,
+                "num": 4,
+                "den_pow2": 2
+              }
+            ],
+            "key_sigs": [
+              {
+                "tick": 0,
+                "sharps": 0,
+                "minor": 0
+              }
+            ],
+            "texts": [
+              "note track"
+            ],
+            "lyrics": [],
+            "note_count": 0,
+            "notes": []
+          },
+          {
+            "track": 1,
+            "name": "Case K unequal voice lengths",
+            "channels": [
+              0
+            ],
+            "programs": [],
+            "tempos": [],
+            "time_sigs": [],
+            "key_sigs": [],
+            "texts": [
+              "note track",
+              "X:1"
+            ],
+            "lyrics": [],
+            "note_count": 8,
+            "notes": [
+              {
+                "start": 1,
+                "dur": 479,
+                "pitch": 60,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 481,
+                "dur": 479,
+                "pitch": 62,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 961,
+                "dur": 479,
+                "pitch": 64,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 1441,
+                "dur": 479,
+                "pitch": 65,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 1921,
+                "dur": 479,
+                "pitch": 67,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 2401,
+                "dur": 479,
+                "pitch": 69,
+                "vel": 80,
+                "ch": 0
+              },
+              {
+                "start": 2881,
+                "dur": 479,
+                "pitch": 71,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 3361,
+                "dur": 479,
+                "pitch": 72,
+                "vel": 80,
+                "ch": 0
+              }
+            ]
+          },
+          {
+            "track": 2,
+            "name": null,
+            "channels": [
+              1
+            ],
+            "programs": [],
+            "tempos": [],
+            "time_sigs": [],
+            "key_sigs": [],
+            "texts": [
+              "note track"
+            ],
+            "lyrics": [],
+            "note_count": 2,
+            "notes": [
+              {
+                "start": 1,
+                "dur": 959,
+                "pitch": 48,
+                "vel": 105,
+                "ch": 1
+              },
+              {
+                "start": 961,
+                "dur": 959,
+                "pitch": 55,
+                "vel": 95,
+                "ch": 1
+              }
+            ]
+          }
+        ]
+      },
+      "abcjs": {
+        "format": 1,
+        "division": 480,
+        "track_count": 3,
+        "tracks": [
+          {
+            "track": 0,
+            "name": null,
+            "channels": [],
+            "programs": [],
+            "tempos": [
+              {
+                "tick": 0,
+                "us_per_qn": 600000,
+                "bpm": 100.0
+              }
+            ],
+            "time_sigs": [
+              {
+                "tick": 0,
+                "num": 4,
+                "den_pow2": 2
+              }
+            ],
+            "key_sigs": [
+              {
+                "tick": 0,
+                "sharps": 0,
+                "minor": 0
+              }
+            ],
+            "texts": [
+              "Case K unequal voice lengths"
+            ],
+            "lyrics": [],
+            "note_count": 0,
+            "notes": []
+          },
+          {
+            "track": 1,
+            "name": null,
+            "channels": [
+              0
+            ],
+            "programs": [
+              {
+                "tick": 0,
+                "ch": 0,
+                "program": 0
+              }
+            ],
+            "tempos": [],
+            "time_sigs": [],
+            "key_sigs": [],
+            "texts": [],
+            "lyrics": [],
+            "note_count": 8,
+            "notes": [
+              {
+                "start": 0,
+                "dur": 480,
+                "pitch": 60,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 480,
+                "dur": 480,
+                "pitch": 62,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 960,
+                "dur": 480,
+                "pitch": 64,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 1440,
+                "dur": 480,
+                "pitch": 65,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 1920,
+                "dur": 480,
+                "pitch": 67,
+                "vel": 105,
+                "ch": 0
+              },
+              {
+                "start": 2400,
+                "dur": 480,
+                "pitch": 69,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 2880,
+                "dur": 480,
+                "pitch": 71,
+                "vel": 95,
+                "ch": 0
+              },
+              {
+                "start": 3360,
+                "dur": 480,
+                "pitch": 72,
+                "vel": 95,
+                "ch": 0
+              }
+            ]
+          },
+          {
+            "track": 2,
+            "name": null,
+            "channels": [
+              0,
+              1
+            ],
+            "programs": [
+              {
+                "tick": 0,
+                "ch": 0,
+                "program": 0
+              }
+            ],
+            "tempos": [],
+            "time_sigs": [],
+            "key_sigs": [],
+            "texts": [],
+            "lyrics": [],
+            "note_count": 2,
+            "notes": [
+              {
+                "start": 0,
+                "dur": 960,
+                "pitch": 48,
+                "vel": 105,
+                "ch": 1
+              },
+              {
+                "start": 960,
+                "dur": 960,
+                "pitch": 55,
+                "vel": 95,
+                "ch": 1
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "findings": [
+    {
+      "id": "F1",
+      "class": "converted",
+      "claim": "abc2midi assigns voices to separate SMF tracks/channels and places %%MIDI program on the voice channel; abcjs 6.7.0 emits all program changes on channel 0 while notes may be on other channels.",
+      "evidence": "cases A and J",
+      "limits": "one synthetic corpus, abcjs bundle exercised in Node via the same getMidiFile entry point"
+    },
+    {
+      "id": "F2",
+      "class": "dropped",
+      "claim": "ABC voice labels do not carry instrument timbre. Without an explicit program/plugin mapping, abc2midi emits no program and abcjs emits program 0 on channel 0.",
+      "evidence": "case H",
+      "limits": "a DAW may apply its own default track instrument; that is a DAW decision, not ABC information"
+    },
+    {
+      "id": "F3",
+      "class": "expanded",
+      "claim": "Repeats and first/second endings are flattened to played note events; SMF has no recoverable repeat/ending structure in these outputs.",
+      "evidence": "case C; both converters produce the same 16-note sequence",
+      "limits": "abc2midi -PMAR can emit part markers, but that is a converter option and not repeat structure"
+    },
+    {
+      "id": "F4",
+      "class": "approximated",
+      "claim": "Dynamics become per-note velocity; accent/tenuto/marcato/staccato/slur semantics are absent or converter-specific.",
+      "evidence": "cases D/E",
+      "limits": "no automation lanes or continuous dynamics were produced"
+    },
+    {
+      "id": "F5",
+      "class": "converted",
+      "claim": "Chord symbols are realised as generated accompaniment notes (with different voicings/channels per converter), not stored as chord metadata.",
+      "evidence": "case G/G3",
+      "limits": "abc2midi -NGUI can suppress guitar-chord indications; abcjs getMidiFile had no option in Riff call"
+    },
+    {
+      "id": "F6",
+      "class": "bug",
+      "claim": "abcjs 6.7.0 inline [K:] and [Q:] fields are followed by doubled note durations in getMidiFile; inline meta events are absent.",
+      "evidence": "cases B/B2/B3",
+      "limits": "exact parser cause not established; observed at pinned version only"
+    },
+    {
+      "id": "F7",
+      "class": "converted",
+      "claim": "abc2midi preserves inline meter/key/tempo as MIDI meta at the change tick.",
+      "evidence": "case B: 3/4 at 1920, key G at 1920, 60 BPM at 1921",
+      "limits": "tick 1 offset and -1-tick durations need import-side awareness"
+    },
+    {
+      "id": "F8",
+      "class": "approximated",
+      "claim": "Tuplets are converted to quantised tick durations; (7 rounds differently between converters (67 vs 69 ticks).",
+      "evidence": "case F",
+      "limits": "notation structure lost even when notes match"
+    },
+    {
+      "id": "F9",
+      "class": "dropped",
+      "claim": "abcjs drops w: lyrics entirely; abc2midi writes text meta, not standard lyric meta by default.",
+      "evidence": "case G/G4",
+      "limits": "Riff stores lyrics separately; MIDI lyric export would need an explicit option"
+    },
+    {
+      "id": "F10",
+      "class": "converter-artefact",
+      "claim": "Defaults and artefacts differ: no-Q default tempo 120 (abc2midi) vs 180 (abcjs); abc2midi starts at tick 1 and shortens durations by 1; abcjs emits initial CC121/64/91/10/7; both add velocity stress.",
+      "evidence": "cases A/B/D/H/I",
+      "limits": "these may be configurable; the Riff call does not configure them"
+    },
+    {
+      "id": "F11",
+      "class": "convention",
+      "claim": "abc2midi writes the raw 0-127 MIDI program byte; published General MIDI programs are 1-indexed. Raw 73 is GM program 74 (flute).",
+      "evidence": "cases A/J %%MIDI program values appear as raw bytes",
+      "limits": "the mapping from a byte to a named instrument is a DAW/soundfont decision; define the numbering convention in the instrument manifest"
+    },
+    {
+      "id": "F12",
+      "class": "converted",
+      "claim": "Unequal-length voices are kept at their authored lengths; abc2midi warns about the short voice, abcjs keeps the same two notes without a warning, and neither pads to a common length.",
+      "evidence": "case K",
+      "limits": "DAW track extent/layout is an import decision; no common-length normalisation is part of either conversion"
+    }
+  ],
+  "limits": [
+    "Linux x86_64 synthetic corpus; no macOS/Arm64 run",
+    "abcjs executed through vendored bundle in Node, not the browser audio context",
+    "microtonal ABC, multiple tunes per file, malformed input and large scores not covered",
+    "no DAW-side import/round-trip tested here"
+  ]
+}

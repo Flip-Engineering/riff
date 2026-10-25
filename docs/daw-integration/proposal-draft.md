@@ -55,9 +55,9 @@ final candidate doc so the proposal and matrix cannot drift.
 
 ## 3. ABC semantics: what crosses the bridge [evidence-backed]
 
-The authoritative fidelity matrix is `abc-midi-fidelity.md` (DeepSeek;
+The authoritative fidelity matrix is `abc-semantics.md` (DeepSeek;
 10-case corpus across abcjs 6.7.0 and abc2midi 5.07, event-level receipts in
-`docs/evidence/abc-midi-fidelity-20261025.json`). Headline results:
+`docs/evidence/abc-semantics-20261025.json`). Headline results:
 
 - Preserved by both: pitch/duration/rests as performance data, M:/K:/Q:
   header metas, tuplets (minor rounding), voice→track+channel mapping.
