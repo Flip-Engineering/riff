@@ -50,9 +50,15 @@ class PlatformTests(unittest.TestCase):
         for backend in ("metal", "cuda", "cpu"):
             command = setup_engine.cmake_command("source", "build", backend, "75;86")
             self.assertIn("-DAUDIOCPP_MODELS=yue2", command)
+            self.assertIn("-DRIFF_CHECKPOINT_SYSTEM_SHA=ON", command)
+            self.assertIn("-DRIFF_CHECKPOINT_SYSTEM_SHA=OFF", setup_engine.cmake_command("source", "build", backend, portable_sha=True))
             self.assertIn("-DENGINE_ENABLE_METAL=" + ("ON" if backend == "metal" else "OFF"), command)
             self.assertIn("-DENGINE_ENABLE_CUDA=" + ("ON" if backend == "cuda" else "OFF"), command)
             if backend == "cuda": self.assertIn("-DCMAKE_CUDA_ARCHITECTURES=75;86", command)
+
+    def test_sha_selection_separates_native_fingerprints(self):
+        self.assertNotEqual(setup_engine.fingerprint(sha_backend="portable"),
+                            setup_engine.fingerprint(sha_backend="openssl-evp"))
 
     def test_numeric_controls_obey_runtime_ranges_and_cross_field_lengths(self):
         for values in ({"abc_top_p": 1.1}, {"abc_top_k": 2.5}, {"semantic_top_p": True},

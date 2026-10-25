@@ -56,7 +56,7 @@ manifest=$(mktemp "$cwd/.native-build-inputs.XXXXXX")
 trap 'rm -f "$manifest"' EXIT HUP INT TERM
 (
   cd "$cwd" || exit 1
-  for file in scripts/build_cached_native.exs scripts/native_cache.exs setup_engine.py paths.py platform_support.py scripts/compiler_cache_tool.json .github/workflows/ci.yml sources.json; do
+  for file in scripts/build_cached_native.exs scripts/native_cache.exs scripts/checkpoint_sha_identity.py setup_engine.py paths.py platform_support.py scripts/compiler_cache_tool.json .github/workflows/ci.yml sources.json; do
     [ -f "$file" ] || {
       echo "missing native build input: $file" >&2
       exit 1
@@ -73,6 +73,7 @@ trap 'rm -f "$manifest"' EXIT HUP INT TERM
       printf 'toolchain-%s=%s\n' "$tool" "$("$tool" --version | head -n 1)"
     fi
   done
+  python3 scripts/checkpoint_sha_identity.py "$@"
 ) > "$manifest" || {
   echo "could not write the native build input manifest" >&2
   exit 1
