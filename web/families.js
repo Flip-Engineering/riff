@@ -27,7 +27,11 @@
     const keep = selector.value;
     selector.innerHTML = '<option value="">None: a one-off study</option><option value="__new">A new family…</option>'
       + families.map(item => `<option value="${esc(item.family_id)}">${esc(label(item.name))} (${item.takes})</option>`).join("");
-    selector.value = [...selector.options].some(option => option.value === keep) ? keep : "";
+    // After a Studio refresh the saved choice is restored before the families are listed (updates.js leaves it here).
+    const wanted = selector.dataset.restore;
+    const has = value => [...selector.options].some(option => option.value === value);
+    if (wanted && has(wanted)) { selector.value = wanted; delete selector.dataset.restore; }
+    else selector.value = has(keep) ? keep : "";
     nameInput.hidden = selector.value !== "__new";
   }
   function renderList() {
@@ -67,7 +71,7 @@
         <button type="submit" class="secondary-button" data-key="${key}-select"${finished ? "" : " disabled"}>Select this take</button></form>
       <form class="family-develop" id="develop-${esc(take.operation_id)}" data-develop hidden>
         <div class="advanced-grid">
-          <div><label for="length-${esc(take.operation_id)}">Length (seconds)</label><input id="length-${esc(take.operation_id)}" name="duration" type="number" min="0.04" step="any" value="${esc(take.settings.max_seconds ?? 30)}" required /></div>
+          <div><label for="length-${esc(take.operation_id)}">Length (seconds)</label><input id="length-${esc(take.operation_id)}" name="duration" type="number" min="0.04" step="any" value="${esc(take.settings.max_seconds ?? 30)}"${canPerformance ? " disabled" : ""} required /></div>
           <div><label for="steps-${esc(take.operation_id)}">Solver steps</label><input id="steps-${esc(take.operation_id)}" name="steps" type="number" min="1" step="1" value="${esc(take.settings.steps ?? 8)}" required /></div>
           <div><label for="solver-${esc(take.operation_id)}">Synthesis method</label><select id="solver-${esc(take.operation_id)}" name="solver"><option value="midpoint"${take.settings.solver === "ab2" ? "" : " selected"}>Midpoint</option><option value="ab2"${take.settings.solver === "ab2" ? " selected" : ""}>Multistep (AB2)</option></select></div>
           <div><label for="title-${esc(take.operation_id)}">Title</label><input id="title-${esc(take.operation_id)}" name="title" type="text" placeholder="${esc(take.title)} — developed" /></div>
@@ -83,8 +87,8 @@
         <fieldset><legend>Keep from this take</legend>
           <label><input type="checkbox" name="retain" value="seed" checked /> Seed</label>
           <label><input type="checkbox" name="retain" value="score"${canScore ? " checked" : " disabled"} /> Composed score${canScore ? "" : " (this take has none)"}</label>
-          <label><input type="checkbox" name="retain" value="performance"${canPerformance ? "" : " disabled"} /> Saved performance</label>
-          <p class="control-hint">The seed and score keep the musical idea. A saved performance fixes the length, so it is kept only if you choose it.</p></fieldset>
+          <label><input type="checkbox" name="retain" value="performance"${canPerformance ? " checked" : " disabled"} /> Saved performance${canPerformance ? " (fixes the length)" : ""}</label>
+          <p class="control-hint">The seed, score and saved performance keep the musical idea. A saved performance fixes the length: clear it to choose a longer or shorter take, which then gets a new performance.</p></fieldset>
         <p class="form-error" role="alert" hidden></p>
         <button type="submit" class="secondary-button">Develop</button>
       </form></li>`;
@@ -133,7 +137,9 @@
   async function keyed(request, send) {
     const key = keys.get(request) || submissionKey();
     try { const result = await send(key); keys.delete(request); return result; }
-    catch (error) { if (error instanceof TypeError) keys.set(request, key); else keys.delete(request); throw error; }
+    // The key is kept after any failure: a refusal after some studies were queued must be completed by
+    // repeating the same request, which the server answers from the key rather than starting a second family.
+    catch (error) { keys.set(request, key); throw error; }
   }
 
   board.addEventListener("submit", async (event) => {

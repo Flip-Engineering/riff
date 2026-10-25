@@ -37,7 +37,7 @@ path, input schema and output schema.
 | `references.resolve` | Verifies `score_source`, `performance_source`, `acoustic_source` and `parent_track_id`, or with `{"subject": id}` lists the references that take, job or operation offers. Each result is `verified`, `incompatible` or `unavailable`, with provenance. |
 | `study.create` | Queues `{"recipe": {...}}` and returns identity before any work runs. Optional `family_id` (an existing family), `parent` (`{"kind": "track\|job\|operation", "id": ...}`) and `idempotency_key`. |
 | `inputs.compare` | `{"subjects": [id, id, ...]}` with takes, jobs or operations. Returns the recorded inputs the subjects `shared`, and the `differences` with each subject's value and whether it was recorded. The field list is the one the lineage view uses, plus the composed score and performance hash. |
-| `take.develop` | Develops a take into a new one, for example a longer take from a study. `{"source": id, "changes": {...}}`. Keeps the seed and the verified composed score by default. Every recorded input can be replaced in `changes`. Records the parent, the family, what was retained and the selection it came from. **The issues' "promote" is this operation.** |
+| `take.develop` | Develops a take into a new one, for example a longer take from a study. `{"source": id, "changes": {...}}`. Keeps the seed, the verified composed score and the verified saved performance by default; a saved performance fixes the length, so it is skipped (with a note) when `changes` sets a new length. Every recorded input can be replaced in `changes`. Records the parent, the family, what was retained and the selection it came from. **The issues' "promote" is this operation.** |
 | `take.replay` | `{"source": id, "replay": "score" \| "performance" \| "sound"}`. Replays the take's exact composed score, saved performance or saved sound as a new take, retaining the seed. A stage that cannot be replayed is an error, not a silent fallback. `changes` apply as for develop; for `sound` only `decoder` and `title`. |
 | `take.select` | `{"take": id, "rationale": "..."}`. Records a durable choice of a completed take within its family. Append-only: a later choice is added to the history, never replaces it. Queues nothing. |
 | `operation.resume` | `{"operation_id": id}`. For an interrupted, failed or cancelled operation. Queues a new operation, linked by `resumes`, that continues from the last captured stage (saved sound, then performance, then composed score, then a plain rerun) with the same seed. It happens only when called: Riff never resumes or re-queues a cancelled or interrupted take by itself. `POST /api/jobs/{id}/retry` is the same call. |
@@ -61,14 +61,17 @@ source's recorded inputs, so an agent does not hydrate a draft from page state.
 References are chosen with `retain`, a list of `seed`, `score` and
 `performance`; they cannot be set in `changes`.
 
-- `take.develop` defaults to `["seed", "score"]`. A default that cannot be kept
-  (no composed score, planning set to Direct, edited notation supplied) is
-  skipped and explained in `derivation.notes`. Naming it in `retain` makes it
-  an error instead.
+- `take.develop` defaults to `["seed", "score", "performance"]`: whatever the source
+  verifiably has. A default that cannot be kept (no composed score, planning set to
+  Direct, edited notation supplied, no saved performance, or a new length in
+  `changes` while a performance is kept) is skipped and explained in
+  `derivation.notes`. Naming it in `retain` makes it an error instead.
 - `retain: []` carries the inputs only, which is an ordinary variation with a new
   seed.
-- A retained performance fixes the duration; `changes.max_seconds` with it is
-  refused. Retained scores and performances are verified when the draft is
+- A retained performance fixes the duration, so the new take is as long as the
+  performance. To make a longer or shorter take, set `changes.max_seconds` (the
+  default then skips the performance with a note) or leave `performance` out of
+  `retain`; naming `performance` in `retain` together with `max_seconds` is refused. Retained scores and performances are verified when the draft is
   built, and again by the queue.
 - `enqueue: false` returns `{draft, derivation, parent, validation}` and queues
   nothing. The Studio uses it to fill the editor.

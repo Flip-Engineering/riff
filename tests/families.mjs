@@ -122,6 +122,28 @@ try {
   assert(!(await page.locator("#families-dialog").evaluate(dialog => dialog.open)));
   console.log("PASS The board fits 390px and 320px screens, renames with the keyboard and closes with Escape");
 
+  // A Studio refresh keeps the family choice, including a family that is only listed after the page loads.
+  await page.locator("#study-family").selectOption(family.family_id);
+  const handoff = await page.evaluate(() => ({ format: 1, recipe: formRecipe(), fields: Object.fromEntries(
+    ["study-family", "study-family-name", "audition-length"].map(id => [id, { value: document.getElementById(id).value }])),
+    panels: { ".study-controls": true, ".creative-controls": true }, view: "studio" }));
+  assert.equal(handoff.fields["study-family"].value, family.family_id);
+  await page.evaluate(value => sessionStorage.setItem("riff.studioRefresh", JSON.stringify(value)), handoff);
+  await page.reload();
+  await page.waitForFunction(id => document.getElementById("study-family").value === id, family.family_id);
+  assert.equal(await page.locator("#study-family-name").isHidden(), true);
+  await page.locator("#study-family").selectOption("__new");
+  await page.locator("#study-family-name").fill("Kept across refresh");
+  const named = await page.evaluate(() => ({ format: 1, recipe: formRecipe(), fields: Object.fromEntries(
+    ["study-family", "study-family-name"].map(id => [id, { value: document.getElementById(id).value }])),
+    panels: { ".study-controls": true, ".creative-controls": true }, view: "studio" }));
+  await page.evaluate(value => sessionStorage.setItem("riff.studioRefresh", JSON.stringify(value)), named);
+  await page.reload();
+  await page.waitForFunction(() => document.getElementById("study-family").value === "__new");
+  assert.equal(await page.locator("#study-family-name").inputValue(), "Kept across refresh");
+  assert.equal(await page.locator("#study-family-name").isVisible(), true);
+  console.log("PASS A Studio refresh keeps the study family choice and a new family's name");
+
   // One-off studies and plain generation are unchanged.
   await page.locator("#study-family").selectOption("");
   const before = (await call("/api/v1/families")).families.length;

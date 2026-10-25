@@ -133,6 +133,61 @@ class CreateTests(FamilyFixture):
         self.assertEqual(len(self.family(family["family_id"])[1]["takes"]), 3)
 
 
+class RefusalTests(FamilyFixture):
+    """A refused study leaves no family behind; a family refused part way is finished by repeating the request."""
+    def families(self):
+        return self.request("GET", "/api/v1/families")[1]["families"]
+
+    def test_a_refused_first_study_leaves_no_family_and_listing_still_works(self):
+        self.server.restart_requested = True
+        try:
+            status, error = self.create(shared=BASE, takes=[{"seed": "1"}, {"seed": "2"}])
+        finally:
+            self.server.restart_requested = False
+        self.assertEqual((status, error["error"]), (400, "Riff is restarting. Your draft is saved."))
+        self.assertEqual((self.families(), self.jobs()), ([], []))
+        with self.store.db() as db:
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM families").fetchone()[0], 0)
+        self.assertEqual(self.request("GET", "/api/v1/families")[0], 200)
+        self.assertEqual(self.create(shared=BASE, takes=[{"seed": "1"}], idempotency_key="again")[0], 201)
+
+    def test_a_family_refused_after_some_studies_says_so_and_the_same_request_finishes_it(self):
+        original, calls = Operations.submit, []
+        def refuse_second(operations, *arguments, **keywords):
+            calls.append(arguments[0])
+            if len(calls) == 2:
+                raise ValueError("Setup is still running. Your draft is saved.")
+            return original(operations, *arguments, **keywords)
+        body = {"shared": BASE, "takes": [{"seed": "1"}, {"seed": "2"}, {"seed": "3"}], "idempotency_key": "partial"}
+        with patch.object(Operations, "submit", refuse_second):
+            status, error = self.create(**body)
+        self.assertEqual(status, 400)
+        self.assertIn("Study 2 was not queued", error["error"])
+        self.assertIn("The family has 1 of 3 studies; repeat the same request", error["error"])
+        self.assertEqual(len(self.families()), 1)
+        status, done = self.create(**body)
+        self.assertEqual((status, done["replayed"], len(done["submissions"]), len(self.jobs())), (200, True, 3, 3))
+        self.assertEqual(len(self.families()), 1)
+
+    def test_a_family_with_no_takes_can_still_be_read(self):
+        with self.store.db() as db:
+            db.execute("INSERT INTO families (id,name,created,updated) VALUES (?,?,?,?)", ("a" * 32, "Empty", 1.0, 1.0))
+        status, state = self.family("a" * 32)
+        self.assertEqual((status, state["takes"], state["common"]), (200, [], []))
+        self.assertEqual(self.families()[0]["takes"], 0)
+        self.assertEqual(Operations.split_inputs([]), ([], []))
+
+    def test_renaming_and_selecting_change_the_catalog_revision_so_an_open_board_refreshes(self):
+        family = self.create(shared=BASE)[1]
+        self.complete(family["submissions"][0]["job_id"])
+        revision = lambda: self.store.snapshot()["catalog_revision"]
+        before = revision()
+        self.request("POST", "/api/v1/operations/family.rename", {"family_id": family["family_id"], "name": "Renamed"})
+        renamed = revision()
+        self.request("POST", "/api/v1/operations/take.select", {"take": family["submissions"][0]["operation_id"], "rationale": "x"})
+        self.assertEqual((int(renamed) > int(before), int(revision()) > int(renamed)), (True, True))
+
+
 class SharedAndDiffTests(FamilyFixture):
     def test_shared_inputs_and_each_studys_own_differences(self):
         family = self.create(shared=BASE, takes=[{"seed": "11"}, {"seed": "22", "max_seconds": 20, "solver": "ab2"}, {"seed": "33"}])[1]

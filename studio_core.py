@@ -326,7 +326,7 @@ class Store:
             db.execute("BEGIN IMMEDIATE")
             db.execute("INSERT OR IGNORE INTO library_meta VALUES ('catalog_revision','0')")
             # Database triggers also catch imports and changes from other processes.
-            for table in ("tracks", "jobs", "presets"):
+            for table in ("tracks", "jobs", "presets", "families", "selections"):
                 for operation in ("INSERT", "UPDATE", "DELETE"):
                     db.execute(f"""CREATE TRIGGER IF NOT EXISTS catalog_{table}_{operation.lower()}
                         AFTER {operation} ON {table} BEGIN

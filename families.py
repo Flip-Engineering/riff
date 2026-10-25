@@ -61,24 +61,41 @@ class Families:
         recipes = [{**shared, **take} for take in takes]
         fingerprint = digest("family.create", {field: payload[field] for field in payload if field != "idempotency_key"})
         family_id, replayed = self._claim(key, fingerprint)
-        if family_id is None:
+        creating = family_id is None
+        if creating:
             for position, recipe in enumerate(recipes, 1):
                 checked = self.operations.validate(recipe)
                 if not checked["valid"]:
                     raise ValueError(f"Study {position}: {checked['error']}")
             family_id, now = uuid.uuid4().hex, time.time()
+
+        def record(db):
+            db.execute("INSERT INTO families (id,name,created,updated,shared,context,idempotency_key,request_digest)"
+                       " VALUES (?,?,?,?,?,?,?,?)", (family_id, name, now, now, json.dumps(shared), json.dumps(context), key, fingerprint))
+        submissions = []
+        # Each study has its own key, derived from the family, so a repeated request queues only the missing ones.
+        for position, recipe in enumerate(recipes):
+            request = {"recipe": recipe, "family_id": family_id}
             try:
-                with self.store.db() as db:
-                    db.execute("INSERT INTO families (id,name,created,updated,shared,context,idempotency_key,request_digest)"
-                               " VALUES (?,?,?,?,?,?,?,?)", (family_id, name, now, now, json.dumps(shared), json.dumps(context), key, fingerprint))
+                # The family is saved in the same transaction as its first accepted study, so a refused
+                # first study (restart pending, engine not set up, setup running) leaves no family behind.
+                submissions.append(self.operations.submit("study.create", request, recipe, key=f"family:{family_id}:{position}",
+                                                          family_id=family_id, also=record if creating and position == 0 else None))
             except sqlite3.IntegrityError:
+                # Another request with this key created the family between our check and our insert.
                 family_id, replayed = self._claim(key, fingerprint)
                 if family_id is None:
                     raise
-        # Each study has its own key, derived from the family, so a repeated request queues only the missing ones.
-        submissions = [self.operations.submit("study.create", {"recipe": recipe, "family_id": family_id}, recipe,
-                                              key=f"family:{family_id}:{position}", family_id=family_id)
-                       for position, recipe in enumerate(recipes)]
+                creating = False
+                request = {"recipe": recipe, "family_id": family_id}
+                submissions.append(self.operations.submit("study.create", request, recipe, key=f"family:{family_id}:{position}", family_id=family_id))
+            except (ValueError, KeyError) as error:
+                if position:
+                    # Some studies are already queued: say so, and that the same request finishes the rest.
+                    message = error.args[0] if error.args else str(error)
+                    raise type(error)(f"Study {position + 1} was not queued ({message}). The family has {position} of "
+                                      f"{len(recipes)} studies; repeat the same request to add the rest.") from None
+                raise
         return {"family_id": family_id, "replayed": replayed, "submissions": submissions, "family": self.get(family_id)}
 
     def _claim(self, key, fingerprint):
