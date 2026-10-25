@@ -2,20 +2,26 @@
 
 Ensemble riff-daw-integration-20261025: conductor riff-daw-conductor-kimi-20261025,
 workers riff-daw-deepseek-20261025 and riff-daw-glm-20261025.
-Status: JOINT PROPOSAL, ensemble-signed, FOR PARENT/ROOT REVIEW. No detailed architecture, no implementation
+Status: JOINT PROPOSAL, ensemble-signed, FOR PARENT/ROOT REVIEW — updated
+2026-10-25 with the root-authorized musical-workflow probe round
+(recommendation PROVISIONAL; Ardour remains in active competition). No detailed architecture, no implementation
 authorization is claimed; this is the evidence-backed comparison, selection
 recommendation and integration-hypothesis recommendation the assignment
 asked for. All receipts are reproducible; docs cited live on branch
 `research/riff-daw-integration-20261025`.
 
 Evidence base: `riff-architecture.md` (Riff source facts),
-`daw-candidates.md` (GLM official-source matrix + LMMS receipts),
+`daw-candidates.md` (GLM official-source matrix + LMMS receipts + fair
+comparison + licensing inventory),
 `abc-semantics.md` (DeepSeek 18-case + smoke-probe fidelity matrix),
-`ardour-headless-probe.md` + `ardour-two-track-probe.md` (DeepSeek),
+`ardour-headless-probe.md` + `ardour-two-track-probe.md` +
+`ardour-musical-workflow.md` (DeepSeek),
 `ardour-template-swap-probe.md` (conductor), `tracktion-engine-note.md`
 (DeepSeek), `headless-import-correction.md` (DeepSeek),
+`deepseek-review.md` + `deepseek-lmms-challenge.md` (DeepSeek),
+`ardour-bundle-licensing.md` (DeepSeek),
 `comparison-framework.md` (conductor), `docs/evidence/*.json` receipts,
-Baton knowledge records by all three seats.
+`probes/` (committed scripts + shared fixtures), Baton knowledge records.
 
 ## 1. Recommendation (PROVISIONAL — root review continues; bounded musical
 comparison authorized and running)
@@ -42,13 +48,19 @@ evidence before any selection is final.
 
 Why LMMS first, on evidence:
 
-1. It is the only candidate with a complete headless PROJECT→MIX+STEMS
-   chain receipted for a hand-written `.mmp`: agent-authored 2-track XML →
-   headless mix render (`render`, ~1 s wall, no display) → per-track stems
+1. It is the only candidate with a receipted headless PROJECT→MIX+STEMS
+   chain for a hand-written `.mmp`: agent-authored 4-voice XML (generated
+   by `probes/verify/mmp_generator.py` from the shared ABC fixture) →
+   headless mix render (~1 s wall, no display) → per-track stems
    (`rendertracks`, distinct per-voice content) → deterministic output:
-   re-run byte-identical — GLM's original render and its re-run, plus the
-   conductor's two independent invocations, share one sha256
-   (`d63f77e9…90fe08`). (GLM probe; conductor and DeepSeek cross-checks.)
+   re-run byte-identical (GLM render+re-run + conductor's two invocations,
+   one sha256). Qualifiers on "complete": the render carries a
+   deterministic song-end pad (24.166 s render vs ~19.97 s content);
+   stems pass the master-volume stage and are NOT a sample-sum
+   decomposition of the mix (track clipping + nonlinear master taper —
+   GLM's routing resolution; Ardour's solo-render stems reconstruct its
+   mix within 1 LSB, the complementary stronger receipt); and the
+   ABC→project generator is fixture-shaped, not general.
    The end-to-end ABC→MIDI→`.mmp` product bridge, macOS headless,
    instrument/timbre path, and stem-vs-mix semantics are NOT yet receipted —
    they are explicit gates in §5, not buried under this claim.
@@ -72,21 +84,20 @@ Why not the others first (all reversible, evidence in the cited docs):
   PROVENANCE, kept distinct: source citations are release **tag 9.8**
   (commit `059c9588`); ALL runtime receipts are from the official
   **9.8.241 DEMO NIGHTLY** Linux build — demo-nightly behavior must not be
-  quoted as release-9.8 behavior. Headless
-  render PROVEN (DeepSeek: MIDI+gmsynth→WAV via `ardour9-export` CLI and
-  in-process `SimpleExport`, non-silent, sha256-pinned); construction gates
-  partially proven (DeepSeek two-track template generation, extended to
-  four tracks; conductor template-swap); per-track stems proven via the
-  solo-render path (Lua `solo_control()` + per-snapshot export; two stems
-  reconstruct the master within 1 LSB, four within 2 LSB — DeepSeek §3.1,
-  hashes conductor-verified). Still open: a general headless session
-  generator (the same class of adapter LMMS also needs — handwritten XML
-  is not a generator either), raw/pre-fader/GUI/batch stem export, and a
-  session reopen receipt. The editing-interface tradeoff is weighed in
-  probe 5: Lua scripting is self-described upstream as "prototyping stage,
-  interfaces may change", while LMMS's XML writing needs version-specific
-  maintenance — neither disqualifies a pinned implementation. Ardour
-  remains in active competition pending the shared musical-workflow probe.
+  quoted as release-9.8 behavior. New musical-workflow receipt
+  (`ardour-musical-workflow.md`, hashes conductor-verified): generated
+  3-track session from the shared fixture (PianoRH+PianoLH on ONE Piano
+  track, one gmsynth instance, two MIDI channels — a true shared-instrument
+  receipt), exact abc2midi event preservation (12/30/37 notes through
+  load/save), explicit tempo+ meter map matching the contract, save →
+  REOPEN → render cycle receipted, v1→v2 edit on the same project topology,
+  solo stems reconstructing the mix within 1 LSB, and a controlled
+  program-swap timbre check (73↔0 changes rendered audio). Still open: a
+  general ABC→session generator (timing came from an explicit manifest),
+  distinct SF2 BANKS (programs proven, banks not), raw/pre-fader/GUI/batch
+  stem export, source-built/macOS receipts, and license clearance
+  (gmsynth is GPL-family; GeneralUser GS has a custom license with a
+  sample-provenance caveat — `ardour-bundle-licensing.md`).
 - **Tracktion Engine 3.2**: the strongest PROGRAMMATIC authoring surface
   (first-class MIDI API, GUI-independent `Renderer`, ProjectManager
   persistence), but it is an engine, not a DAW: Riff would build and own a
@@ -113,14 +124,15 @@ Why not the others first (all reversible, evidence in the cited docs):
 | --- | --- | --- | --- |
 | License/distribution | GPLv2 (LICENSE.txt); obligations follow actual distributed artifacts — inventory probe assigned | GPLv2+ + plugin clarification; bundle inventory probe assigned | GPLv3/commercial + JUCE license |
 | Headless operation | render/rendertracks QCoreApplication-only `[probe]`; dump/upgrade need display | `ardour9-lua` + `ardour9-export` `[probe]` | `Renderer` GUI-independent (source) |
-| Project construction | agent-written XML `[probe]` + dump round-trip | template-swap + 2-track template `[probe]`; general generator unproven | C++ API by design (source); unprobed |
-| Per-instrument MIDI | per-track patterns in XML; MIDI import is GUI-only (correction) | SMF sources per track `[probe]`; Lua import binding absent | first-class MIDI API (source) |
+| Project construction | generated 4-track .mmp from shared ABC fixture via `mmp_generator.py` `[probe]` + dump reparse round-trip; fixture-shaped, not general | generated 3-track session from same fixture via `build_session.py` + explicit timing manifest `[probe]`; fixture-shaped, not general | C++ API by design (source); unprobed |
+| Per-instrument MIDI | per-track patterns in XML; MIDI import is GUI-only (correction); two matched OPL2 tracks model the shared piano (NOT one session instrument) | SMF sources per track `[probe]`; Lua import binding absent; PianoRH+LH share ONE track/instrument with two channels `[probe]` | first-class MIDI API (source) |
 | Instrument hosting | bundled synths + SF2/GIG players; LV2/Carla on 1.3; no bundled GM soundfont | LV2 (VST3/CLAP per platform); bundled gmsynth+SF2 in official build | VST3/AU via JUCE build; none bundled |
 | Arrangement/editing | Song editor model in XML | production-grade | engine-level Edit model |
 | Mixing | FX mixer, per-track vol/pan | full buses/sends/mature mixing | via plugins/API |
 | Automation | automation clips/controllers in XML | mature automation | AutomatableParameter API |
-| Persistence/reopen | .mmp/.mmpz; alpha one-way-upgrade caveat; write→MMPZ→dump reparse/round-trip receipt `[probe]` (not a reopen+edit receipt) | .ardour XML; reopen receipt missing | ProjectManager/Edit (source) |
-| Audio export | WAV mix + per-track stems `[probe]`; flac/ogg/mp3, 44.1–192 kHz, 32-bit float documented (man page, not probed; mp3 needs lame in the pinned build) | master-bus export `[probe]`; solo-render per-track stems `[probe]`; raw/GUI/batch stems unproven | renderToFile incl. track selection (source) |
+| Persistence/reopen | .mmp/.mmpz; alpha one-way-upgrade caveat; dump reparse `[probe]` + reload-cycle reopen evidence `[probe]` | .ardour XML; save→instrument→patch→reopen→render cycle receipted `[probe]` | ProjectManager/Edit (source) |
+| Tempo/meter maps | tempo 100→72→100 carried via AutomationTrack and audibly verified `[probe]`; meter map NOT representable (project-global; absolute ticks place events correctly) | explicit tempo+meter map saved in session, matching contract (q16/q24/q27) `[probe]` | engine-level (source) |
+| Audio export | WAV mix + per-track stems `[probe]` (stems pass master stage, NOT sample-sum decomposition; deterministic song-end pad); flac/ogg/mp3, 44.1–192 kHz, 32-bit float documented (man page, not probed; mp3 needs lame in the pinned build) | master-bus export `[probe]`; solo-render per-track stems reconstruct mix within 1 LSB `[probe]`; raw/GUI/batch stems unproven | renderToFile incl. track selection (source) |
 | Platforms | macOS arm64 (1.3 alpha), Linux, Windows | macOS arm64 official, Linux, Windows | macOS/Linux/Windows/mobile |
 | Health | 1.3 alpha churn risk; active | active, mature | v3.2.0 2025-05; active |
 | Resource profile | ~1 s short-render, CPU-only `[probe]` | demo-build CPU render `[probe]` | unmeasured |
@@ -188,30 +200,43 @@ construction, solo-render stems; converter matrix). Everything below is the
 LATER validation plan — not done, and not required before this proposal per
 the operator's instruction.
 
-0. End-to-end bridge receipt (DeepSeek gate 1): ABC→MIDI→`.mmp`→render/stems
-   with an explicit voice→instrument map and the pinned converter — the
-   product-chain demonstration the current receipts do not yet cover.
+0. General ABC→project adapter (DeepSeek gate 1, evolved): both candidates
+   now have FIXTURE-SHAPED generators with exact event preservation on the
+   shared arrangement; neither handles arbitrary ABC/timing without an
+   explicit contract (LMMS: version-locked XML + project-global meter;
+   Ardour: template + explicit timing manifest). A production adapter must
+   define which ABC subset is accepted and validate by load-and-render.
 
 1. LMMS: GM instrument path (Sf2Player + a license-reviewed pinned
    soundfont — the AppImage contains zero .sf2/.sf3 files, GLM-verified;
-   vs per-track synth presets); macOS arm64 headless render (unverified —
+   vs per-track synth presets — the probe used bundled TripleOscillator/
+   OPL2 timbres); macOS arm64 headless render (unverified —
    AppImage probe was Linux; this gate qualifies the BUNDLED-DESKTOP
    backend only — a homelab-hosted backend can be proven on Linux without
-   it, per root review item 6); .mmp reopen round-trip beyond dump;
-   stem-vs-mix signal semantics (stems did not sample-sum to the mix in
-   cross-check — DeepSeek reproduced: mix peak 32767, stem-sum peak 32768,
-   difference RMS 7775; document pre/post-master behavior); render
-   level sanity (probe content clipped at full scale). Runtime-environment
+   it, per root review item 6); single-instrument routing receipt if
+   session-level sharing is required (current LMMS shared-piano model is
+   two matched tracks — DeepSeek challenge §2.1);
+   stem-vs-mix signal semantics RESOLVED (GLM: track clipping + nonlinear
+   master taper; rule: headroom per track, verify by event alignment never
+   sample sum; no DAW defect claimed); render
+   level sanity (early probe content clipped at full scale; fixed by
+   headroom rule). Runtime-environment
    hygiene for the job runner (GLM review): headless render requires an
    owned HOME/XDG_CONFIG_HOME/XDG_RUNTIME_DIR and JACK_NO_START_SERVER=1
    (JACK autostart hangs without it); `dump`/`upgrade` additionally need a
    display (Xvfb) and MMPZ (Qt qCompress) input and crash on plain `.mmp` —
    the queued-job contract must encode these.
-2. Ardour: general session generator; raw/pre-fader/GUI/batch stem export;
-   session reopen receipt; demo-nightly vs release-tag re-verification;
-   DummyMidiBuffer warning investigation. Voice ISOLATION evidence note:
+2. Ardour: general session generator (timing manifest currently explicit,
+   not ABC-inferred); distinct SF2 banks (programs proven, banks not);
+   raw/pre-fader/GUI/batch stem export;
+   source-built and macOS receipts (all runtime evidence is demo-nightly);
+   DummyMidiBuffer warning investigation; license clearance of the bundled
+   instruments (gmsynth GPL-family; GeneralUser GS custom license with
+   sample-provenance caveat — `ardour-bundle-licensing.md`).
+   Voice ISOLATION evidence note:
    the conductor's initial template-swap observation was mix-level only;
-   DeepSeek's later solo-render stems (two- and four-track) DO isolate
+   DeepSeek's solo-render stems (two/four-track, and three-stem musical
+   workflow reconstructing the mix within 1 LSB) DO isolate
    voices — that controlled receipt exists; what remains unproven is the
    non-solo stem paths named above.
 3. Converter: exact octave/pitch mapping through the full chain; malformed
@@ -243,18 +268,25 @@ the operator's instruction.
   qualification gates the BUNDLED-DESKTOP backend; a homelab-hosted
   backend can be established without it.
 
-## 7. Ensemble review status
+## 7. Ensemble review status and disagreement synthesis
 
-- Conductor (kimi): author of synthesis; architecture trace; abcjs and
-  template-swap probes.
-- GLM: **SIGN-ON**, no evidence errors; 4 minor comments (see its report);
-  independently re-confirmed the determinism receipt and verified the LMMS
-  AppImage ships no soundfont.
-- DeepSeek: **CONDITIONAL SIGN-ON** (deepseek-review.md): signs on to
-  LMMS-first under H1 conditional on its two factual corrections (applied
-  here: Ardour solo-render stem evidence restored; "complete chain" wording
-  narrowed to hand-written-.mmp scope) and on §5 gates 0–6 staying explicit
-  in the root-facing proposal.
-- No dissenting selection position remains; the Ardour vs LMMS-first
-  difference was resolved by evidence (project-generation receipts), not
-  preference.
+- Conductor (kimi): synthesis; architecture trace; abcjs probes;
+  template-swap probe; shared arrangement fixture + verification tooling.
+- GLM: candidate landscape; LMMS musical-workflow probe (generated 4-track
+  .mmp from the shared fixture, reopen via reload cycle, v2 edit with
+  12/12 edited-flute onset match); stem/mix difference ROOT-CAUSED (track
+  clipping + nonlinear master taper; predictable-routing rule; no defect
+  claimed); doc corrections applied; editing-interface fair comparison
+  (§2.9); LMMS bundle licensing inventory (§2.10).
+- DeepSeek: Ardour musical-workflow probe (generated 3-track session, exact
+  event preservation, reopen+edit receipts, 1-LSB stem reconstruction,
+  controlled program-swap timbre check); bundle licensing inventory
+  (gmsynth GPL-family; GeneralUser GS custom license caveat); and a
+  four-point evidence challenge to LMMS-first wording — all four accepted
+  and applied here (shared-instrument distinction, meter-map asymmetry,
+  render-pad + stem-qualifier wording, neither generator general).
+- Disagreement resolution: the challenge shifted the comparison closer —
+  Ardour gained reopen/edit/program and stem-reconstruction receipts;
+  LMMS retains simpler construction, native rendertracks, fast cold start,
+  and official macOS arm64 page-evidence. The selection stays provisional
+  pending root review of this probe round; no dissent recorded.
