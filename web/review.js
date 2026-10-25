@@ -9,7 +9,8 @@
   const panel = $("#producer-panel");
   $("#review-settings-open").hidden = false;
   let attached = [];
-  const saves = new Set();
+  const saves = new Map();
+  const referenceDrafts = new Map();
   const headerJSON = (value) =>
     JSON.stringify(value).replace(
       /[\u007f-\uffff]/g,
@@ -39,12 +40,15 @@
   function drawReferences() {
     $("#review-reference-list").innerHTML = attached
       .map(
-        (item) => `<li class="review-reference" data-reference="${item.id}">
+        (stored) => {
+          const item = { ...stored, ...referenceDrafts.get(stored.id) };
+          return `<li class="review-reference" data-reference="${item.id}">
           <label>Label<input data-reference-label value="${esc(item.label)}" maxlength="200" autocomplete="off" /></label>
           <label>Source link or note<input data-reference-source value="${esc(sourceText(item))}" placeholder="https://… or where this came from" autocomplete="off" /></label>
           <span class="quiet-text review-reference-meta">${esc(formatDuration(item.duration))} · ${esc(megabytes(item.bytes))} · ${esc(item.format.toUpperCase())} · ${shortHash(item.sha256)}</span>
           <button type="button" class="text-button" data-remove-reference="${item.id}" aria-label="Remove reference ${esc(item.label)}">Remove</button>
-        </li>`,
+        </li>`;
+        },
       )
       .join("");
     refreshEstimate();
@@ -59,37 +63,60 @@
       referenceError(error.message);
     }
   }
-  function saveReference(row) {
+  function rememberReference(row) {
     const id = row.dataset.reference;
     const source = $("[data-reference-source]", row).value.trim();
     const link = /^https?:\/\//i.test(source);
-    const task = api(`/api/review/references/${id}`, "PATCH", {
+    const draft = {
       label: $("[data-reference-label]", row).value,
       link: link ? source : "",
       note: link ? "" : source,
-    })
-      .then((item) => {
+    };
+    const stored = attached.find((item) => item.id === id);
+    if (!saves.has(id) && stored && Object.keys(draft).every((key) => draft[key] === stored[key])) {
+      referenceDrafts.delete(id);
+    } else {
+      referenceDrafts.set(id, draft);
+    }
+  }
+  function saveReference(id) {
+    if (saves.has(id)) return saves.get(id);
+    // Serialize each clip's writes. Keep a draft until its PATCH succeeds, including
+    // edits made while an earlier PATCH is in flight. Redraws use the same draft.
+    const task = (async () => {
+      while (referenceDrafts.has(id)) {
+        const draft = referenceDrafts.get(id);
+        const item = await api(`/api/review/references/${id}`, "PATCH", draft);
         attached = attached.map((entry) => (entry.id === id ? item : entry));
-        $("[data-remove-reference]", row)?.setAttribute("aria-label", `Remove reference ${item.label}`);
-        referenceError();
-      })
-      .catch((error) => referenceError(error.message))
-      .finally(() => saves.delete(task));
-    saves.add(task);
+        if (referenceDrafts.get(id) === draft) referenceDrafts.delete(id);
+        const row = $("#review-reference-list").querySelector(`[data-reference="${id}"]`);
+        row?.querySelector("[data-remove-reference]")?.setAttribute("aria-label", `Remove reference ${item.label}`);
+      }
+      if (!referenceDrafts.size) referenceError();
+    })().finally(() => saves.delete(id));
+    saves.set(id, task);
     return task;
   }
+  $("#review-reference-list").addEventListener("input", (event) => {
+    const row = event.target.closest("[data-reference]");
+    if (row) rememberReference(row);
+  });
   $("#review-reference-list").addEventListener("change", (event) => {
     const row = event.target.closest("[data-reference]");
-    if (row) saveReference(row);
+    if (row) {
+      rememberReference(row);
+      saveReference(row.dataset.reference).catch((error) => referenceError(error.message));
+    }
   });
   $("#review-reference-list").addEventListener("click", async (event) => {
     const remove = event.target.closest("[data-remove-reference]");
     if (!remove) return;
     remove.disabled = true;
     try {
-      await Promise.all(saves);
+      await Promise.all(saves.values());
       await api(`/api/review/references/${remove.dataset.removeReference}`, "DELETE", {});
       attached = attached.filter((item) => item.id !== remove.dataset.removeReference);
+      referenceDrafts.delete(remove.dataset.removeReference);
       referenceError();
       drawReferences();
       $("#add-review-reference").focus();
@@ -258,7 +285,11 @@
     $("#request-review").disabled = true;
     errorMessage("#review-error");
     try {
-      await Promise.all(saves);
+      // Capture even a focused field whose change event has not fired yet. A failed
+      // save stays dirty and must succeed on retry before a paid review can start.
+      for (const row of $("#review-reference-list").querySelectorAll("[data-reference]")) rememberReference(row);
+      $("#review-references").disabled = true;
+      await Promise.all(attached.map((item) => saveReference(item.id)));
       await api(`/api/tracks/${currentTrack.id}/reviews`, "POST", {
         focus: $("#review-focus").value,
         keep_lyrics: $("#review-keep-lyrics").checked,
@@ -272,6 +303,7 @@
       errorMessage("#review-error", error.message);
     } finally {
       submitting = false;
+      $("#review-references").disabled = false;
       $("#request-review").disabled = !state.review_settings?.enabled;
     }
   });

@@ -126,11 +126,82 @@ try {
 
   await noOverflow("review-references-desktop");
   await page.locator("#review-focus").fill("Match the room on the reference.");
-  const submitted = page.waitForResponse((response) => response.url().endsWith(`/api/tracks/${fixture.track_id}/reviews`) && response.request().method() === "POST");
+
+  const reviewRequests = [];
+  page.on("request", (request) => {
+    if (request.url().endsWith(`/api/tracks/${fixture.track_id}/reviews`) && request.method() === "POST")
+      reviewRequests.push(request);
+  });
+  const metadataRoute = "**/api/review/references/*";
+  const rejectedMetadata = () => page.waitForResponse((response) =>
+    response.url().includes("/api/review/references/") && response.request().method() === "PATCH" && response.status() === 503);
+  await page.route(metadataRoute, (route) => route.request().method() === "PATCH"
+    ? route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "Metadata save unavailable" }) })
+    : route.continue());
+  let rejected = rejectedMetadata();
+  await list.first().locator("[data-reference-label]").fill("Unsaved label");
+  await list.first().locator("[data-reference-source]").fill("Unsaved source note");
+  await list.first().locator("[data-reference-source]").press("Tab");
+  await rejected;
+  await page.locator("#review-reference-error", { hasText: "Metadata save unavailable" }).waitFor();
+  // Adding/removing another clip redraws the form; failed edits must stay visible.
+  await attach(clips["Hall mix"]);
+  await page.getByRole("button", { name: "Remove reference Hall mix", exact: true }).click();
+  await page.waitForFunction(() => document.querySelectorAll("#review-reference-list > li").length === 2);
+  assert.equal(await list.first().locator("[data-reference-label]").inputValue(), "Unsaved label");
+  assert.equal(await list.first().locator("[data-reference-source]").inputValue(), "Unsaved source note");
+  rejected = rejectedMetadata();
   await page.locator("#request-review").click();
+  await rejected;
+  await page.locator("#review-error", { hasText: "Metadata save unavailable" }).waitFor();
+  assert.equal(reviewRequests.length, 0, "A failed edit and failed retry must never start a paid review");
+  assert(await list.first().locator("[data-reference-label]").isEnabled(), "Failed submission leaves the draft editable");
+  check("Failed metadata saves keep editable drafts through redraws and block review submission");
+  await page.unroute(metadataRoute);
+
+  // Hold two successive versions of the same clip. The second edit must wait for
+  // the first PATCH, and submission must wait for the second version to persist.
+  const held = [];
+  let nextPatch;
+  const patchArrived = () => new Promise((resolve) => { nextPatch = resolve; });
+  await page.route(metadataRoute, async (route) => {
+    if (route.request().method() !== "PATCH") return route.continue();
+    let release;
+    const gate = new Promise((resolve) => { release = resolve; });
+    held.push({ body: route.request().postDataJSON(), release });
+    nextPatch?.();
+    await gate;
+    await route.continue();
+  });
+  let arrived = patchArrived();
+  await list.first().locator("[data-reference-label]").fill("Earlier in-flight label");
+  await list.first().locator("[data-reference-source]").fill("Earlier in-flight note");
+  await list.first().locator("[data-reference-source]").press("Tab");
+  await arrived;
+  assert.equal(held.length, 1);
+  await list.first().locator("[data-reference-label]").fill("Broadside session");
+  await list.first().locator("[data-reference-source]").fill("https://example.org/broadside");
+  // The source field is still focused: submission must capture it even without a
+  // blur/change event, as with Enter or a programmatic form submission.
+  await page.locator("#review-form").evaluate((form) => form.requestSubmit());
+  assert.equal(reviewRequests.length, 0, "No review while the earlier metadata PATCH is pending");
+  assert(await list.first().locator("[data-reference-label]").isDisabled(), "Metadata stays fixed while submission waits");
+  assert(await page.locator("#add-review-reference").isDisabled());
+  arrived = patchArrived();
+  held[0].release();
+  await arrived;
+  assert.equal(held.length, 2, "Metadata PATCH requests for one clip are serialized");
+  assert.deepEqual(held[1].body, { label: "Broadside session", link: "https://example.org/broadside", note: "" });
+  assert.equal(reviewRequests.length, 0, "No review until the newest label and source are saved");
+  const submitted = page.waitForResponse((response) => response.url().endsWith(`/api/tracks/${fixture.track_id}/reviews`) && response.request().method() === "POST");
+  held[1].release();
   const created = await (await submitted).json();
+  await page.unroute(metadataRoute);
+  assert.equal(reviewRequests.length, 1, "Exactly one review starts after successful persistence");
   assert.deepEqual(created.references.map((item) => item.label), ["Broadside session", "Porch tape"]);
   assert.equal(created.references[0].link, "https://example.org/broadside");
+  assert.equal(created.references[0].note, "");
+  check("Delayed metadata saves serialize and the review receipt captures the newest saved label and source");
   await finished(1);
   assert.equal(await list.count(), 0, "Submitted clips leave the attachment list");
   const note = page.locator(".producer-note").first();
