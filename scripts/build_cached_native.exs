@@ -13,7 +13,8 @@ defmodule Riff.CachedNativeBuild do
           jobs: :integer,
           cuda_arch: :string,
           compile_only: :boolean,
-          build_only: :boolean
+          build_only: :boolean,
+          portable_sha: :boolean
         ]
       )
 
@@ -25,7 +26,16 @@ defmodule Riff.CachedNativeBuild do
 
     app = Path.expand("..", __DIR__)
     workspace = Path.expand(System.get_env("RIFF_HOME", app))
-    source = Cache.source!(app)
+    python = System.find_executable("python3") || raise("Python required")
+    manifest = Cache.json(Path.join(app, "sources.json"))
+
+    sha_identity =
+      if Map.has_key?(manifest["local_patches"], "patches/yue2-weight-system-sha.patch"),
+        do: discover_sha!(app, python, options[:portable_sha]),
+        else: %{}
+
+    selected_sha = sha_identity["sha256_backend"]
+    source = Cache.source!(app, selected_sha, sha_identity)
 
     build =
       Path.join([
@@ -65,6 +75,10 @@ defmodule Riff.CachedNativeBuild do
            do: raise("Native setup and cache build paths differ")
 
     identity = Cache.configured!(app, configuration, options[:backend])
+
+    unless identity.entries["RIFF_CHECKPOINT_SHA_BACKEND"] == selected_sha,
+      do: raise("System SHA selection changed during native configuration")
+
     output = Path.join(workspace, "native-cache-receipts")
     File.mkdir_p!(output)
     Cache.write_json(Path.join(output, "inputs.json"), identity.descriptor)
@@ -107,6 +121,8 @@ defmodule Riff.CachedNativeBuild do
           "backend" => options[:backend],
           "native_fingerprint" => source.engine_fingerprint,
           "source_sha256" => source.sha256,
+          "sha256_backend" => identity.entries["RIFF_CHECKPOINT_SHA_BACKEND"],
+          "sha256_identity" => sha_identity,
           "inputs_sha256" => identity.sha256,
           "namespace_sha256" => identity.namespace_sha256,
           "cache_enabled" => cache.enabled,
@@ -134,6 +150,35 @@ defmodule Riff.CachedNativeBuild do
       end
 
     if result != 0, do: System.halt(result)
+  end
+
+  defp discover_sha!(app, python, portable) do
+    args = if portable, do: ["--portable-sha"], else: []
+
+    {text, status} =
+      System.cmd(
+        python,
+        [Path.join(app, "scripts/checkpoint_sha_identity.py") | args],
+        stderr_to_stdout: true
+      )
+
+    if status != 0,
+      do: raise("System SHA discovery failed (exit #{status}):\n" <> String.trim(text))
+
+    identity =
+      try do
+        :json.decode(String.trim(text))
+      rescue
+        ArgumentError -> raise("System SHA discovery returned invalid JSON")
+      end
+
+    case identity do
+      %{"sha256_backend" => backend} when backend in ~w(portable commoncrypto openssl-evp) ->
+        identity
+
+      _ ->
+        raise("System SHA discovery returned an unsupported backend")
+    end
   end
 
   defp launchers!(configuration, value, environment) do

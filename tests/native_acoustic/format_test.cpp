@@ -62,6 +62,7 @@ int main(int argc,char ** argv) {
     try {
         check(argc==2,"Usage: format-test NEW_FIXTURE_DIRECTORY");const fs::path root(argv[1]);
         check(fs::create_directory(root),"fixture directory must be new");
+        std::cout << "sha256_backend=" << cp::sha_backend() << '\n';
         const std::vector<std::pair<std::string,std::string>> vectors={
             {"","e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"},
             {"abc","ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"},
@@ -72,7 +73,7 @@ int main(int argc,char ** argv) {
             pass("SHA256 known vector "+std::to_string(i));
         }
         std::ofstream hash_evidence(root/"hashes.jsonl");
-        for(size_t n:{0,1,55,56,57,63,64,65,127,128,129,65535,65536,65537}) {
+        for(size_t n:{0,1,55,56,57,63,64,65,127,128,129,65535,65536,65537,1048577}) {
             std::vector<uint8_t> bytes(n);for(size_t i=0;i<n;++i) bytes[i]=uint8_t(i*131+17);
             const auto path=root/("hash-"+std::to_string(n)+".bin");write(path,bytes);
             const auto digest=cp::hash_bytes(bytes.data(),bytes.size());
@@ -166,6 +167,26 @@ int main(int argc,char ** argv) {
         const auto stamp=cp::file_identity(path);cp::require_unchanged(path,stamp);
         fs::rename(path,root/"original-roundtrip.yac");write(path,bytes);
         rejects("replaced equal-sized source identity",[&]{cp::require_unchanged(path,stamp);});
+        const auto source=root/"cached-source.bin";write(source,bytes);
+        cp::SourceFile cached(source);cp::HashStats stats;
+        const auto expected=cp::hash_file(source);
+        check(cached.digest(stats)==expected && stats.bytes==bytes.size() && stats.hits==0,"initial digest verification");
+        check(cached.digest(stats)==expected && stats.bytes==bytes.size() && stats.hits==1,"unchanged digest was rehashed");
+        pass("session digest hit keeps the verified hash without rereading bytes");
+        const auto modified=fs::last_write_time(source);auto changed=bytes;changed.back()^=1;
+        write(source,changed);fs::last_write_time(source,modified);
+        rejects("cached source rejects same-size edit with restored mtime",[&]{cached.digest(stats);});
+        cp::SourceFile replacement(source);replacement.digest(stats);
+        fs::rename(source,root/"old-cache-source.bin");write(source,changed);fs::last_write_time(source,modified);
+        rejects("cached source rejects equal-size inode replacement",[&]{replacement.digest(stats);});
+        cp::SourceFile deleted(source);deleted.digest(stats);fs::remove(source);
+        rejects("cached source rejects deletion",[&]{deleted.digest(stats);});
+        cp::SourceFile absent(root/"optional-config.json",true);absent.require_unchanged();
+        write(root/"optional-config.json",{});
+        rejects("absent configuration anchor rejects a newly created file",[&]{absent.require_unchanged();});
+        fs::create_symlink(root/"old-cache-source.bin",source);cp::SourceFile link(source);link.digest(stats);
+        fs::remove(source);fs::create_symlink(path,source);
+        rejects("cached source rejects symlink target substitution",[&]{link.digest(stats);});
 #if !defined(_WIN32)
         check(::mkfifo((root/"input.fifo").c_str(),0600)==0,"FIFO fixture");
         rejects("nonregular FIFO input rejects without waiting for a writer",[&]{(void)cp::load_completed(root/"input.fifo");});

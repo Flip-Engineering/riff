@@ -252,6 +252,19 @@ class WarmEngineTests(WarmFixture):
         self.assertEqual(process.returncode, 0)
         self.assertFalse(self.engine.running())
 
+    def test_same_size_edit_with_restored_mtime_restarts_the_engine(self):
+        first, _ = self.take()
+        self.assertEqual(first.wait(10), 0)
+        model = self.models / "m.gguf"
+        before = model.stat()
+        model.write_bytes(b"changed")
+        os.utime(model, ns=(before.st_atime_ns, before.st_mtime_ns))
+        self.assertEqual(model.stat().st_size, before.st_size)
+        self.assertEqual(model.stat().st_mtime_ns, before.st_mtime_ns)
+        following, _ = self.take()
+        self.assertEqual(following.wait(10), 0)
+        self.assertNotEqual(first.pid, following.pid)
+
 
 class GeneratorWarmTests(WarmFixture):
     def setUp(self):
