@@ -15,11 +15,30 @@ from paths import ROOT, WORKSPACE, MODELS
 import platform_support
 
 
-def fingerprint(source=ROOT):
+def cmake_executable(run, version):
+    cmake = shutil.which("cmake")
+    if cmake:
+        return cmake
+    tools_env = WORKSPACE / "tools"
+    local = tools_env / "bin/cmake"
+    if not local.is_file():
+        interpreter = tools_env / "bin/python"
+        if not interpreter.exists():
+            run([sys.executable, "-m", "venv", str(tools_env)])
+        run([str(interpreter), "-m", "pip", "install", "cmake==" + version])
+    return str(local)
+
+
+def fingerprint(source=ROOT, sha_backend=None, sha_identity=None):
     manifest = json.loads((Path(source) / "sources.json").read_text())
     digest = hashlib.sha256(manifest["runtime_commit"].encode())
     for path in sorted((Path(source) / "patches").glob("*.patch")):
         digest.update(path.read_bytes())
+    if sha_backend is not None:
+        digest.update(b"\0sha256_backend=" + sha_backend.encode())
+    for key in ("libcrypto_soname", "openssl_version_major"):
+        if sha_identity and key in sha_identity:
+            digest.update(b"\0" + key.encode() + b"=" + sha_identity[key].encode())
     return digest.hexdigest()[:16]
 
 
@@ -44,13 +63,14 @@ def prerequisites(backend):
     return missing
 
 
-def cmake_command(source, build, backend, cuda_arch=None):
+def cmake_command(source, build, backend, cuda_arch=None, portable_sha=False):
     command = ["-S", str(source), "-B", str(build), "-DCMAKE_BUILD_TYPE=Release",
                "-DAUDIOCPP_MODEL_SET=custom", "-DAUDIOCPP_MODELS=yue2", "-DAUDIOCPP_DEPLOYMENT_BUILD=ON",
                "-DENGINE_ENABLE_METAL=" + ("ON" if backend == "metal" else "OFF"),
                "-DENGINE_ENABLE_CUDA=" + ("ON" if backend == "cuda" else "OFF"),
                "-DENGINE_ENABLE_HIP=OFF", "-DENGINE_ENABLE_VULKAN=OFF",
-               "-DENGINE_ENABLE_OPENMP=OFF", "-DGGML_OPENMP=OFF", "-DENGINE_ENABLE_NATIVE_CPU=OFF"]
+               "-DENGINE_ENABLE_OPENMP=OFF", "-DGGML_OPENMP=OFF", "-DENGINE_ENABLE_NATIVE_CPU=OFF",
+               "-DRIFF_CHECKPOINT_SYSTEM_SHA=" + ("OFF" if portable_sha else "ON")]
     if backend == "cuda":
         command.append("-DCMAKE_CUDA_ARCHITECTURES=" + (cuda_arch or "native"))
     return command
@@ -96,7 +116,7 @@ def apply_pinned_patches(checkout, source, manifest, run):
 
 
 def prepare(backend, run=None, source=ROOT, download_models=True, jobs=None, cuda_arch=None, activate=True, probe=True,
-            configure_only=False):
+            configure_only=False, portable_sha=False):
     source = Path(source)
     manifest = json.loads((source / "sources.json").read_text())
     if backend not in ("metal", "cuda", "cpu"):
@@ -110,7 +130,15 @@ def prepare(backend, run=None, source=ROOT, download_models=True, jobs=None, cud
         def run(command, cwd=None):
             print(" ".join(map(str, command)), flush=True)
             subprocess.run(command, cwd=cwd, check=True)
-    build_root = WORKSPACE / "engines" / (fingerprint(source) + "-" + backend)
+    cmake = shutil.which("cmake") or cmake_executable(run, manifest["cmake"])
+    sha_backend, sha_identity = None, None
+    if "patches/yue2-weight-system-sha.patch" in manifest["local_patches"]:
+        from scripts.checkpoint_sha_identity import discover
+        sha_identity = discover(portable_sha, source, cmake=cmake)
+        sha_backend = sha_identity["sha256_backend"]
+        if sha_backend == "portable":
+            print("System crypto is unavailable or disabled; using portable SHA-256.", flush=True)
+    build_root = WORKSPACE / "engines" / (fingerprint(source, sha_backend, sha_identity) + "-" + backend)
     checkout, build = build_root / "audio.cpp", build_root / "build"
     build_root.mkdir(parents=True, exist_ok=True)
     if not (checkout / ".git").exists():
@@ -123,15 +151,7 @@ def prepare(backend, run=None, source=ROOT, download_models=True, jobs=None, cud
         run(["git", "-C", str(checkout), "fetch", "--depth", "1", "origin", manifest["runtime_commit"]])
         run(["git", "-C", str(checkout), "checkout", "--detach", "FETCH_HEAD"])
     apply_pinned_patches(checkout, source, manifest, run)
-    cmake = shutil.which("cmake")
-    if not cmake:
-        tools_env = WORKSPACE / "tools"
-        interpreter = tools_env / "bin/python"
-        if not interpreter.exists():
-            run([sys.executable, "-m", "venv", str(tools_env)])
-        run([str(interpreter), "-m", "pip", "install", "cmake==" + manifest["cmake"]])
-        cmake = str(tools_env / "bin/cmake")
-    configuration = [cmake, *cmake_command(checkout, build, backend, cuda_arch)]
+    configuration = [cmake, *cmake_command(checkout, build, backend, cuda_arch, portable_sha)]
     run(configuration)
     if configure_only:
         return {"backend": backend, "source_directory": str(checkout), "build_directory": str(build),
@@ -142,6 +162,9 @@ def prepare(backend, run=None, source=ROOT, download_models=True, jobs=None, cud
     executable = build / "bin/audiocpp_cli"
     if not executable.is_file():
         raise ValueError("The build did not produce an audio.cpp executable.")
+    if sha_identity is not None:
+        from scripts.checkpoint_sha_identity import write_runtime_receipt
+        write_runtime_receipt(executable, build, sha_identity)
     if probe:
         run([str(executable), "--list-devices"])
     value = {"backend": backend, "binary": str(executable)}
@@ -160,12 +183,13 @@ def main():
     parser.add_argument("--build-only", action="store_true")
     parser.add_argument("--compile-only", action="store_true", help="Compile without models, device probing, or activation (for CI)")
     parser.add_argument("--configure-only", action="store_true", help="Verify source and configure CMake without compiling or activating")
+    parser.add_argument("--portable-sha", action="store_true", help="Build with portable SHA-256 instead of system crypto discovery")
     parser.add_argument("--jobs", type=int)
     parser.add_argument("--cuda-arch", help="CMake CUDA architectures; default native")
     args = parser.parse_args()
     configured = prepare(args.backend, download_models=not (args.build_only or args.compile_only), jobs=args.jobs,
                          cuda_arch=args.cuda_arch, probe=not args.compile_only, activate=not args.compile_only,
-                         configure_only=args.configure_only)
+                         configure_only=args.configure_only, portable_sha=args.portable_sha)
     if args.configure_only:
         print(json.dumps(configured, sort_keys=True))
 

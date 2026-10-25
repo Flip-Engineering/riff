@@ -184,6 +184,61 @@ int main(int argc,char ** argv){
             pass("keep_resident request after a failed request matches a fresh session");
             auto performance=run(*s,{{"cot","off"},{"seed","71"},{"semantic_only","true"},{"semantic_codes_out",(root/"warm.codes").string()}});
             check(!performance.audio_output.has_value() && e06_test::calls.ar==1 && fs::exists(root/"warm.codes"),"performance-only rebuilt AR or lost codes");}
+        e06_test::reset();{auto s=session(warm_model,"","true");
+            auto first_options=warm_request;first_options["acoustic_latents_out"]=(root/"cached-first.yac").string();
+            auto second_options=first_options;second_options["acoustic_latents_out"]=(root/"cached-second.yac").string();
+            second_options["seed"]="72";second_options["ode_method"]="ab2";second_options["cfg_scale"]="1.5";
+            auto first=run(*s,first_options);auto second=run(*s,second_options);
+            const auto a=cp::load_completed(root/"cached-first.yac"),b=cp::load_completed(root/"cached-second.yac");
+            check(first.audio_output && second.audio_output && a.latents==b.latents &&
+                  a.metadata.model==b.metadata.model && a.metadata.decoder==b.metadata.decoder &&
+                  a.metadata.tokenizer==b.metadata.tokenizer && a.metadata.producer_binary==b.metadata.producer_binary &&
+                  b.metadata.seed==72 && b.metadata.ode_method==Yue2OdeMethod::AdamsBashforth2 && b.metadata.guidance==1.5F &&
+                  e06_test::calls.ar==1 && e06_test::calls.nar==1,"cached digests reused request metadata or weights were rebuilt");
+            pass("warm captures reuse source identities and rebuild request-specific metadata");}
+        int mutation=0;
+        for(const auto * relative:{"yue2-3b-q8_0.gguf","yue2-vae-f16.gguf","sidecars/yue2-qwen.tiktoken",
+                                  "sidecars/yue2-model-config.json","sidecars/yue2-vae-config.json","sidecars/yue2-generation-config.json"}){
+            const auto changed=model_fixture(root,"between-takes-"+std::to_string(++mutation),tokenizer);
+            const auto source=changed/relative;
+            if(fs::is_symlink(fs::symlink_status(source))){fs::remove(source);fs::copy_file(tokenizer,source);}
+            e06_test::reset();auto s=session(changed,"","true");
+            auto options=warm_request;options["acoustic_latents_out"]=(root/("before-change-"+std::to_string(mutation)+".yac")).string();
+            run(*s,options);
+            const auto before=e06_test::calls.solve;
+            const bool existed=fs::exists(source);const auto backup=changed/"original-source";
+            if(existed){
+                fs::copy_file(source,backup);
+                if(mutation==1){
+                    const auto modified=fs::last_write_time(source);
+                    std::fstream f(source,std::ios::in|std::ios::out|std::ios::binary);f.put('X');f.close();
+                    fs::last_write_time(source,modified);
+                }else{fs::remove(source);fs::copy_file(backup,source);}
+            }else{text(source,"{}");}
+            // No capture option: guards must precede retained weights even on ordinary takes.
+            rejects(std::string("changed source rejected before warm take: ")+relative,[&]{run(*s,warm_request);});
+            check(e06_test::calls.solve==before,"changed source reached NAR");
+            fs::remove(source);if(existed)fs::rename(backup,source);
+            rejects("invalidated session cannot resume after restoring the source",[&]{run(*s,warm_request);});
+            auto fresh=session(changed,"","true");check(run(*fresh,warm_request).audio_output.has_value(),"fresh session did not recover");
+            pass(std::string("fresh session recovers after source change: ")+relative);
+        }
+        for(const auto * component:{"yue2-3b-q8_0.gguf","yue2-vae-f16.gguf"}){
+            const auto changed=model_fixture(root,std::string("alias-")+component,tokenizer);
+            const auto selected=changed/component,original=changed/(std::string("original-")+component);
+            fs::rename(selected,original);fs::create_symlink(original,selected);
+            e06_test::reset();auto s=session(changed,"","true");run(*s,warm_request);
+            const auto before=e06_test::calls.solve;
+            const auto replacement=changed/(std::string("replacement-")+component);fs::copy_file(original,replacement);
+            fs::remove(selected);fs::create_symlink(replacement,selected);
+            rejects(std::string("selected GGUF symlink retarget rejected before take: ")+component,[&]{run(*s,warm_request);});
+            check(e06_test::calls.solve==before,"retargeted GGUF alias reached generation");
+        }
+        const auto decode_change=model_fixture(root,"changed-during-decode",tokenizer);
+        e06_test::reset();e06_test::calls.during_decode=[&]{std::ofstream f(decode_change/"yue2-vae-f16.gguf",std::ios::binary|std::ios::app);f<<'X';};
+        {auto s=session(decode_change);rejects("VAE mutation during decoding rejects audio",[&]{run(*s,{{"cot","off"},{"acoustic_latents_out",(root/"before-decode-change.yac").string()}});});}
+        check(cp::load_completed(root/"before-decode-change.yac").metadata.frames==3,"later decoder mutation lost validated NAR checkpoint");
+        pass("decoder mutation retains the earlier validated acoustic checkpoint");
         rejects("keep_resident requires a boolean",[&]{session(warm_model,"","sometimes");});
         std::cout<<"{\"passed\":"<<passed<<",\"failed\":0,\"model_weights_loaded\":false,\"backend_initialized\":false,\"boundary_doubles\":true}\n";return 0;
     }catch(const std::exception & e){std::cerr<<"FAIL "<<e.what()<<'\n';return 1;}

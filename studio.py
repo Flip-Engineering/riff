@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 """Launch Riff, a small local music studio for YuE2."""
 import argparse
-from contextlib import nullcontext
+from contextlib import contextmanager, nullcontext
 import fcntl
 import hashlib
 import gzip
@@ -18,6 +18,7 @@ import sqlite3
 import sys
 import threading
 import tempfile
+import traceback
 from urllib.parse import parse_qs, quote, unquote, urlsplit
 import webbrowser
 
@@ -27,20 +28,22 @@ from reviews import Reviews
 from paths import DATA, OUTPUTS
 from model_options import schema
 from maintenance import Maintenance
+from operations import Conflict, Operations
 from video import VideoExports, VIDEO_FRAME_BATCH
 from network_access import read_access, request_origin
 import platform_support
 
 WEB = ROOT / "web"
 TRACK_ROUTE = re.compile(r"/api/tracks/([a-f0-9]{32})(?:/(audio|recipe|visualization|video-exports|lineage))?")
-VIDEO_ROUTE = re.compile(r"/api/video-exports/([a-f0-9]{32})(?:/(frames|finish|cancel|download))?")
+VIDEO_ROUTE = re.compile(r"/api/video-exports/([a-f0-9]{32})(?:/(frames|finish|cancel|download|live))?")
 JOB_ROUTE = re.compile(r"/api/jobs/([a-f0-9]{32})(?:/(cancel|retry|move))?")
 PRESET_ROUTE = re.compile(r"/api/presets/([a-z0-9-]+)")
 TRACK_REVIEWS_ROUTE = re.compile(r"/api/tracks/([a-f0-9]{32})/reviews")
 REVIEW_ROUTE = re.compile(r"/api/reviews/([a-f0-9]{32})(?:/(cancel))?")
 REFERENCE_ROUTE = re.compile(r"/api/review/references/([a-f0-9]{32})")
-LORA_ROUTE = re.compile(r"/api/loras/([a-f0-9]{64})(?:/(updates))?")
+LORA_ROUTE = re.compile(r"/api/loras/([a-f0-9]{64})(?:/(updates|clean))?")
 LORA_TASK_ROUTE = re.compile(r"/api/loras/tasks/([a-f0-9]{32})(?:/(cancel))?")
+OPERATION_ROUTE = re.compile(r"/api/v1/operations(?:/([a-f0-9]{32}|[a-z]+(?:\.[a-z]+)*))?")
 
 
 def studio_identity(web, version):
@@ -84,6 +87,7 @@ class StudioServer(ThreadingHTTPServer):
 
     def __init__(self, address, store, generator, reviews=None, maintenance=None):
         self.store, self.generator = store, generator
+        self.operations = Operations(store, generator, admit=self.admission)
         self.reviews = reviews
         self.maintenance = maintenance
         self.restart_requested = False
@@ -95,6 +99,18 @@ class StudioServer(ThreadingHTTPServer):
         self.video_exports = VideoExports(store)
         if maintenance:
             maintenance.video_exports = self.video_exports
+
+    @contextmanager
+    def admission(self, payload):
+        """The conditions under which new work is accepted, held while it is queued."""
+        with self.maintenance.lock if self.maintenance else nullcontext():
+            if self.restart_requested:
+                raise ValueError("Riff is restarting. Your draft is saved.")
+            if not payload.get("acoustic_source") and not platform_support.readiness()["ready"]:
+                raise ValueError("Open Studio settings to finish setting up the music engine.")
+            if self.maintenance and self.maintenance.task["status"] == "running" and self.maintenance.task.get("action") != "check":
+                raise ValueError("Setup is still running. Your draft is saved.")
+            yield
 
     def server_close(self):
         if hasattr(self, "video_exports"):
@@ -127,6 +143,25 @@ class Handler(BaseHTTPRequestHandler):
             self.json_response(403, {"error": "Use the studio to make this change."})
             return False
         return True
+
+    def video_producer(self, export_id):
+        """Keep the drawing page's connection open while its export accepts frames."""
+        self.server.video_exports.get(export_id)
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Accel-Buffering", "no")
+        self.send_header("Connection", "close")
+        self.end_headers()
+        self.close_connection = True
+
+        def send(data):
+            self.wfile.write(data)
+            self.wfile.flush()
+        try:
+            self.server.video_exports.producer(export_id, send)
+        except ValueError:
+            pass
 
     def json_response(self, status, value):
         body = json.dumps(value, ensure_ascii=False).encode("utf-8")
@@ -210,6 +245,8 @@ class Handler(BaseHTTPRequestHandler):
             elif (match := LORA_ROUTE.fullmatch(path)):
                 if match[2] == "updates":
                     self.json_response(200, self.server.store.loras.check_updates(match[1]))
+                elif match[2]:
+                    raise KeyError("Action not found.")
                 else:
                     self.json_response(200, {**self.server.store.loras.get(match[1]),
                                              "references": self.server.store.lora_references(match[1])})
@@ -222,6 +259,15 @@ class Handler(BaseHTTPRequestHandler):
                 if not self.server.store.acoustics:
                     raise KeyError("Saved sound not found.")
                 self.json_response(200, self.server.store.acoustics.describe(path[len("/api/acoustics/"):]))
+            elif (match := OPERATION_ROUTE.fullmatch(path)) and self.command in ("GET", "HEAD"):
+                if match[1]:
+                    self.json_response(200, self.server.operations.receipt(match[1]))
+                else:
+                    query = parse_qs(parsed.query)
+                    one = lambda key: query.get(key, [None])[0]
+                    self.json_response(200, self.server.operations.list(
+                        family=one("family"), status=one("status"), parent=one("parent"),
+                        since=one("since"), limit=one("limit"), cursor=one("cursor")))
             elif path == "/api/health":
                 self.json_response(200, {"app": "Riff", "status": "ready"})
             elif path == "/api/capabilities":
@@ -251,6 +297,8 @@ class Handler(BaseHTTPRequestHandler):
                 if match[2] == "download":
                     file, title = self.server.video_exports.download(match[1])
                     self.send_file(file, "video/mp4", title, ranged=True)
+                elif match[2] == "live":
+                    self.video_producer(match[1])
                 elif not match[2]:
                     self.json_response(200, self.server.video_exports.get(match[1]))
                 else:
@@ -307,6 +355,9 @@ class Handler(BaseHTTPRequestHandler):
                 if file.suffix == ".webmanifest":
                     content_type = "application/manifest+json"
                 self.send_file(file, content_type)
+        except (sqlite3.ProgrammingError, sqlite3.InterfaceError):
+            # A value in the request that SQLite cannot bind. Never drop the connection for it.
+            self.json_response(400, {"error": "The request contained a value the studio could not use."})
         except sqlite3.OperationalError:
             self.json_response(503, {"error": "Riff could not access its library. Check available disk space and try again."})
         except KeyError as exc:
@@ -315,6 +366,9 @@ class Handler(BaseHTTPRequestHandler):
             pass
         except (ValueError, OSError) as exc:
             self.json_response(400, {"error": str(exc)})
+        except Exception:
+            traceback.print_exc()
+            self.json_response(500, {"error": "The studio could not complete this request."})
 
     def send_file(self, file, content_type, download=None, ranged=False):
         size = file.stat().st_size
@@ -466,6 +520,47 @@ class Handler(BaseHTTPRequestHandler):
     def do_DELETE(self):
         self.mutate("DELETE")
 
+    def invoke_operation(self, name, payload):
+        operations = self.server.operations
+        fields = {"recipe.validate": {"recipe"}, "inputs.compare": {"subjects"}, "operation.cancel": {"operation_id"},
+                  "operation.resume": {"operation_id", "idempotency_key"},
+                  "study.create": {"idempotency_key", "recipe", "family_id", "parent"}}
+        if name in fields and (unknown := set(payload) - fields[name]):
+            raise ValueError("Unknown input: " + ", ".join(sorted(unknown)))
+        key = payload["idempotency_key"] if "idempotency_key" in payload else self.headers.get("Idempotency-Key")
+        if name == "recipe.validate":
+            self.json_response(200, operations.validate(self.recipe_input(payload)))
+        elif name == "references.resolve":
+            self.json_response(200, operations.references(payload))
+        elif name == "inputs.compare":
+            self.json_response(200, operations.compare(payload.get("subjects")))
+        elif name == "study.create":
+            recipe = self.recipe_input(payload)
+            request = {field: payload[field] for field in ("recipe", "family_id", "parent") if field in payload}
+            self.queued(operations.submit(name, request, recipe, key=key, family_id=payload.get("family_id"),
+                                          parent=payload.get("parent")))
+        elif name in ("take.replay", "take.develop"):
+            result = operations.derive(name, {**payload, **({"idempotency_key": key} if key is not None else {})})
+            self.queued(result) if "operation_id" in result else self.json_response(200, result)
+        elif name == "take.select":
+            result = operations.select({**payload, **({"idempotency_key": key} if key is not None else {})})
+            self.json_response(200 if result["replayed"] else 201, result)
+        elif name == "operation.resume":
+            self.queued(operations.resume(payload.get("operation_id") or "", key))
+        elif name == "operation.cancel":
+            self.json_response(200, operations.cancel(payload.get("operation_id") or ""))
+        else:
+            raise KeyError("Operation not found.")
+
+    def queued(self, result):
+        self.json_response(200 if result["replayed"] else 201, result)
+
+    @staticmethod
+    def recipe_input(payload):
+        if not isinstance(payload.get("recipe"), dict):
+            raise ValueError("Send the recipe as an object in 'recipe'.")
+        return payload["recipe"]
+
     def mutate(self, method):
         if not self.safe_request(mutation=True):
             return
@@ -483,16 +578,19 @@ class Handler(BaseHTTPRequestHandler):
                     with self.server.generator.lock:
                         result = self.server.store.loras.delete(match[1], confirm=payload.get("confirm") is True)
                 self.json_response(200, result or {"status": "removed"})
+            elif (match := LORA_ROUTE.fullmatch(path)) and match[2] == "clean" and method == "POST":
+                with self.server.generator.lock:
+                    self.json_response(200, self.server.store.loras.clean(match[1]))
             elif path in ("/api/generations", "/api/plans") and method == "POST":
-                with self.server.maintenance.lock if self.server.maintenance else nullcontext():
-                    if self.server.restart_requested:
-                        raise ValueError("Riff is restarting. Your draft is saved.")
-                    if not payload.get("acoustic_source") and not platform_support.readiness()["ready"]:
-                        raise ValueError("Open Studio settings to finish setting up the music engine.")
-                    if self.server.maintenance and self.server.maintenance.task["status"] == "running" and self.server.maintenance.task.get("action") != "check":
-                        raise ValueError("Setup is still running. Your draft is saved.")
-                    result = self.server.generator.submit({**payload, "render_mode": "plan" if path == "/api/plans" else payload.get("render_mode", "music")})
-                self.json_response(201, result)
+                key = payload.pop("idempotency_key") if "idempotency_key" in payload else self.headers.get("Idempotency-Key")
+                recipe = {**payload, "render_mode": "plan" if path == "/api/plans" else payload.get("render_mode", "music")}
+                result = self.server.operations.submit("generate", recipe, recipe, key=key)
+                # The Studio's response keeps its original shape, with the operation identity added.
+                self.json_response(200 if result["replayed"] else 201, {
+                    "id": result["job_id"], "recipe": result["receipt"]["effective_recipe"], "status": result["status"],
+                    "operation_id": result["operation_id"], "family_id": result["family_id"], "replayed": result["replayed"]})
+            elif (match := OPERATION_ROUTE.fullmatch(path)) and match[1] and method == "POST":
+                self.invoke_operation(match[1], payload)
             elif path == "/api/system/setup" and method == "POST" and self.server.maintenance:
                 self.json_response(202, self.server.maintenance.start("setup", payload))
             elif path == "/api/system/engine" and method == "POST" and self.server.maintenance:
@@ -569,6 +667,12 @@ class Handler(BaseHTTPRequestHandler):
                 elif match[2] == "cancel":
                     status = self.server.generator.cancel(match[1])
                     self.json_response(200, {"status": status})
+                elif match[2] == "retry":
+                    # The same explicit resume as operation.resume; nothing resumes without this call.
+                    result = self.server.operations.resume(match[1], self.headers.get("Idempotency-Key"))
+                    self.json_response(200 if result["replayed"] else 201, {
+                        "id": result["job_id"], "status": result["status"], "operation_id": result["operation_id"],
+                        "family_id": result["family_id"], "replayed": result["replayed"]})
                 else:
                     raise KeyError("Action not found.")
             elif (match := TRACK_ROUTE.fullmatch(path)) and not match[2] and method == "PATCH":
@@ -584,14 +688,22 @@ class Handler(BaseHTTPRequestHandler):
                     self.json_response(200, self.server.store.delete_track(match[1]))
             else:
                 raise KeyError("Action not found.")
+        except (sqlite3.ProgrammingError, sqlite3.InterfaceError):
+            # A value in the request that SQLite cannot bind. Never drop the connection for it.
+            self.json_response(400, {"error": "The request contained a value the studio could not use."})
         except sqlite3.OperationalError:
             self.json_response(503, {"error": "Riff could not access its library. Check available disk space and try again."})
         except KeyError as exc:
             self.json_response(404, {"error": str(exc.args[0])})
         except (BrokenPipeError, ConnectionResetError):
             pass
+        except Conflict as exc:
+            self.json_response(409, {"error": str(exc)})
         except (ValueError, OSError) as exc:
             self.json_response(400, {"error": str(exc)})
+        except Exception:
+            traceback.print_exc()
+            self.json_response(500, {"error": "The studio could not complete this request."})
 
 
 def main():

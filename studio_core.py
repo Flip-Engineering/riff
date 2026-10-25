@@ -27,6 +27,7 @@ from model_admission import AdmissionCancelled, ModelAdmission, SchedulerUnavail
 from symbolic import read_plan
 from warm_engine import WarmEngine, job_from_command
 from loras import LoRALibrary
+from operations import SCHEMA as OPERATIONS_SCHEMA, recipe_changes
 
 CONTEXT = model_options.CONTEXT
 TOKEN_RATE = model_options.TOKEN_RATE
@@ -320,7 +321,7 @@ class Store:
                 CREATE TABLE IF NOT EXISTS detached_performances (
                     id TEXT PRIMARY KEY, file TEXT NOT NULL, recipe TEXT NOT NULL);
                 CREATE INDEX IF NOT EXISTS jobs_status ON jobs(status, created);
-            """)
+            """ + OPERATIONS_SCHEMA)
             db.execute("BEGIN IMMEDIATE")
             db.execute("INSERT OR IGNORE INTO library_meta VALUES ('catalog_revision','0')")
             # Database triggers also catch imports and changes from other processes.
@@ -460,22 +461,12 @@ class Store:
                 continue
             component.add(identity)
             pending.extend(neighbors[identity] - component)
-        fields = (("seed", "Seed"), ("lyrics", "Words"), ("style", "Direction"), ("mode", "Creation mode"),
-                  ("cot", "Planning"), ("max_seconds", "Length"), ("steps", "Detail"), ("solver", "Synthesis method"),
-                  ("cfg_scale", "Guidance"), ("temperature", "Variation"), ("abc", "Written input"),
-                  ("score_source", "Saved score"), ("performance_source", "Saved performance"),
-                  ("acoustic_source", "Saved synthesis"), ("decoder", "Audio refinement"),
-                  ("refinement", "Sampling controls"), ("brief", "Brief"), ("energy", "Energy"), ("texture", "Texture"))
         relevant = [edge for edge in edges if edge["child"] in component]
         indegree, children = {identity: 0 for identity in component}, {identity: [] for identity in component}
         for edge in relevant:
             parent = tracks.get(edge["parent"])
             child = tracks[edge["child"]]
-            edge["changes"] = None if parent is None else [
-                {"field": field, "label": label, "before": parent["recipe"].get(field), "after": child["recipe"].get(field),
-                 "before_recorded": field in parent["recipe"], "after_recorded": field in child["recipe"]}
-                for field, label in fields if (field in parent["recipe"], parent["recipe"].get(field)) !=
-                                            (field in child["recipe"], child["recipe"].get(field))]
+            edge["changes"] = None if parent is None else recipe_changes(parent["recipe"], child["recipe"])
             indegree[edge["child"]] += 1
             children[edge["parent"]].append(edge["child"])
         roots = sorted(identity for identity, count in indegree.items() if count == 0)
@@ -1204,12 +1195,19 @@ class Generator:
             recipe["review_references"] = [{key: item[key] for key in ("id", "sha256", "label")} for item in clips]
         return recipe
 
-    def submit(self, payload):
+    def prepare(self, payload):
+        """Validate a payload and resolve its references, without queueing.
+
+        The review's reference clips are recorded here, so every route that queues a take, the Studio's
+        and the operation surface's, records the same provenance."""
         if isinstance(payload, dict) and payload.get("acoustic_source"):
             recipe = self.store.acoustics.recipe(payload)
         else:
             recipe = self.store.prepare_performance(validate_recipe(payload))
-        recipe = self.with_review_references(recipe)
+        return self.with_review_references(recipe)
+
+    def enqueue(self, recipe, operation=None):
+        """Insert the job. ``operation(db, job_id, recipe)`` runs in the same transaction."""
         job_id = uuid.uuid4().hex
         with self.lock:
             self._accepting()
@@ -1219,8 +1217,13 @@ class Generator:
                 position = db.execute("SELECT COALESCE(MAX(queue_position),0)+1 FROM jobs").fetchone()[0]
                 db.execute("INSERT INTO jobs (id,title,created,status,recipe,queue_position) VALUES (?,?,?,'queued',?,?)",
                            (job_id, recipe["title"], time.time(), json.dumps(recipe), position))
+                if operation:
+                    operation(db, job_id, recipe)
         self.wake.set()
         return {"id": job_id, "recipe": recipe, "status": "queued"}
+
+    def submit(self, payload, operation=None):
+        return self.enqueue(self.prepare(payload), operation)
 
     def move_queued(self, job_id, direction):
         if direction not in ("up", "down", "first"):

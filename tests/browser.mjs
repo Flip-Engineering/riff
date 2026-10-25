@@ -203,11 +203,21 @@ try {
       await page
         .getByLabel("Sound name", { exact: true })
         .fill("Reedlight room");
+      const saving = page.waitForResponse(
+        (response) =>
+          response.url().endsWith("/api/presets") &&
+          response.request().method() === "POST",
+      );
       await page
         .getByRole("button", { name: "Save sound", exact: true })
         .click();
+      const saved = await saving;
+      const savedBody = await saved.text();
+      assert.equal(saved.status(), 201, savedBody);
+      const savedSound = JSON.parse(savedBody);
+      assert.equal(savedSound.name, "Reedlight room");
       await page
-        .getByRole("button", { name: "Reedlight room", exact: true })
+        .getByRole("button", { name: savedSound.name, exact: true })
         .waitFor();
     }
     check("Saved reusable sound");

@@ -1,0 +1,192 @@
+{
+  "schema": "riff.acoustic-first-take-system-sha.v1",
+  "qualification": "One paired first-take sample on a shared Linux EPYC host, serial nice -n19/ionice -c3 execution; page cache warmed by verifying all six shared files before each process. CPU, two threads, 25 semantic frames, two midpoint steps, seed 1234. This is not a multi-machine benchmark or a GPU-render measurement.",
+  "command": [
+    "$ENGINE",
+    "--task",
+    "gen",
+    "--family",
+    "yue2",
+    "--model",
+    "$MODELS",
+    "--backend",
+    "cpu",
+    "--threads",
+    "2",
+    "--session-option",
+    "yue2.model_gguf=yue2-3b-q4_0.gguf",
+    "--session-option",
+    "yue2.vae_gguf=yue2-vae-f16.gguf",
+    "--session-option",
+    "yue2.model_weight_context_mb=32",
+    "--session-option",
+    "yue2.vae_weight_context_mb=32",
+    "--session-option",
+    "yue2.ar_prefill_graph_arena_mb=64",
+    "--session-option",
+    "yue2.ar_decode_graph_arena_mb=32",
+    "--session-option",
+    "yue2.nar_graph_arena_mb=64",
+    "--session-option",
+    "yue2.vae_graph_arena_mb=64",
+    "--session-option",
+    "yue2.keep_resident=true",
+    "--log",
+    "--metrics",
+    "--jobs",
+    "-"
+  ],
+  "job": {
+    "options": {
+      "cot": "off",
+      "cfg_scale": "1",
+      "semantic_temperature": "1",
+      "style": "trbdr, acoustic folk, guitar, instrumental",
+      "semantic_min_tokens": "25",
+      "semantic_max_tokens": "25",
+      "num_inference_steps": "2",
+      "ode_method": "midpoint",
+      "semantic_codes_out": "$OUTPUT/first.codes.i32",
+      "acoustic_latents_out": "$OUTPUT/first.yac"
+    },
+    "seed": "1234",
+    "lyrics": "[Instrumental]",
+    "out": "$OUTPUT/first.wav",
+    "id": "first",
+    "metrics": true
+  },
+  "portable_before": {
+    "native_fingerprint": "48d269d2573480e2-cpu",
+    "binary_sha256": "ccb29f067b684db356883ee5453b78845e09995eb4adf62f6be6f8d1b33ee604",
+    "process_wall_ms": 51670.155947998865,
+    "process_user_ms": 73988.589,
+    "process_system_ms": 4315.801,
+    "checkpoint_payload_sha256": "44a4b8891ff140fb20a168ff30a038d006b9dd2f4b56f0b7d6487a95efa4539e",
+    "checkpoint_valid": true,
+    "shared_identity_unchanged": true,
+    "wav_sha256": "568aeda41727e0ee8e2ac573b7092f87f8df6f09d582b74d6a042edab747d68e",
+    "measurement_checkout_commit": "a8c535561dab0fa2db106b444df849688049a342",
+    "sha256_backend": "portable",
+    "pin_sources_ms": 18803.989615,
+    "source_hash_bytes": 2939695634,
+    "source_digest_hits": 0
+  },
+  "system_after": {
+    "native_fingerprint": "7d58ffe8d8ce7a51-cpu",
+    "binary_sha256": "dfb217baf679653fa6d69edef66bed17daf015944855e6ba76a92900388b64e1",
+    "process_wall_ms": 36110.12669099728,
+    "process_user_ms": 58766.956,
+    "process_system_ms": 4503.081,
+    "checkpoint_payload_sha256": "44a4b8891ff140fb20a168ff30a038d006b9dd2f4b56f0b7d6487a95efa4539e",
+    "checkpoint_valid": true,
+    "shared_identity_unchanged": true,
+    "wav_sha256": "568aeda41727e0ee8e2ac573b7092f87f8df6f09d582b74d6a042edab747d68e",
+    "measurement_checkout_commit": "3cdf8873b26108ed0dcef623d76dbe9b5b843672",
+    "sha256_backend": "openssl-evp",
+    "pin_sources_ms": 2875.161832,
+    "source_hash_bytes": 2939679658,
+    "source_digest_hits": 0
+  },
+  "comparison": {
+    "pin_speedup": 6.540149985894777,
+    "pin_saved_ms": 15928.827782999999,
+    "wav_identical": true,
+    "checkpoint_metadata_equal_except_producer_binary": true,
+    "checkpoint_payload_identical": true,
+    "shared_file_identities_unchanged": true
+  },
+  "shared_files_verified": {
+    "yue2-3b-q4_0.gguf": {
+      "bytes": 2665632320,
+      "sha256": "97af67d7f800b362faee6e6bec806bddfcccb93f25fd3f9a1012724d95af6f4a"
+    },
+    "yue2-vae-f16.gguf": {
+      "bytes": 265218656,
+      "sha256": "d4f4a05d8f291ae820cd1e43609da3fa91b56465810091a2b08c3350b751719d"
+    },
+    "sidecars/yue2-model-config.json": {
+      "bytes": 959,
+      "sha256": "ad3477bbef890bf98ae196c1e4b44779494a6231c4ab66f32708eabadf265329"
+    },
+    "sidecars/yue2-generation-config.json": {
+      "bytes": 466,
+      "sha256": "203830cebde6e3644eb291925362990d198e66c3b6006cd11f1aaa21904bcc61"
+    },
+    "sidecars/yue2-qwen.tiktoken": {
+      "bytes": 2561218,
+      "sha256": "b2b1b8dfb5cc5f024bafc373121c6aba3f66f9a5a0269e243470a1de16a33186"
+    },
+    "sidecars/yue2-vae-config.json": {
+      "bytes": 1378,
+      "sha256": "f0191bb9694009956de44e0c361a6f1334760be4c8f848e599bde242a54a0970"
+    }
+  },
+  "queued_build": {
+    "key": "3730a87681b48558d2adaaffd79bef8539712d6ffb62f547b9d6af4f3228ffd8",
+    "wait_exit_status": 0,
+    "wait_status": "completed",
+    "checkout_commit": "3cdf8873b26108ed0dcef623d76dbe9b5b843672",
+    "build_exit_status": 0,
+    "build_milliseconds": 878099,
+    "sha256_backend": "openssl-evp",
+    "native_fingerprint": "7d58ffe8d8ce7a51",
+    "source_sha256": "690e31e2f11998bcdbee22d966b280c40beb105bd62a0e5798fb690599159021",
+    "inputs_sha256": "a7117aff6d2626fa64e26572da87be9d4d1875d6b39f87a2da213fde7e2ff405",
+    "qualification": "The retained engine was built at the frozen checkout before the ABI-identity/lifecycle driver fixes. The pinned native patch is unchanged at 3fe049e; native source and production inputs were verified unchanged by the checks. Its backend-only fingerprint is not the final driver fingerprint."
+  },
+  "linux_native_checks": {
+    "format": {
+      "format-native": {
+        "backend_initialized": false,
+        "failed": 0,
+        "model_weights_loaded": false,
+        "passed": 80
+      },
+      "format-portable": {
+        "backend_initialized": false,
+        "failed": 0,
+        "model_weights_loaded": false,
+        "passed": 80
+      }
+    },
+    "pipeline": {
+      "backend_initialized": false,
+      "boundary_doubles": true,
+      "failed": 0,
+      "model_weights_loaded": false,
+      "passed": 69
+    },
+    "sha256_backend": "openssl-evp",
+    "production_binary_sha256": "dfb217baf679653fa6d69edef66bed17daf015944855e6ba76a92900388b64e1",
+    "test_binary_sha256": "d7573a0ec999276f7ff3af51587c3bf6ed3c3693ec4db79a6561357ec3ee8036",
+    "tokenizer_sha256": "b2b1b8dfb5cc5f024bafc373121c6aba3f66f9a5a0269e243470a1de16a33186",
+    "native_runtime_commit": "fbe3eedbf6c504e45189e2cdcf1b257740a28863",
+    "independent_sha_crosscheck": true,
+    "source_and_production_inputs_unchanged": true,
+    "note": "Actual parser, model-file selection, stage ownership and checkpoint implementation with substituted neural operators; no GPU/model execution.",
+    "format_no_crypto": {
+      "passed": 80,
+      "failed": 0,
+      "model_weights_loaded": false,
+      "backend_initialized": false
+    }
+  },
+  "macos_native_ci": {
+    "commit": "3fe049e57839e03c734576731c96aa6f93d1bd91",
+    "run": 40176586581,
+    "job": 121118464505,
+    "conclusion": "success",
+    "log_checks": [
+      "format-native",
+      "format-portable",
+      "format-no-crypto",
+      "pipeline"
+    ],
+    "qualification": "CommonCrypto selected by the macOS CMake branch; targeted format and pipeline checks use substituted neural operators."
+  },
+  "system_crypto_abi": {
+    "sha256_backend": "openssl-evp",
+    "libcrypto_soname": "libcrypto.so.3",
+    "openssl_version_major": "3"
+  }
+}

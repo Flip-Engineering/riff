@@ -16,7 +16,7 @@ defmodule Riff.NativeCacheTest do
     File.mkdir_p!(root)
 
     for name <-
-          ~w(setup_engine.py paths.py platform_support.py scripts/native_cache.exs scripts/build_cached_native.exs scripts/compiler_cache_tool.json .github/workflows/ci.yml) do
+          ~w(setup_engine.py paths.py platform_support.py scripts/checkpoint_sha_identity.py scripts/native_cache.exs scripts/build_cached_native.exs scripts/compiler_cache_tool.json .github/workflows/ci.yml) do
       File.mkdir_p!(Path.dirname(Path.join(root, name)))
       File.cp!(Path.join(@repo, name), Path.join(root, name))
     end
@@ -76,6 +76,95 @@ defmodule Riff.NativeCacheTest do
       "cmake" => cmake,
       "configuration" => [cmake | arguments]
     }
+  end
+
+  test "configured SHA backend changes the native cache fingerprint", %{root: root} do
+    refute Cache.source!(root, "portable").engine_fingerprint ==
+             Cache.source!(root, "openssl-evp").engine_fingerprint
+
+    assert Cache.source!(root, "portable").sha256 == Cache.source!(root, "openssl-evp").sha256
+    library = Path.join(root, "libcrypto.so.3")
+    # Reuse the owned ELF metadata fixture; no system library is changed or loaded.
+    fixture = fn soname, patch ->
+      {_, 0} =
+        System.cmd(System.find_executable("python3"), [
+          "-c",
+          "import sys; sys.path[:0] = sys.argv[1:3]; from test_engine_crypto import elf_library; from pathlib import Path; Path(sys.argv[3]).write_bytes(elf_library(sys.argv[4], sys.argv[5].encode()))",
+          @repo,
+          Path.join(@repo, "tests"),
+          library,
+          soname,
+          patch
+        ])
+    end
+
+    fixture.("libcrypto.so.3", "patch-1")
+    File.mkdir_p!(Path.join(root, "openssl"))
+    header = Path.join(root, "openssl/opensslv.h")
+    File.write!(header, "#define OPENSSL_VERSION_MAJOR 3\n#define OPENSSL_VERSION_PATCH 1\n")
+    config = configured(root)
+    [cmake | args] = config["configuration"]
+
+    {_, 0} =
+      System.cmd(cmake, args ++ ["-DRIFF_CHECKPOINT_SHA_BACKEND:STRING=portable"],
+        stderr_to_stdout: true
+      )
+
+    before = Cache.configured!(root, config, "cpu", %{})
+
+    {_, 0} =
+      System.cmd(
+        cmake,
+        args ++
+          [
+            "-DRIFF_CHECKPOINT_SHA_BACKEND:STRING=openssl-evp",
+            "-DOPENSSL_CRYPTO_LIBRARY:FILEPATH=#{library}",
+            "-DOPENSSL_INCLUDE_DIR:PATH=#{root}"
+          ],
+        stderr_to_stdout: true
+      )
+
+    after_change = Cache.configured!(root, config, "cpu", %{})
+    assert before.descriptor["sha256_backend"] == "portable"
+    assert after_change.descriptor["sha256_backend"] == "openssl-evp"
+    refute before.sha256 == after_change.sha256
+
+    abi = %{
+      "sha256_backend" => "openssl-evp",
+      "libcrypto_soname" => "libcrypto.so.3",
+      "openssl_version_major" => "3"
+    }
+
+    assert after_change.descriptor["sha256_identity"] == abi
+
+    {python_fingerprint, 0} =
+      System.cmd(System.find_executable("python3"), [
+        "-c",
+        "import sys,json; sys.path.insert(0,sys.argv[1]); import setup_engine; print(setup_engine.fingerprint(sys.argv[1], 'openssl-evp', json.loads(sys.argv[2])))",
+        root,
+        IO.iodata_to_binary(:json.encode(abi))
+      ])
+
+    assert String.trim(python_fingerprint) ==
+             Cache.source!(root, "openssl-evp", abi).engine_fingerprint
+
+    fixture.("libcrypto.so.3", "security patch bytes")
+    File.write!(header, "#define OPENSSL_VERSION_MAJOR 3\n#define OPENSSL_VERSION_PATCH 2\n")
+    assert Cache.configured!(root, config, "cpu", %{}).sha256 == after_change.sha256
+
+    for changed <- [
+          Map.put(abi, "libcrypto_soname", "libcrypto.so.4"),
+          Map.put(abi, "openssl_version_major", "4")
+        ] do
+      refute Cache.source!(root, "openssl-evp", abi).engine_fingerprint ==
+               Cache.source!(root, "openssl-evp", changed).engine_fingerprint
+    end
+
+    fixture.("libcrypto.so.4", "new major")
+    refute Cache.configured!(root, config, "cpu", %{}).sha256 == after_change.sha256
+    fixture.("libcrypto.so.3", "patch")
+    File.write!(header, "#define OPENSSL_VERSION_MAJOR 4\n")
+    refute Cache.configured!(root, config, "cpu", %{}).sha256 == after_change.sha256
   end
 
   test "complete patch verification rejects missing, added and changed patch bytes", %{root: root} do
@@ -369,6 +458,11 @@ defmodule Riff.NativeCacheTest do
       "cmake_minimum_required(VERSION 3.17)\nproject(cache_driver_fixture C CXX)\nset(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)\nadd_executable(audiocpp_cli main.cpp)\n"
     )
 
+    File.write!(
+      Path.join(root, "scripts/checkpoint_sha_identity.py"),
+      "raise AssertionError('SHA discovery must not run without the system-SHA patch')\n"
+    )
+
     File.write!(Path.join(native, "main.cpp"), program)
     {_, 0} = System.cmd("git", ["init", "--quiet", native], stderr_to_stdout: true)
     {_, 0} = System.cmd("git", ["-C", native, "add", "."], stderr_to_stdout: true)
@@ -399,6 +493,44 @@ defmodule Riff.NativeCacheTest do
       "runtime_commit" => String.trim(commit),
       "local_patches" => %{}
     })
+  end
+
+  test "SHA discovery failure reports its cause before native setup", %{root: root} do
+    patch = Path.join(root, "patches/yue2-weight-system-sha.patch")
+    File.write!(patch, "owned optional SHA fixture\n")
+    manifest = Cache.json(Path.join(root, "sources.json"))
+
+    manifest =
+      put_in(
+        manifest["local_patches"]["patches/yue2-weight-system-sha.patch"],
+        Map.take(Cache.file_record(patch, "patch"), ["bytes", "sha256"])
+      )
+
+    Cache.write_json(Path.join(root, "sources.json"), manifest)
+
+    File.write!(
+      Path.join(root, "scripts/checkpoint_sha_identity.py"),
+      "import sys\nprint('intentional_discovery_failure')\nsys.exit(9)\n"
+    )
+
+    {text, status} =
+      System.cmd(
+        "elixir",
+        [
+          Path.join(root, "scripts/build_cached_native.exs"),
+          "--backend",
+          "cpu",
+          "--compile-only"
+        ],
+        env: [{"RIFF_HOME", root}],
+        stderr_to_stdout: true
+      )
+
+    refute status == 0
+    assert text =~ "System SHA discovery failed (exit 9)"
+    assert text =~ "intentional_discovery_failure"
+    refute text =~ "MatchError"
+    assert Path.wildcard(Path.join(root, "engines/*")) == []
   end
 
   test "unavailable remote cache runs the actual driver, fresh compile and link", %{root: root} do

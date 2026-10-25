@@ -2,6 +2,8 @@
 from review_recipe import response_schema, lora_schema
 from model_options import CONTEXT, TOKEN_RATE
 from video import VIDEO_ENCODING, VIDEO_FRAME_BATCH
+from operations import catalog
+from paths import ROOT
 
 
 def describe():
@@ -28,6 +30,7 @@ def describe():
         "video_encoding": VIDEO_ENCODING,
         "video_frame_batch": VIDEO_FRAME_BATCH,
         "request_header": {"X-Riff-Request": "1"},
+        "agent_surface": catalog(recipe, (ROOT / "VERSION").read_text().strip()),
         "operations": {
             "loras": {"method": "GET", "path": "/api/loras", "description": "Installed adapters and native activation availability."},
             "lora_search": {"method": "GET", "path": "/api/loras/hub?q=&sort=downloads&page=0&limit=20"},
@@ -39,6 +42,7 @@ def describe():
             "lora_cancel": {"method": "POST", "path": "/api/loras/tasks/{task_id}/cancel", "body": "Empty object."},
             "lora_edit": {"method": "PATCH", "path": "/api/loras/{adapter_id}", "body": "name, notes, tags, default_strength or trigger_words."},
             "lora_updates": {"method": "GET", "path": "/api/loras/{adapter_id}/updates"},
+            "lora_clean": {"method": "POST", "path": "/api/loras/{adapter_id}/clean", "body": "Empty object. Deletes only the files the installation holds that its manifest does not reference (listed as unreferenced, counted in retained_bytes); referenced files and manifest.json are never touched. Returns what was removed and the bytes reclaimed."},
             "lora_delete": {"method": "DELETE", "path": "/api/loras/{adapter_id}", "body": "Empty object; confirm:true acknowledges recorded references. Queued/active take references always prevent deletion."},
             "library": {"method": "GET", "path": "/api/state"},
             "lineage": {"method": "GET", "path": "/api/tracks/{track_id}/lineage",

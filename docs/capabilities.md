@@ -29,7 +29,7 @@ API to Riff and records remaining stage-reuse and composition workflows.
 | Finish saved sound without repeating synthesis | Finish audio; owned completed acoustic tensor and captured decoder settings |
 | Refine decoding of the same sound | Saved synthesis: tile size, overlap and weight storage, with the compatible VAE |
 | Understand a written composition | Voice maps, individual tone-preview voices, written duration and duration matching |
-| Agent operation | Discover `/api/capabilities`; use the same library, composition, review and generation queue |
+| Agent operation | Discover `/api/capabilities` (`agent_surface`); use the same library, composition, review and generation queue through [versioned operations](agent-operations.md) with idempotency keys and receipts |
 | Decoder or quantization | Custom GGUF paths in Studio settings |
 | Compare revisions | A/B takes at the same listening position, passage loops, input differences, short studies, parent links, and runnable producer recommendations |
 | Analyze a reference for a cover | Planned C02: optional Gemini direct-audio analysis into editable style, lyrics, duration and ABC; not currently exposed |
