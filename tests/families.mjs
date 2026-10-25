@@ -107,10 +107,32 @@ try {
   };
 
   const developRoute = "**/api/v1/operations/take.develop";
-  await page.route(developRoute, route => route.fulfill({ status: 400, json: { error: "Fixture develop failure" } }));
+  const gate = () => {
+    let open;
+    const promise = new Promise(resolve => { open = resolve; });
+    const timer = setTimeout(open, 5000);
+    return { promise, open: () => { clearTimeout(timer); open(); } };
+  };
+  const failureGate = gate();
+  let failureStarted;
+  const failureRequest = new Promise(resolve => { failureStarted = resolve; });
+  await page.route(developRoute, async route => {
+    failureStarted();
+    await failureGate.promise;
+    await route.fulfill({ status: 400, json: { error: "Fixture develop failure" } });
+  });
   await form.getByRole("button", { name: "Develop", exact: true }).click();
-  await form.locator(".form-error").waitFor();
-  assert.equal(await form.locator(".form-error").innerText(), "Fixture develop failure");
+  await failureRequest;
+  const detachedForm = await form.elementHandle();
+  await page.evaluate(id => window.RiffFamilies.open(id), family.family_id);
+  assert(!(await detachedForm.evaluate(element => element.isConnected)), "The pending request outlives its original form");
+  failureGate.open();
+  await until(async () => await form.locator(".form-error").isVisible(), "the failure in the current form");
+  const assertFailure = async () => {
+    assert(await form.locator(".form-error").isVisible());
+    assert.equal(await form.locator(".form-error").innerText(), "Fixture develop failure");
+  };
+  await assertFailure();
   await assertDraft(false);
   assert.equal((await call(`/api/v1/families/${family.family_id}`)).takes.length, 2);
   await page.unroute(developRoute);
@@ -127,11 +149,13 @@ try {
   await until(async () => await page.evaluate(revision => state.catalog_revision !== revision, beforeRevision), "the queued catalog revision");
   const runningRevision = await page.evaluate(() => state.catalog_revision);
   await assertDraft();
+  await assertFailure();
   await until(async () => (await call(`/api/v1/families/${family.family_id}`)).takes[2].status === "done", "the background study to finish");
   await page.evaluate(() => refresh());
   await until(async () => await page.evaluate(revision => state.catalog_revision !== revision, runningRevision), "the completed catalog revision");
   await until(async () => await page.locator(".family-take").nth(2).locator(".family-status").textContent() === "Ready", "the completed catalog revision");
   await assertDraft();
+  await assertFailure();
   console.log("PASS Repeated background catalog revisions retain develop, selection and rename drafts, checkbox state, focus and text selection");
 
   await form.locator("[name=retain][value=seed]").check();
@@ -172,23 +196,34 @@ try {
   // Edits made after a request must survive that request's success and subsequent redraws.
   await second.getByRole("button", { name: "Develop this study" }).click();
   await form.locator("[name=title]").fill("Title submitted before the delay");
-  let requestStarted;
+  let requestStarted, developRequests = 0;
   const started = new Promise(resolve => { requestStarted = resolve; });
+  const responseGate = gate();
   await page.route(developRoute, async route => {
+    developRequests++;
     const response = await route.fetch();
     requestStarted();
-    await new Promise(resolve => setTimeout(resolve, 500));
+    await responseGate.promise;
     await route.fulfill({ response });
   });
   await form.getByRole("button", { name: "Develop", exact: true }).click();
   await started;
-  await form.locator("[name=title]").fill("Title typed while the request was in flight");
+  await page.evaluate(() => refresh());
   await page.locator(".family-take").nth(4).waitFor();
+  await form.locator("[name=title]").fill("Title typed while the request was in flight");
+  assert(await form.getByRole("button", { name: "Develop", exact: true }).isDisabled());
+  await form.evaluate(element => element.requestSubmit());
+  await page.evaluate(() => new Promise(resolve => setTimeout(resolve, 100)));
+  assert.equal(developRequests, 1, "A redraw and repeated submit reuse the in-flight operation");
+  responseGate.open();
+  await until(async () => !(await form.getByRole("button", { name: "Develop", exact: true }).isDisabled()), "the delayed submission to settle");
   await page.unroute(developRoute);
+  assert.equal(developRequests, 1);
+  assert.equal((await call(`/api/v1/families/${family.family_id}`)).takes.length, 5);
   assert.equal(await page.locator(".family-take").nth(4).locator("h4").innerText(), "Title submitted before the delay");
   assert.equal(await form.locator("[name=title]").inputValue(), "Title typed while the request was in flight");
   await second.getByRole("button", { name: "Develop this study" }).click();
-  console.log("PASS A delayed successful submission clears only its submitted snapshot, not newer edits");
+  console.log("PASS A delayed success survives a real catalog redraw, rejects a duplicate submit and clears only its submitted snapshot");
 
   // The board fits narrow screens and works from the keyboard.
   for (const width of [390, 320]) {

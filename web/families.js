@@ -8,7 +8,7 @@
   const ROLE = { study: "Study", develop: "Developed", replay: "Replayed", resume: "Resumed", other: "Take" };
   const FINISHED = ["done", "planned", "performed", "synthesized"];
   let families = [], currentId = "", loadedCatalog, reload = 0, currentFamily = null;
-  const drafts = new Map();
+  const drafts = new Map(), pending = new Map(), formErrors = new Map();
   const operation = (name, body, key) => api(`/api/v1/operations/${name}`, "POST", body, key ? { headers: { "Idempotency-Key": key } } : {});
 
   function format(field, value) {
@@ -131,6 +131,19 @@
     }
     if (form.matches("[data-develop]")) syncRetention(form);
   }
+  function currentDraftForm(key) {
+    return [...board.querySelectorAll("form[data-draft]")].find(form => form.dataset.draft === key);
+  }
+  function restoreSubmission(form) {
+    const key = form.dataset.draft;
+    const button = form.querySelector("button[type=submit]");
+    if (button) button.disabled = pending.has(key);
+    const error = form.querySelector(".form-error");
+    if (error) {
+      error.textContent = formErrors.get(key) || "";
+      error.hidden = !formErrors.has(key);
+    }
+  }
   async function showFamily(id, focus) {
     currentId = id;
     const request = ++reload;
@@ -146,7 +159,7 @@
       const selection = active && typeof activeElement.selectionStart === "number" ? {
         start: activeElement.selectionStart, end: activeElement.selectionEnd, direction: activeElement.selectionDirection } : null;
       board.innerHTML = boardHtml(family);
-      for (const form of board.querySelectorAll("form[data-draft]")) restoreDraft(form);
+      for (const form of board.querySelectorAll("form[data-draft]")) { restoreDraft(form); restoreSubmission(form); }
       for (const details of board.querySelectorAll("details[data-key]")) if (openDetails.has(details.dataset.key)) details.open = true;
       for (const form of board.querySelectorAll("form[data-develop]")) if (open.has(form.id)) { form.hidden = false; board.querySelector(`[aria-controls="${form.id}"]`)?.setAttribute("aria-expanded", "true"); }
       renderList();
@@ -169,10 +182,11 @@
   const keys = new Map();
   async function keyed(request, send) {
     const key = keys.get(request) || submissionKey();
-    try { const result = await send(key); keys.delete(request); return result; }
-    // The key is kept after any failure: a refusal after some studies were queued must be completed by
-    // repeating the same request, which the server answers from the key rather than starting a second family.
-    catch (error) { keys.set(request, key); throw error; }
+    // Register before flight and retain on failure: retries complete the same operation rather than starting another.
+    keys.set(request, key);
+    const result = await send(key);
+    keys.delete(request);
+    return result;
   }
 
   board.addEventListener("submit", async (event) => {
@@ -190,7 +204,10 @@
         await loadFamilies(); await showFamily(family.family_id);
         status.textContent = "Selection recorded.";
       } else if (form.matches("[data-develop]")) {
+        const draftKey = form.dataset.draft;
+        if (pending.has(draftKey)) return;
         const item = form.closest("[data-operation]"), take = family.takes.find(entry => entry.operation_id === item.dataset.operation);
+        formErrors.delete(draftKey);
         const error = form.querySelector(".form-error"); error.hidden = true;
         const retain = [...form.querySelectorAll("[name=retain]:checked")].map(input => input.value);
         const changes = {};
@@ -203,16 +220,25 @@
         if (form.elements.lyrics.value !== (take.settings.lyrics ?? "")) changes.lyrics = form.elements.lyrics.value;
         if (Number(form.elements.guidance.value) !== (take.settings.cfg_scale ?? 1)) changes.cfg_scale = Number(form.elements.guidance.value);
         if (Number(form.elements.variation.value) !== (take.settings.temperature ?? 1)) changes.temperature = Number(form.elements.variation.value);
-        const button = form.querySelector("button[type=submit]"); button.disabled = true;
+        const submission = keyed(`develop${take.operation_id}${JSON.stringify([retain, changes])}`,
+          key => operation("take.develop", { source: take.operation_id, retain, changes, idempotency_key: key }));
+        pending.set(draftKey, submission);
+        restoreSubmission(form);
         try {
-          const result = await keyed(`develop${take.operation_id}${JSON.stringify([retain, changes])}`,
-            key => operation("take.develop", { source: take.operation_id, retain, changes, idempotency_key: key }));
-          if (drafts.get(form.dataset.draft) === submittedDraft) drafts.delete(form.dataset.draft);
+          const result = await submission;
+          if (drafts.get(draftKey) === submittedDraft) drafts.delete(draftKey);
           notify(`“${result.receipt.effective_recipe.title}” is on its way.`);
           form.hidden = true;
           await refresh(); await loadFamilies(); await showFamily(family.family_id);
-        } catch (failure) { error.textContent = failure.message; error.hidden = false; }
-        finally { button.disabled = false; }
+        } catch (failure) {
+          formErrors.set(draftKey, failure.message);
+          const current = currentDraftForm(draftKey);
+          if (current) restoreSubmission(current);
+        } finally {
+          if (pending.get(draftKey) === submission) pending.delete(draftKey);
+          const current = currentDraftForm(draftKey);
+          if (current) restoreSubmission(current);
+        }
       }
     } catch (error) { status.textContent = error.message; }
   });
