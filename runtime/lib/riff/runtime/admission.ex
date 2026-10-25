@@ -22,7 +22,8 @@ defmodule Riff.Runtime.Admission do
   def step(state, %{"op" => "resident"} = message) do
     with :ok <- resident_version(message["protocol"]),
          :ok <- resident_id(message["id"]) do
-      resident_step(state, message)
+      {next, response} = resident_step(state, message)
+      {next, Map.put(response, "protocol", @resident_protocol)}
     else
       {:error, error} -> {state, %{"state" => "error", "error" => error}}
     end
@@ -258,6 +259,7 @@ defmodule Riff.Runtime.Admission do
     }
 
     remaining = budget(state, Map.put(snapshot, "devices", devices))
+    after_active_growth = remaining
     lease = state.residents[message["resident"]]
     requirement = message["requirement"]
 
@@ -328,14 +330,21 @@ defmodule Riff.Runtime.Admission do
             "Resident engine does not fit alongside waiting work or memory pressure is not normal"
         ),
       "figures" => %{
+        "host_available" => host["available"],
+        "device_available" => Map.new(devices, fn {id, value} -> {id, value["available"]} end),
+        "host_available_after_active_growth" => after_active_growth.host,
+        "device_available_after_active_growth" => after_active_growth.devices,
         "resident" => retained,
         "additional_resident" => extra,
         "host_available_after_resident" => remaining.host,
         "device_available_after_resident" => remaining.devices,
         "reserve_bytes" => reserve_bytes,
+        "device_reserve_bytes" => Map.new(devices, fn {id, value} -> {id, value["reserve"]} end),
         "largest_waiting_host" => largest_host,
         "largest_waiting_devices" => largest_devices,
         "host_pressure" => remaining.pressure,
+        "device_pressure" =>
+          Map.new(devices, fn {id, value} -> {id, Map.get(value, "pressure", "normal")} end),
         "waiting_jobs" => length(waiters)
       }
     }

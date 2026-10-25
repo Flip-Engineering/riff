@@ -122,6 +122,10 @@ def _stop_grace():
     return value
 
 
+class ResidentEngineChanged(RuntimeError):
+    pass
+
+
 class WarmJob:
     """A take running in the warm engine, with the Popen methods the studio uses.
 
@@ -188,7 +192,17 @@ class WarmEngine:
         with self.lock:
             return self.process is not None and self.process.poll() is None
 
-    def prepare(self, session):
+    def matches(self, session):
+        key = engine_key(session)
+        with self.lock:
+            return (self.process is not None and self.process.poll() is None and not self.retiring
+                    and self.key == key and (self.current is None or self.current.returncode is not None))
+
+    def resident_process(self):
+        with self.lock:
+            return self.process if self.process is not None and self.process.poll() is None and not self.retiring else None
+
+    def prepare(self, session, reuse_only=False):
         """Start or reuse an engine for ``session``; restart it if anything changed.
 
         Called before the take is published as running, so a restart does not
@@ -199,6 +213,8 @@ class WarmEngine:
             if self.current is not None and self.current.returncode is None:
                 raise RuntimeError("The warm engine is still running another take.")
             stale = self.process is not None and (self.process.poll() is not None or self.retiring or self.key != key)
+            if reuse_only and (self.process is None or stale):
+                raise ResidentEngineChanged("The resident engine changed before submission")
         if stale:
             self.stop()
         with self.lock:

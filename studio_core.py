@@ -23,9 +23,9 @@ from genres import genre_tags
 from inspiration import inspire, seed_number
 from paths import ROOT, WORKSPACE
 import model_options
-from model_admission import AdmissionCancelled, ModelAdmission, SchedulerUnavailable
+from model_admission import AdmissionCancelled, ModelAdmission, ResidentUnavailable, SchedulerUnavailable
 from symbolic import read_plan
-from warm_engine import WarmEngine, job_from_command
+from warm_engine import ResidentEngineChanged, WarmEngine, engine_key, job_from_command
 from loras import LoRALibrary
 
 CONTEXT = model_options.CONTEXT
@@ -889,6 +889,11 @@ class Generator:
         self.monitor = engine.platform_runtime.ProcessMemory()
         self.warm = WarmEngine(store.data_root / "warm-engine.log", cwd=ROOT)
         self.admission = admission if admission is not None else ModelAdmission(store.data_root)
+        self.warm_lease = None
+        self.warm_reason = ""
+        self.engine_settings_dirty = threading.Event()
+        if hasattr(self.admission, "on_change"):
+            self.admission.on_change = self.wake.set
         from score_artifacts import ScoreArtifacts
         from acoustic_artifacts import AcousticArtifacts
         store.artifacts = ScoreArtifacts(store, self.admission)
@@ -931,6 +936,91 @@ class Generator:
         if not engine.engine_capabilities(settings).get("warm_engine"):
             return True, None
         return True, job_from_command(command)
+
+    def _stop_warm(self):
+        self.warm.stop()
+        if self.warm_lease is not None:
+            self.admission.release_resident(self.warm_lease["id"])
+        self.warm_lease, self.warm_reason = None, ""
+
+    def engine_settings_changed(self):
+        self.engine_settings_dirty.set()
+        self.wake.set()
+
+    def _release_idle_warm(self):
+        if not self.warm.running():
+            if self.warm_lease is not None:
+                self._stop_warm()
+            return
+        settings = engine.platform_runtime.settings()
+        if self.engine_settings_dirty.is_set():
+            self._stop_warm()
+            self.engine_settings_dirty.clear()
+        elif settings.get("warm_engine_release_when_empty"):
+            # Submission shares this boundary; admission serializes other model
+            # owners while its scheduler check and process stop complete.
+            with self.lock:
+                with self.store.db() as db:
+                    queued = db.execute("SELECT 1 FROM jobs WHERE status IN ('queued','running','cancelling') LIMIT 1").fetchone()
+                release = getattr(self.admission, "release_resident_if_idle", None)
+                if queued is None and release is not None:
+                    try:
+                        if release(self.warm_lease["id"] if self.warm_lease else None, self.warm.stop):
+                            self.warm_lease, self.warm_reason = None, ""
+                    except (SchedulerUnavailable, ValueError) as error:
+                        self.warm_reason = str(error)
+
+    def _reserve_take(self, identity, recipe, kind, cancelled, waiting, output):
+        capable = getattr(self.admission, "supports_residents", lambda: False)
+        try:
+            supported = kind == "native" and capable()
+        except SchedulerUnavailable:
+            supported = False
+        policy = {"key": None, "decision": None, "supported": supported, "reason": "", "resident": None}
+        if not supported:
+            if kind == "native":
+                policy["reason"] = "The scheduler lacks resident leases; using legacy warm admission"
+            return self.admission.reserve(identity, recipe, kind, cancelled, on_wait=waiting), policy
+        preview = self.command_builder(recipe, output)
+        enabled, warm = self.warm_plan(preview)
+        if not enabled:
+            self._stop_warm()
+        if not warm:
+            return self.admission.reserve(identity, recipe, kind, cancelled, on_wait=waiting), policy
+        policy["key"] = engine_key(warm[0])
+        if not self.warm.matches(warm[0]):
+            if self.warm.running():
+                policy["reason"] = "Engine session changed; the next take needs a cold start"
+            self._stop_warm()
+        if self.warm_reason and self.warm_lease is None:
+            policy["reason"] = self.warm_reason
+            return self.admission.reserve(identity, recipe, kind, cancelled, on_wait=waiting), policy
+        resident = self.warm_lease["id"] if self.warm_lease else None
+        try:
+            requirement, decision = self.admission.resident_plan(identity, recipe, kind, cancelled,
+                                                                  on_wait=waiting, resident=resident)
+            policy["decision"] = decision
+            if not decision["keep"]:
+                policy["reason"] = decision["reason"]
+                self._stop_warm()
+                resident = None
+            reservation = self.admission.acquire(identity, requirement, cancelled, on_wait=waiting, resident=resident)
+            policy["resident"] = resident
+            return reservation, policy
+        except ResidentUnavailable as error:
+            # A failed acquire releases its job reservation. If only measurement
+            # was lost, preserve legacy manual reuse but remove all lease credit.
+            policy["reason"] = str(error)
+            if self.warm.resident_process() is not None:
+                if self.warm_lease is not None:
+                    self.admission.release_resident(self.warm_lease["id"])
+                self.warm_lease = None
+                self.warm_reason = str(error)
+                policy["decision"] = None
+            else:
+                policy["decision"] = {"keep": False, "reason": str(error), "figures": {}}
+                self._stop_warm()
+            return self.admission.reserve(identity, recipe, kind, cancelled, on_wait=waiting), policy
 
     @staticmethod
     def writer_ready():
@@ -1266,8 +1356,12 @@ class Generator:
                 self.stop.wait(.5)
                 continue
             if row:
+                if self.engine_settings_dirty.is_set():
+                    self._stop_warm()
+                    self.engine_settings_dirty.clear()
                 self.execute(dict(row))
                 continue
+            self._release_idle_warm()
             self.wake.wait()
             self.wake.clear()
 
@@ -1281,6 +1375,7 @@ class Generator:
         returncode, failure, track_id, planned, performed, synthesized = None, "", None, False, False, False
         command = []
         proc, reserved, reservation = None, False, None
+        policy, engine_reused, drop_lease = None, False, False
         cancelled = self.job_cancelled
         identity = f"native:{job_id}"
 
@@ -1310,7 +1405,7 @@ class Generator:
                 recipe = self.store.prepare_performance(recipe, cancelled=cancelled)
                 recipe = self.store.prepare_loras(recipe)
                 kind = "native"
-            reservation = self.admission.reserve(identity, recipe, kind, cancelled, on_wait=waiting)
+            reservation, policy = self._reserve_take(identity, recipe, kind, cancelled, waiting, output)
             reserved = True
             if kind == "native":
                 recipe = self.store.artifacts.launch(job_id, recipe, cancelled=cancelled)
@@ -1325,12 +1420,31 @@ class Generator:
                 self.store.prepare_loras(recipe)
             command = self.command_builder(recipe, output)
             warm_enabled, warm = self.warm_plan(command)
+            if policy["key"] is not None and (warm is None or engine_key(warm[0]) != policy["key"]):
+                self.admission.release(identity)
+                reserved = False
+                self._stop_warm()
+                reservation = self.admission.reserve(identity, recipe, kind, cancelled, on_wait=waiting)
+                reserved = True
+                policy["reason"] = "Engine inputs changed while waiting; using a cold reservation"
+                policy["resident"] = None
+                warm = None
+            if policy["decision"] is not None and not policy["decision"]["keep"]:
+                warm = None
             if warm:
-                # Starting or restarting the engine happens before the take is
-                # published as running, outside the studio lock.
-                self.warm.prepare(warm[0])
-            elif not warm_enabled:
-                self.warm.stop()
+                engine_reused = self.warm.matches(warm[0])
+                try:
+                    self.warm.prepare(warm[0], reuse_only=policy["resident"] is not None)
+                except ResidentEngineChanged as error:
+                    self.admission.release(identity)
+                    reserved = False
+                    self._stop_warm()
+                    reservation = self.admission.reserve(identity, recipe, kind, cancelled, on_wait=waiting)
+                    reserved = True
+                    policy["reason"], policy["resident"] = str(error) + "; using a cold reservation", None
+                    engine_reused, warm = False, None
+            elif not warm_enabled or policy["decision"] is not None:
+                self._stop_warm()
             with log_path.open("w") as log, self.lock:
                 if cancelled.is_set() or self.stop.is_set():
                     return
@@ -1360,9 +1474,28 @@ class Generator:
                             proc.terminate()
                     time.sleep(0.5)
             returncode = proc.wait()
+            resident_info = None
+            if warm and policy["supported"]:
+                resident_process = self.warm.resident_process()
+                if resident_process is not None:
+                    try:
+                        resident_info, reason = self.admission.retain_resident(identity, resident_process,
+                                                                              resident=self.warm_lease["id"] if self.warm_lease else None)
+                    except SchedulerUnavailable as error:
+                        reason = str(error)
+                    if resident_info is not None:
+                        self.warm_lease, self.warm_reason = resident_info, ""
+                    else:
+                        self.warm_reason, policy["reason"], drop_lease = reason, reason, True
             metrics = {"wall_seconds": time.monotonic() - started, "exit_code": returncode,
                        "command": command, "peak_process_memory_bytes": peak, "memory_note": self.monitor.note,
-                       "memory_reservation": reservation, "engine": "warm" if warm else "process"}
+                       "memory_reservation": reservation, "engine": "warm" if warm else "process", "engine_reused": engine_reused}
+            if policy["reason"] and (warm_enabled or policy["decision"] is not None):
+                metrics["warm_reason"] = policy["reason"]
+            if policy["decision"] is not None:
+                metrics["warm_fit"] = policy["decision"]["figures"]
+            if resident_info is not None:
+                metrics["resident"] = resident_info
             if warm:
                 metrics["memory_note"] += " Warm engine: sampled footprint of the shared engine process during this take."
             if self.monitor.libproc and not warm:
@@ -1413,6 +1546,11 @@ class Generator:
                     self.process = None
             if reserved:
                 self.admission.release(identity)
+            if drop_lease and self.warm_lease is not None:
+                self.admission.release_resident(self.warm_lease["id"])
+                self.warm_lease = None
+            if policy and policy["supported"] and (cancelled.is_set() or self.warm.resident_process() is None):
+                self._stop_warm()
             while True:
                 try:
                     with self.store.db() as db:
@@ -1452,7 +1590,7 @@ class Generator:
         if writer:
             writer.wait()
         self.thread.join()
-        self.warm.close()
+        self._stop_warm()
         # A standalone HTTP writer can still be unwinding a waiting admission.
         # Its slot is released only after its owned child and lease are reaped.
         with self.writer_gate:

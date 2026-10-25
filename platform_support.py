@@ -53,7 +53,8 @@ def settings():
             "model_file": saved.get("model_file", "yue2-3b-q4_0.gguf"),
             "vae_file": saved.get("vae_file", "yue2-vae-f16.gguf"),
             # Keep one engine process with resident weights between takes.
-            "warm_engine": saved.get("warm_engine", False)}
+            "warm_engine": saved.get("warm_engine", False),
+            "warm_engine_release_when_empty": saved.get("warm_engine_release_when_empty", False)}
 
 
 def configure(payload):
@@ -63,8 +64,9 @@ def configure(payload):
     current.update(payload)
     if current["backend"] not in ("metal", "cuda", "cpu"):
         raise ValueError("Choose Metal, NVIDIA CUDA, or CPU.")
-    if type(current["warm_engine"]) is not bool:
-        raise ValueError("Warm engine must be true or false.")
+    for key in ("warm_engine", "warm_engine_release_when_empty"):
+        if type(current[key]) is not bool:
+            raise ValueError(key.replace("_", " ").capitalize() + " must be true or false.")
     for key, minimum in (("threads", 1), ("device", 0)):
         if type(current[key]) is not int or current[key] < minimum:
             raise ValueError(f"{key.capitalize()} must be a whole number of at least {minimum}.")
@@ -90,7 +92,8 @@ def readiness():
                 "sidecars/yue2-generation-config.json", "sidecars/yue2-vae-config.json", "sidecars/yue2-qwen.tiktoken"]
     missing = [name for name in required if not (model_root / name).is_file()]
     from run import engine_capabilities
-    return {**value, "capabilities": engine_capabilities(value), "ready": Path(value["binary"]).is_file() and not missing,
+    return {**value, "memory_reserve_mb": max(0, int(os.environ.get("RIFF_MEMORY_RESERVE_MB", "0"))),
+            "capabilities": engine_capabilities(value), "ready": Path(value["binary"]).is_file() and not missing,
             "binary_ready": Path(value["binary"]).is_file(), "missing_models": missing,
             "platform": platform.system(), "architecture": platform.machine()}
 
@@ -238,12 +241,15 @@ class MemoryObserver:
         self.lock = threading.Lock()
         self.last, self.observed = None, 0
 
-    def snapshot(self):
+    def fresh_snapshot(self):
+        return self.snapshot(fresh=True)
+
+    def snapshot(self, fresh=False):
         with self.lock:
             now = time.monotonic()
             # Reuse one observation within a polling interval across writers
             # and generation workers; no repeated nvidia-smi processes per job.
-            if self.last is not None and now - self.observed < .5:
+            if not fresh and self.last is not None and now - self.observed < .5:
                 return self.last
             try:
                 host = _mac_memory() if platform.system() == "Darwin" else _linux_memory() if platform.system() == "Linux" else {}

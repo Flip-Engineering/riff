@@ -93,11 +93,8 @@ comment explaining that the default path is unchanged.
 
 - Not run on CUDA or on the production host (no remote or GPU access in this
   task). All real runs were Metal on an Apple M4.
-- Admission: the scheduler has no reservation for an idle warm engine; its
-  memory simply shows as unavailable. A warm take's estimate still includes the
-  weights it already holds, so while other model work is active it can wait
-  longer than needed. With nothing else active the scheduler admits it alone,
-  so it cannot deadlock.
+- Admission now supports versioned resident leases (see below). Older schedulers
+  and unmeasurable backends retain legacy admission without lease credit.
 - Only errors containing `compute failed` are treated as fatal. CUDA errors
   that abort inside ggml end the process, which Riff handles as a crash.
 - File changes are detected by stat identity (device, inode, size, mtime), not
@@ -172,9 +169,59 @@ Through the Python `WarmEngine` with real `run.build_command` commands (seed
 upload lines, no markers in take logs, identical WAV and `.codes.i32` output.
 Idle engine after one job: 2.86 GiB footprint; exit status 0 on stdin EOF.
 
-## Not done
+## Step 2 checkpoint (superseded by step 3 below)
 
 - No CUDA build or run; not deployed; nothing pushed.
 - No UI toggle for `warm_engine`.
 - Browser (`tests/*.mjs`) and `installer/test` suites were not run; they do not
   exercise the changed code.
+
+## Resident lease admission (#15 step 3)
+
+The scheduler advertises `resident: riff.resident.v1`. New resident update, fit,
+release and atomic release-if-idle messages carry that protocol version. A job
+names its lease with `resident` and `resident_protocol`; mismatches and missing
+leases are errors. Older schedulers receive no new operation or request field.
+No automatic study-set reuse is introduced for an older scheduler.
+
+A lease records measured idle process bytes, not its estimated peak. A matching
+take receives weight credit from the smaller of its own and the lease's
+`basis.weights`, capped by measured residency. Its incremental charge cannot
+fall below measured working usage. Shared PID usage is split once: the lease's
+baseline and the job's growth above it. Both are already absent from OS/device
+availability; only future growth is additionally reserved. The existing solo
+path and pressure rules still govern ordinary jobs. Metal uses the single host
+pool returned by `Resources`; CUDA host and device pools remain independent.
+
+Before a warm take, a fresh fit decision compares availability after active
+growth, the existing `RIFF_MEMORY_RESERVE_MB` and projected retained bytes with
+the largest actual other memory waiter. An existing lease uses measured bytes;
+a new engine uses estimated weight bytes. Pressure must be normal and required
+host/device observations known. Failed fits stop the old lease before acquiring
+a full cold reservation and run that take in its own process. Inputs/session
+changes during admission discard the old credit before launch.
+
+Defaults remain `warm_engine: false` and `warm_engine_release_when_empty: false`.
+With warm mode enabled, the engine stays resident between manual takes. The new
+release option checks both the local queue and all scheduler waiting/running
+model work. Its scheduler check, retirement and process stop are serialized
+against new admission. Completion of other model work wakes the idle worker.
+Cancel of a running take retires its engine and lease; queued cancellation does
+not. Saving engine settings wakes the worker to retire the old idle session.
+Both toggles and the effective environment memory reserve are visible in Studio.
+
+Take metrics retain `engine`, `memory_reservation`, `peak_process_memory_bytes`
+and `memory_note`. `warm_reason` explains fallback or lost reuse; `warm_fit`
+records raw availability, reserve, active-growth remainder, projected retention,
+largest waiters and pressure; `resident` records the versioned measured lease.
+`engine_reused` means the process/session was reused. It deliberately does not
+claim weights were already loaded: #47's separate `warm.hit` remains derived
+from native reuse and upload log lines. This change does not depend on #47 or
+replace its timings, queue or memory summaries.
+
+Model-free tests read real Linux `/proc` RSS for an owned fake engine and exercise
+the Python bridge/lifetime with controlled policy replies. Synthetic Elixir
+snapshots cover CUDA and unified Metal accounting. No new real-model benchmark,
+CUDA run or Metal hardware run qualifies this lease policy. The existing macOS
+process-footprint probe and CUDA per-process device source are reused; missing
+measurements retain legacy manual reuse without guessed credit and report why.

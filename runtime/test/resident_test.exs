@@ -136,6 +136,9 @@ defmodule Riff.Runtime.ResidentTest do
     {state, _} = request(state, "other", %{"host_peak" => 400}, snapshot(100))
     {_, no} = fit(state, snapshot(1_000, 0, "normal", 100))
     refute no["keep"]
+    assert no["figures"]["host_available"] == 1000
+    assert no["figures"]["reserve_bytes"] == 100
+    assert no["figures"]["host_available_after_active_growth"] == 899
     assert no["figures"]["largest_waiting_host"] == 400
     assert no["figures"]["additional_resident"]["host"] == 600
     assert no["figures"]["host_available_after_resident"] == 299
@@ -189,6 +192,22 @@ defmodule Riff.Runtime.ResidentTest do
       })
 
     assert yes["keep"]
+
+    assert yes["figures"]["device_reserve_bytes"] == %{"gpu" => 100}
+    assert yes["figures"]["device_pressure"] == %{"gpu" => "normal"}
+
+    {_, pressure} =
+      fit(
+        state,
+        put_in(snapshot(1_000, 700, "normal", 100), ["devices", "gpu", "pressure"], "warning"),
+        %{
+          "requirement" => requirement(1_000, 1_000),
+          "resident" => "engine"
+        }
+      )
+
+    refute pressure["keep"]
+    assert pressure["figures"]["device_pressure"] == %{"gpu" => "warning"}
 
     {_, no} =
       fit(state, snapshot(1_000, 699, "normal", 100), %{
