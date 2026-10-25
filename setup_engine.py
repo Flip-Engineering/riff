@@ -115,6 +115,87 @@ def apply_pinned_patches(checkout, source, manifest, run):
             raise ValueError("The engine source changed during setup. Its local changes have been preserved.")
 
 
+def queue_required():
+    """An explicitly configured queue is mandatory, even without the policy flag."""
+    required = os.environ.get("RIFF_REQUIRE_COMPILE_QUEUE", "0")
+    if required not in ("0", "1"):
+        raise ValueError("RIFF_REQUIRE_COMPILE_QUEUE must be 0 or 1.")
+    return required == "1" or any(key in os.environ for key in ("RIFF_COMPILE_QUEUE", "RIFF_COMPILE_QUEUE_STATE"))
+
+
+def prepare_queued(source, backend, run, jobs, cuda_arch, portable_sha):
+    """Keep queue artifacts and their absolute build paths outside active engines.
+
+    The maintained wrapper owns a fresh cwd and replaces its engines directory.
+    Retain this entire staging directory on success *and* failure: a selected
+    binary, queue entry or interrupted build may still refer to it.
+    """
+    parent = Path(os.environ.get("RIFF_NATIVE_BUILD_ROOT", str(WORKSPACE / "native-builds"))).expanduser().resolve()
+    parent.mkdir(parents=True, exist_ok=True)
+    stage = Path(tempfile.mkdtemp(prefix=backend + "-", dir=parent))
+    inputs = ["sources.json", "setup_engine.py", "paths.py", "platform_support.py",
+              "scripts/run_native_build_queued.sh", "scripts/build_cached_native.exs", "scripts/native_cache.exs",
+              "scripts/checkpoint_sha_identity.py", "scripts/compiler_cache_tool.json", ".github/workflows/ci.yml"]
+    inputs += [str(path.relative_to(source)) for path in sorted((source / "patches").glob("*.patch"))]
+    digest, records = hashlib.sha256(), []
+    for name in sorted(inputs):
+        incoming, target = source / name, stage / name
+        if incoming.is_symlink() or not incoming.is_file():
+            raise ValueError("Missing regular native build input: " + name)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(incoming, target)
+        data = target.read_bytes()
+        digest.update(name.encode() + b"\0" + data + b"\0")
+        records.append({"path": name, "sha256": hashlib.sha256(data).hexdigest()})
+    source_id = "sha256:" + digest.hexdigest()
+    (stage / "request.json").write_text(json.dumps({"source": str(source.resolve()), "source_id": source_id,
+                                                  "backend": backend, "inputs": records}, indent=2) + "\n")
+    environment = dict(os.environ, RIFF_HOME=str(stage), RIFF_NATIVE_BUILD_SOURCE_ID=source_id,
+                       RIFF_NATIVE_BUILD_OUTPUT=str(stage / ".native-build-queue"))
+    environment.pop("RIFF_NATIVE_BUILD_KEY_ONLY", None)
+    options = [backend, "--compile-only", "--jobs", str(jobs or 2)]
+    if cuda_arch:
+        options += ["--cuda-arch", cuda_arch]
+    if portable_sha:
+        options += ["--portable-sha"]
+    run(["nice", "-n", "19", "ionice", "-c", "3", "/bin/sh", "scripts/run_native_build_queued.sh", *options],
+        cwd=stage, env=environment)
+    receipt = json.loads((stage / "native-cache-receipts/build.json").read_text())
+    if (receipt.get("schema") != "riff.native-cache-build.v1" or receipt.get("backend") != backend or
+            receipt.get("build_exit_status") != 0):
+        raise ValueError("The queued native build receipt does not match this preparation.")
+    native_id = fingerprint(stage, receipt.get("sha256_backend"), receipt.get("sha256_identity"))
+    if receipt.get("native_fingerprint") != native_id:
+        raise ValueError("The queued native source fingerprint changed.")
+    build = stage / "engines" / (native_id + "-" + backend) / "build"
+    executable = build / "bin/audiocpp_cli"
+    if not executable.is_file() or not os.access(executable, os.X_OK):
+        raise ValueError("The queued build did not produce an audio.cpp executable.")
+    cmake = shutil.which("cmake")
+    if not cmake:
+        raise ValueError("CMake is required to validate the queued native build.")
+    configuration = {"build_directory": str(build), "source_directory": str(build.parent / "audio.cpp"),
+                     "cmake": cmake,
+                     "configuration": [cmake, *cmake_command(build.parent / "audio.cpp", build, backend, cuda_arch, portable_sha)]}
+    run(["elixir", str(ROOT / "scripts/validate_native_build.exs"), str(stage), backend, json.dumps(configuration)],
+        cwd=stage, env=environment)
+    if receipt.get("sha256_backend") is not None:
+        from scripts.checkpoint_sha_identity import runtime_receipt_path, verify_runtime
+        runtime = runtime_receipt_path(executable)
+        identity = receipt.get("sha256_identity")
+        if not runtime.is_file() or not isinstance(identity, dict):
+            raise ValueError("The queued build is missing its system crypto receipt.")
+        actual = json.loads(runtime.read_text())
+        if any(actual.get(key) != value for key, value in identity.items()):
+            raise ValueError("The queued build system crypto identity changed.")
+        verify_runtime(executable)
+    (stage / "prepared.json").write_text(json.dumps({"backend": backend, "binary": str(executable),
+        "binary_sha256": hashlib.sha256(executable.read_bytes()).hexdigest(), "source_id": source_id,
+        "native_fingerprint": native_id, "inputs_sha256": receipt["inputs_sha256"],
+        "namespace_sha256": receipt["namespace_sha256"]}, indent=2) + "\n")
+    return executable
+
+
 def prepare(backend, run=None, source=ROOT, download_models=True, jobs=None, cuda_arch=None, activate=True, probe=True,
             configure_only=False, portable_sha=False):
     source = Path(source)
@@ -127,44 +208,47 @@ def prepare(backend, run=None, source=ROOT, download_models=True, jobs=None, cud
     if jobs is not None and (type(jobs) is not int or jobs < 1):
         raise ValueError("Build jobs must be a positive whole number.")
     if run is None:
-        def run(command, cwd=None):
+        def run(command, cwd=None, env=None):
             print(" ".join(map(str, command)), flush=True)
-            subprocess.run(command, cwd=cwd, check=True)
-    cmake = shutil.which("cmake") or cmake_executable(run, manifest["cmake"])
-    sha_backend, sha_identity = None, None
-    if "patches/yue2-weight-system-sha.patch" in manifest["local_patches"]:
-        from scripts.checkpoint_sha_identity import discover
-        sha_identity = discover(portable_sha, source, cmake=cmake)
-        sha_backend = sha_identity["sha256_backend"]
-        if sha_backend == "portable":
-            print("System crypto is unavailable or disabled; using portable SHA-256.", flush=True)
-    build_root = WORKSPACE / "engines" / (fingerprint(source, sha_backend, sha_identity) + "-" + backend)
-    checkout, build = build_root / "audio.cpp", build_root / "build"
-    build_root.mkdir(parents=True, exist_ok=True)
-    if not (checkout / ".git").exists():
-        run(["git", "init", str(checkout)])
-        run(["git", "-C", str(checkout), "remote", "add", "origin", manifest["runtime_repo"]])
-    revision = subprocess.run(["git", "-C", str(checkout), "rev-parse", "HEAD"], capture_output=True, text=True)
-    if revision.returncode or revision.stdout.strip() != manifest["runtime_commit"]:
-        if revision.returncode == 0:
-            raise ValueError("The managed engine checkout changed. Select a separate engine path instead of overwriting it.")
-        run(["git", "-C", str(checkout), "fetch", "--depth", "1", "origin", manifest["runtime_commit"]])
-        run(["git", "-C", str(checkout), "checkout", "--detach", "FETCH_HEAD"])
-    apply_pinned_patches(checkout, source, manifest, run)
-    configuration = [cmake, *cmake_command(checkout, build, backend, cuda_arch, portable_sha)]
-    run(configuration)
-    if configure_only:
-        return {"backend": backend, "source_directory": str(checkout), "build_directory": str(build),
-                "cmake": cmake, "configuration": configuration}
-    # Leave half the CPUs available to the studio and desktop; adjustable by the user.
-    build_jobs = jobs or max(1, (platform_support.default_threads() + 1) // 2)
-    run([cmake, "--build", str(build), "--parallel", str(build_jobs), "--target", "audiocpp_cli"])
-    executable = build / "bin/audiocpp_cli"
-    if not executable.is_file():
-        raise ValueError("The build did not produce an audio.cpp executable.")
-    if sha_identity is not None:
-        from scripts.checkpoint_sha_identity import write_runtime_receipt
-        write_runtime_receipt(executable, build, sha_identity)
+            subprocess.run(command, cwd=cwd, env=env, check=True)
+    if not configure_only and queue_required():
+        executable = prepare_queued(source, backend, run, jobs, cuda_arch, portable_sha)
+    else:
+        cmake = shutil.which("cmake") or cmake_executable(run, manifest["cmake"])
+        sha_backend, sha_identity = None, None
+        if "patches/yue2-weight-system-sha.patch" in manifest["local_patches"]:
+            from scripts.checkpoint_sha_identity import discover
+            sha_identity = discover(portable_sha, source, cmake=cmake)
+            sha_backend = sha_identity["sha256_backend"]
+            if sha_backend == "portable":
+                print("System crypto is unavailable or disabled; using portable SHA-256.", flush=True)
+        build_root = WORKSPACE / "engines" / (fingerprint(source, sha_backend, sha_identity) + "-" + backend)
+        checkout, build = build_root / "audio.cpp", build_root / "build"
+        build_root.mkdir(parents=True, exist_ok=True)
+        if not (checkout / ".git").exists():
+            run(["git", "init", str(checkout)])
+            run(["git", "-C", str(checkout), "remote", "add", "origin", manifest["runtime_repo"]])
+        revision = subprocess.run(["git", "-C", str(checkout), "rev-parse", "HEAD"], capture_output=True, text=True)
+        if revision.returncode or revision.stdout.strip() != manifest["runtime_commit"]:
+            if revision.returncode == 0:
+                raise ValueError("The managed engine checkout changed. Select a separate engine path instead of overwriting it.")
+            run(["git", "-C", str(checkout), "fetch", "--depth", "1", "origin", manifest["runtime_commit"]])
+            run(["git", "-C", str(checkout), "checkout", "--detach", "FETCH_HEAD"])
+        apply_pinned_patches(checkout, source, manifest, run)
+        configuration = [cmake, *cmake_command(checkout, build, backend, cuda_arch, portable_sha)]
+        run(configuration)
+        if configure_only:
+            return {"backend": backend, "source_directory": str(checkout), "build_directory": str(build),
+                    "cmake": cmake, "configuration": configuration}
+        # Leave half the CPUs available to the studio and desktop; adjustable by the user.
+        build_jobs = jobs or max(1, (platform_support.default_threads() + 1) // 2)
+        run([cmake, "--build", str(build), "--parallel", str(build_jobs), "--target", "audiocpp_cli"])
+        executable = build / "bin/audiocpp_cli"
+        if not executable.is_file():
+            raise ValueError("The build did not produce an audio.cpp executable.")
+        if sha_identity is not None:
+            from scripts.checkpoint_sha_identity import write_runtime_receipt
+            write_runtime_receipt(executable, build, sha_identity)
     if probe:
         if backend == "metal":
             from engine_devices import probe_metal_device
