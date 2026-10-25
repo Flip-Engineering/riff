@@ -89,6 +89,10 @@
     "patches/yue2-weight-adapters.patch": {
       "bytes": 47359,
       "sha256": "49bcda5084a9de945a5317845455487e11760ce34b44605ccc8b2410ca849f35"
+    },
+    "patches/yue2-weight-digests.patch": {
+      "bytes": 14130,
+      "sha256": "327ff727d52c9c4fda1a9c344edbc47fd6500001b8e67e0d2e814a1355a8cca8"
     }
   },
   "native_capabilities": {

@@ -149,6 +149,130 @@ class FormatTests(LoRAFixture):
             self.assertEqual(info["stage"], file["stage"])
         self.assertEqual(installed["files"][1]["projection_mode"], ["delta"])
 
+    def test_receipt_bytes_count_each_referenced_file_once(self):
+        source = self.adapter(style="comfyui", combined=True)
+        installed = self.library.import_local([source])
+        directory = self.library.root / installed["id"]
+        referenced = {installed["files"][0]["original_file"], *(f["engine_file"] for f in installed["files"])}
+        self.assertEqual(len(referenced), 3)
+        self.assertEqual(installed["bytes"], sum((directory / name).stat().st_size for name in referenced))
+        self.assertEqual(installed["bytes"], source.stat().st_size + sum(f["engine_bytes"] for f in installed["files"]))
+        self.assertEqual(self.library.get(installed["id"])["bytes"], installed["bytes"])
+
+    def test_receipt_bytes_ignore_unreferenced_files_in_staging(self):
+        source = self.adapter(style="comfyui", combined=True)
+        expected = self.library.import_local([source])["bytes"]
+        self.library.delete(self.library.list()[0]["id"])
+        normalize = lora_format.normalize
+        def normalize_with_scratch(source, destination, *args, **kwargs):
+            result = normalize(source, destination, *args, **kwargs)
+            Path(destination).with_name("scratch-" + Path(destination).name).write_bytes(b"\0" * 4096)
+            return result
+        with patch.object(lora_format, "normalize", normalize_with_scratch):
+            installed = self.library.import_local([source])
+        self.assertTrue(list((self.library.root / installed["id"]).glob("scratch-*")))
+        self.assertEqual(installed["bytes"], expected)
+
+    def test_existing_receipt_with_inflated_bytes_reads_back_corrected(self):
+        installed = self.library.import_local([self.adapter(style="comfyui", combined=True)])
+        path = self.library.root / installed["id"] / "manifest.json"
+        stored = json.loads(path.read_text())
+        stored["bytes"] += 16 * 1024 * 1024
+        path.write_text(json.dumps(stored))
+        self.assertEqual(self.library.get(installed["id"])["bytes"], installed["bytes"])
+        self.assertEqual({item["id"]: item["bytes"] for item in self.library.list()}, {installed["id"]: installed["bytes"]})
+        self.assertEqual(json.loads(path.read_text())["bytes"], stored["bytes"])
+
+    def test_missing_referenced_file_keeps_stored_receipt_bytes(self):
+        installed = self.library.import_local([self.adapter(style="comfyui", combined=True)])
+        directory = self.library.root / installed["id"]
+        (directory / installed["files"][0]["engine_file"]).unlink()
+        self.assertEqual(self.library.get(installed["id"])["bytes"], installed["bytes"])
+
+    def install(self):
+        installed = self.library.import_local([self.adapter(style="comfyui", combined=True)])
+        return installed, self.library.root / installed["id"]
+
+    def test_retained_bytes_cover_the_whole_installation_and_payload_bytes_stay_separate(self):
+        installed, directory = self.install()
+        manifest_size = (directory / "manifest.json").stat().st_size
+        read = self.library.get(installed["id"])
+        # A combined AR/NAR import holds the original and the two engine files, and nothing else.
+        self.assertEqual(sorted(path.name for path in directory.iterdir() if path.is_file()),
+                         sorted([installed["files"][0]["original_file"], *(f["engine_file"] for f in installed["files"]), "manifest.json"]))
+        self.assertEqual(read["bytes"], installed["bytes"])
+        self.assertEqual(read["retained_bytes"], installed["bytes"] + manifest_size)
+        self.assertEqual(read["unreferenced"], [])
+        listed = self.library.list()[0]
+        self.assertEqual((listed["bytes"], listed["retained_bytes"]), (read["bytes"], read["retained_bytes"]))
+
+    def test_a_stray_file_changes_only_the_retained_figure(self):
+        installed, directory = self.install()
+        before = self.library.get(installed["id"])
+        (directory / "leftover.tmp").write_bytes(b"x" * 5000)
+        (directory / "nested").mkdir()
+        (directory / "nested" / "more.bin").write_bytes(b"y" * 700)
+        after = self.library.get(installed["id"])
+        self.assertEqual(after["id"], installed["id"])
+        self.assertEqual(after["bytes"], before["bytes"])
+        self.assertEqual(after["retained_bytes"], before["retained_bytes"] + 5700)
+        self.assertEqual(after["unreferenced"], [{"path": "leftover.tmp", "bytes": 5000},
+                                                 {"path": "nested/more.bin", "bytes": 700}])
+        self.assertEqual({key: value for key, value in after.items() if key not in ("retained_bytes", "unreferenced")},
+                         {key: value for key, value in before.items() if key not in ("retained_bytes", "unreferenced")})
+
+    def test_retained_figures_are_computed_on_read_and_never_stored(self):
+        installed, directory = self.install()
+        (directory / "leftover.tmp").write_bytes(b"x" * 10)
+        self.library.get(installed["id"])
+        self.library.update(installed["id"], {"notes": "edited"})
+        stored = json.loads((directory / "manifest.json").read_text())
+        self.assertNotIn("retained_bytes", stored)
+        self.assertNotIn("unreferenced", stored)
+        self.assertEqual(self.library.get(installed["id"])["retained_bytes"],
+                         sum(path.stat().st_size for path in directory.rglob("*") if path.is_file()))
+
+    def test_nothing_is_removed_unless_clean_is_called_and_clean_removes_only_unreferenced_files(self):
+        installed, directory = self.install()
+        digests = {path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in directory.iterdir() if path.is_file()}
+        baseline = self.library.get(installed["id"])["retained_bytes"]
+        (directory / "leftover.tmp").write_bytes(b"x" * 5000)
+        (directory / "nested").mkdir()
+        (directory / "nested" / "more.bin").write_bytes(b"y" * 700)
+        self.library.list()
+        self.library.get(installed["id"])
+        self.assertTrue((directory / "leftover.tmp").exists())
+        result = self.library.clean(installed["id"])
+        self.assertEqual(result["removed"], [{"path": "leftover.tmp", "bytes": 5000}, {"path": "nested/more.bin", "bytes": 700}])
+        self.assertEqual((result["reclaimed_bytes"], result["retained_bytes"], result["bytes"]), (5700, baseline, installed["bytes"]))
+        self.assertFalse((directory / "nested").exists())
+        self.assertEqual({path.name: hashlib.sha256(path.read_bytes()).hexdigest()
+                          for path in directory.iterdir() if path.is_file()}, digests)
+        self.assertEqual(self.library.get(installed["id"])["unreferenced"], [])
+        again = self.library.clean(installed["id"])
+        self.assertEqual((again["removed"], again["reclaimed_bytes"]), ([], 0))
+
+    def test_clean_keeps_a_directory_that_holds_a_referenced_file_and_never_follows_links(self):
+        installed, directory = self.install()
+        elsewhere = self.root / "elsewhere"
+        elsewhere.mkdir()
+        outside = elsewhere / "outside.bin"
+        outside.write_bytes(b"precious")
+        (directory / "link.bin").symlink_to(outside)
+        (directory / "linked-dir").symlink_to(elsewhere, target_is_directory=True)
+        read = self.library.get(installed["id"])
+        self.assertEqual({item["path"] for item in read["unreferenced"]}, {"link.bin", "linked-dir"})
+        result = self.library.clean(installed["id"])
+        self.assertEqual({item["path"] for item in result["removed"]}, {"link.bin", "linked-dir"})
+        self.assertEqual(outside.read_bytes(), b"precious")
+        self.assertFalse((directory / "link.bin").is_symlink() or (directory / "linked-dir").is_symlink())
+        self.assertEqual(self.library.get(installed["id"])["bytes"], installed["bytes"])
+
+    def test_clean_rejects_unknown_and_malformed_installations(self):
+        for value in ("0" * 64, "../outside", "short"):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                self.library.clean(value)
+
     def test_full_deltas_are_not_silently_changed_to_replacements(self):
         for mode in ("delta", "replacement"):
             source = self.adapter(mode + ".safetensors", stage="nar", style="comfyui", full=mode)
