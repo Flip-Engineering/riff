@@ -1,0 +1,10 @@
+available_devices=3
+MTL:0 "Apple M1" [GPU]
+BLAS:0 "Accelerate" [ACCEL]
+CPU:0 "Apple M1" [CPU]
+select with: --backend <cuda|hip|vulkan|metal|cpu> --device <index>
+ggml_metal_device_init: GPU name:   MTL0 (Apple M1)
+ggml_metal_device_init: GPU family: MTLGPUFamilyApple7  (1007)
+ggml_metal_device_init: GPU family: MTLGPUFamilyCommon3 (3003)
+ggml_metal_device_init: simdgroup reduction   = true
+ggml_metal_device_init: simdgroup matrix mul. = true
