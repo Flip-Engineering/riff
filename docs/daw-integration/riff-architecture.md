@@ -126,10 +126,12 @@ lora, score_format, prefix_contract)`.
   `riff.resident.v1`, requirement `{host_peak>=0, device_peak>=0, device
   required if device_peak>0}` (`runtime/lib/riff/runtime/admission.ex:350-370`).
 
-## 7. Integration extension points (where a DAW backend plugs in)
+## 7. Candidate integration seams (source facts, no design selected)
 
-The operation/job/receipt layer is operation-agnostic; a new `daw.render`
-operation needs exactly these additions:
+These are where the current codebase would mechanically accommodate a new
+operation; they are observations for later evaluation, not a proposed
+`daw.render` contract. IF a future proposal adds an operation, the code
+locations involved would be:
 
 1. **Operation name + dispatch**: dotted names match the existing route
    pattern (`/api/v1/operations/{name}`, `studio.py:43`,
@@ -144,7 +146,7 @@ operation needs exactly these additions:
 4. **Job→process mapping**: `Generator.execute` kind branch
    (`studio_core.py:1415-1421`) + command builder (`native_command`
    `studio_core.py:896-916` → `run.build_command` `run.py:40-124`). A DAW
-   render adds a kind + builder for the DAW binary; spawn, cancellation,
+   render would add a kind + builder for the chosen binary; spawn, cancellation,
    progress markers, and artifact capture are reused.
 5. **Provenance**: new artifact reference kinds extend
    `resolve_references` (`operations.py:343-368`) with a fixed-key pick-list
