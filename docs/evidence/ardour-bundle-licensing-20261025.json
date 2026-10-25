@@ -1,0 +1,311 @@
+{
+  "bundle": ".probe-tmp/deepseek/ardour-bin/ardour-root/Ardour_x86_64-9.8.241-demo",
+  "lv2_dir_count": 34,
+  "ardour_core": {
+    "binary": "bin/ardour-9.8.241",
+    "binary_license_string": "not detected in binary strings",
+    "note": "source tag 9.8 COPYING is GPLv2+ with plugin clarification; demo bundle carries no top-level COPYING file"
+  },
+  "plugins": [
+    {
+      "plugin_dir": "Harrison.lv2",
+      "category": "proprietary/license-gated (demo-mode strings; exclude)",
+      "doap_license": [
+        "<http://usefulinc.com/doap/licenses/gpl>"
+      ],
+      "has_harrison_license_interface": true
+    },
+    {
+      "plugin_dir": "a-comp.lv2",
+      "category": "GPL family (version not stated in TTL)",
+      "doap_license": [
+        "\"GPL v2+\"",
+        "<http://usefulinc.com/doap/licenses/gpl>"
+      ],
+      "has_harrison_license_interface": false
+    },
+    {
+      "plugin_dir": "a-delay.lv2",
+      "category": "GPL family (version not stated in TTL)",
+      "doap_license": [
+        "\"GPL v2+\""
+      ],
+      "has_harrison_license_interface": false
+    },
+    {
+      "plugin_dir": "a-eq.lv2",
+      "category": "GPL family (version not stated in TTL)",
+      "doap_license": [
+        "\"GPL v2+\""
+      ],
+      "has_harrison_license_interface": false
+    },
+    {
+      "plugin_dir": "a-exp.lv2",
+      "category": "GPL family (version not stated in TTL)",
+      "doap_license": [
+        "<http://usefulinc.com/doap/licenses/gpl>"
+      ],
+      "has_harrison_license_interface": false
+    },
+    {
+      "plugin_dir": "a-fluidsynth.lv2",
+      "category": "GPL family (version not stated in TTL)",
+      "doap_license": [
+        "<http://usefulinc.com/doap/licenses/gpl>"
+      ],
+      "has_harrison_license_interface": false
+    },
+    {
+      "plugin_dir": "a-reverb.lv2",
+      "category": "GPL family (version not stated in TTL)",
+      "doap_license": [
+        "<http://usefulinc.com/doap/licenses/gpl>"
+      ],
+      "has_harrison_license_interface": false
+    },
+    {
+      "plugin_dir": "atom.lv2",
+      "category": "ISC",
+      "doap_license": [
+        "<http://opensource.org/licenses/isc>"
+      ],
+      "has_harrison_license_interface": false
+    },
+    {
+      "plugin_dir": "buf-size.lv2",
+      "category": "no explicit doap:license in TTL",
+      "doap_license": [],
+      "has_harrison_license_interface": false
+    },
+    {
+      "plugin_dir": "core.lv2",
+      "category": "ISC",
+      "doap_license": [
+        "<http://opensource.org/licenses/isc>",
+        "suggested, but not required (for wrappers).\""
+      ],
+      "has_harrison_license_interface": false
+    },
+    {
+      "plugin_dir": "data-access.lv2",
+      "category": "ISC",
+      "doap_license": [
+        "<http://opensource.org/licenses/isc>"
+      ],
+      "has_harrison_license_interface": false
+    },
+    {
+      "plugin_dir": "dynmanifest.lv2",
+      "category": "ISC",
+      "doap_license": [
+        "<http://opensource.org/licenses/isc>"
+      ],
+      "has_harrison_license_interface": false
+    },
+    {
+      "plugin_dir": "event.lv2",
+      "category": "ISC",
+      "doap_license": [
+        "<http://opensource.org/licenses/isc>"
+      ],
+      "has_harrison_license_interface": false
+    },
+    {
+      "plugin_dir": "gmsynth.lv2",
+      "category": "GPL family (version not stated in TTL)",
+      "doap_license": [
+        "<http://usefulinc.com/doap/licenses/gpl>"
+      ],
+      "has_harrison_license_interface": false
+    },
+    {
+      "plugin_dir": "instance-access.lv2",
+      "category": "ISC",
+      "doap_license": [
+        "<http://opensource.org/licenses/isc>"
+      ],
+      "has_harrison_license_interface": false
+    },
+    {
+      "plugin_dir": "log.lv2",
+      "category": "no explicit doap:license in TTL",
+      "doap_license": [],
+      "has_harrison_license_interface": false
+    },
+    {
+      "plugin_dir": "midi.lv2",
+      "category": "ISC",
+      "doap_license": [
+        "<http://opensource.org/licenses/isc>"
+      ],
+      "has_harrison_license_interface": false
+    },
+    {
+      "plugin_dir": "morph.lv2",
+      "category": "no explicit doap:license in TTL",
+      "doap_license": [],
+      "has_harrison_license_interface": false
+    },
+    {
+      "plugin_dir": "options.lv2",
+      "category": "no explicit doap:license in TTL",
+      "doap_license": [],
+      "has_harrison_license_interface": false
+    },
+    {
+      "plugin_dir": "parameters.lv2",
+      "category": "no explicit doap:license in TTL",
+      "doap_license": [],
+      "has_harrison_license_interface": false
+    },
+    {
+      "plugin_dir": "patch.lv2",
+      "category": "ISC",
+      "doap_license": [
+        "<http://opensource.org/licenses/isc>"
+      ],
+      "has_harrison_license_interface": false
+    },
+    {
+      "plugin_dir": "port-groups.lv2",
+      "category": "ISC",
+      "doap_license": [
+        "<http://opensource.org/licenses/isc>"
+      ],
+      "has_harrison_license_interface": false
+    },
+    {
+      "plugin_dir": "port-props.lv2",
+      "category": "no explicit doap:license in TTL",
+      "doap_license": [],
+      "has_harrison_license_interface": false
+    },
+    {
+      "plugin_dir": "presets.lv2",
+      "category": "ISC",
+      "doap_license": [
+        "<http://opensource.org/licenses/isc>"
+      ],
+      "has_harrison_license_interface": false
+    },
+    {
+      "plugin_dir": "reasonablesynth.lv2",
+      "category": "GPL family (version not stated in TTL)",
+      "doap_license": [
+        "<http://usefulinc.com/doap/licenses/gpl>"
+      ],
+      "has_harrison_license_interface": false
+    },
+    {
+      "plugin_dir": "resize-port.lv2",
+      "category": "no explicit doap:license in TTL",
+      "doap_license": [],
+      "has_harrison_license_interface": false
+    },
+    {
+      "plugin_dir": "schemas.lv2",
+      "category": "no explicit doap:license in TTL",
+      "doap_license": [
+        "a rdf:Property"
+      ],
+      "has_harrison_license_interface": false
+    },
+    {
+      "plugin_dir": "state.lv2",
+      "category": "ISC",
+      "doap_license": [
+        "<http://opensource.org/licenses/isc>"
+      ],
+      "has_harrison_license_interface": false
+    },
+    {
+      "plugin_dir": "time.lv2",
+      "category": "no explicit doap:license in TTL",
+      "doap_license": [],
+      "has_harrison_license_interface": false
+    },
+    {
+      "plugin_dir": "ui.lv2",
+      "category": "ISC",
+      "doap_license": [
+        "<http://opensource.org/licenses/isc>"
+      ],
+      "has_harrison_license_interface": false
+    },
+    {
+      "plugin_dir": "units.lv2",
+      "category": "ISC",
+      "doap_license": [
+        "<http://opensource.org/licenses/isc>"
+      ],
+      "has_harrison_license_interface": false
+    },
+    {
+      "plugin_dir": "uri-map.lv2",
+      "category": "ISC",
+      "doap_license": [
+        "<http://opensource.org/licenses/isc>"
+      ],
+      "has_harrison_license_interface": false
+    },
+    {
+      "plugin_dir": "urid.lv2",
+      "category": "ISC",
+      "doap_license": [
+        "<http://opensource.org/licenses/isc>"
+      ],
+      "has_harrison_license_interface": false
+    },
+    {
+      "plugin_dir": "worker.lv2",
+      "category": "no explicit doap:license in TTL",
+      "doap_license": [],
+      "has_harrison_license_interface": false
+    }
+  ],
+  "key_artifacts": {
+    "lib/LV2/gmsynth.lv2/gmsynth.so": {
+      "sha256": "0ff559f0d732b951c4edd08d549c0ab1dc700e7cd881a7adda191ddfe332d7bd",
+      "bytes": 1258104
+    },
+    "lib/LV2/gmsynth.lv2/gmsynth.ttl": {
+      "sha256": "cea126a1a60d701aa268e51e49969e19f261ade1cbc44316d36525c312b65e4c",
+      "bytes": 1941
+    },
+    "lib/LV2/gmsynth.lv2/GeneralUser_LV2.sf2": {
+      "sha256": "c278464b823daf9c52106c0957f752817da0e52964817ff682fe3a8d2f8446ce",
+      "bytes": 32322864
+    },
+    "lib/LV2/a-fluidsynth.lv2/a-fluidsynth.so": {
+      "sha256": "313a1f51b0cf064fc3039ade782fab44efae638e5dffbcad15076a593a5fd36c",
+      "bytes": 379904
+    },
+    "lib/LV2/reasonablesynth.lv2/reasonablesynth.so": {
+      "sha256": "0b53a77656d85e96c5ffc18c8f56defe69f6174524881ff82de8a59145375a09",
+      "bytes": 20936
+    }
+  },
+  "generaluser": {
+    "version": "GeneralUser GS 2.0.2",
+    "license": "GeneralUser GS License v2.0 (custom, not OSI)",
+    "terms_excerpt": [
+      "You may use GeneralUser GS without restriction for your own music creation, private or commercial.",
+      "Please feel free to use it in your software projects, and to modify the SoundFont bank or its packaging to suit your needs.",
+      "Some samples were taken from other free banks; the author cannot be 100% sure of their provenance and warns this uncertainty may concern commercial software products."
+    ],
+    "redistribution_clearance": "not established; legal review required"
+  },
+  "integration_note": "Separate-process execution of Ardour does not by itself resolve plugin/SF2 distribution terms; this inventory covers the actual extracted artifacts. The render path uses only Ardour + gmsynth + GeneralUser_LV2.sf2. Harrison.lv2 is proprietary/license-gated and is excluded from any redistributed render path.",
+  "schema": "riff.daw.ardour-bundle-licensing.v1",
+  "created_utc": "2026-10-25T23:34:00.378550+00:00",
+  "issue": "https://github.com/Flip-Engineering/riff/issues/78",
+  "author": "riff-daw-deepseek-20261025",
+  "package_sha1": "0007d1664fe92c0d982c8c5e5bfea1b07dc1a98d",
+  "package_url": "https://nightly.ardour.org/d/A_Linux_x86_64_FREE/Ardour-9.8.241-demo-x86_64.run",
+  "ardour_source": {
+    "tag": "9.8",
+    "commit": "059c95883d8158b03f632056ba36e5c7de91ef28"
+  },
+  "clearance": "not established; legal review required for redistribution of gmsynth and GeneralUser_LV2.sf2; Harrison.lv2 excluded"
+}

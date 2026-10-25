@@ -145,6 +145,10 @@ Proven:
   snapshot headlessly.
 - `ardour9-export` renders the generated session's master bus headlessly.
 - The second generated track contributes audibly to the master.
+- Per-track **solo-render stems** are proven for N=2 and N=4: each track can
+  be soloed, rendered separately, and the stems reconstruct the master within
+  **1 LSB (N=2)** / **2 LSB (N=4)**. This is not Ardour's GUI stem-export
+  dialog, but the audio stems are real, distinct and complete.
 
 Not proven:
 
@@ -152,8 +156,8 @@ Not proven:
   names, instrument maps, tempo/meter changes or region layouts.
 - Headless **MIDI import** through a supported API; the probe edited a
   template and replaced source files, not `Session::import_files`.
-- Per-track **stem** export; `ardour9-export` is a master mixdown. The
-  contribution check is not a stem.
+- Ardour's **GUI stem-export dialog**, raw pre-fader stems, batch stem export,
+  or stem export without changing session solo state.
 - Distinct gmsynth programs/banks; both tracks use the default program 0.
 - Reopening and editing the generated project after export; only load/save/
   render were exercised.
@@ -167,7 +171,8 @@ the pattern "template XML + per-voice MIDI sources + Lua instruments + CLI
 export" is feasible and produced a two-track audible master. The next step is
 not another one-off: it is a deterministic generator that can be re-run from
 a score manifest, plus validation for 4–8 voices, explicit program mappings,
-stem export, reopening, and macOS. If that generator proves brittle against
+reopening, macOS, and (separately) a supported batch-export path if GUI-free
+raw stems are required. If that generator proves brittle against
 Ardour session-format changes, the fallback is a first-class headless engine
 (Tracktion Engine) rather than claiming Ardour headless authoring.
 
