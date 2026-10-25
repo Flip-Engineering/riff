@@ -414,11 +414,6 @@ def _referenced(files):
     return {name for file in files for name in (file["original_file"], file["engine_file"], file["config_file"]) if name}
 
 
-def _payload_bytes(directory, files):
-    """Total size of the distinct files that the manifest descriptors reference."""
-    return sum(lora_format.regular_file(Path(directory) / name)[1] for name in _referenced(files))
-
-
 def _retained(directory, files):
     """What an installation holds on disk: (total bytes of every file under it, unreferenced files).
 
@@ -507,6 +502,10 @@ class LoRALibrary:
             raise ValueError("Adapter file escapes its installed library entry.")
         return path
 
+    def _payload_bytes(self, directory, files):
+        """Total size of the distinct files that the manifest descriptors reference, inside their entry."""
+        return sum(lora_format.regular_file(self._file(Path(directory), name))[1] for name in _referenced(files))
+
     def _identity(self, value):
         files = value["files"]
         return {"schema": value["schema"], "base_model": value["base_model"], "stages": value["stages"],
@@ -529,7 +528,7 @@ class LoRALibrary:
             # directory. Report the referenced payload size; `bytes` is not part
             # of the identity, and a missing file keeps the stored value.
             try:
-                manifest["bytes"] = _payload_bytes(path.parent, manifest["files"])
+                manifest["bytes"] = self._payload_bytes(path.parent, manifest["files"])
             except (KeyError, TypeError, ValueError):
                 pass
             # Everything the installation occupies, computed on read like `bytes` and never stored:
@@ -642,7 +641,7 @@ class LoRALibrary:
             if not manifest["name"]:
                 raise ValueError("Give the adapter a name.")
             manifest["id"] = hashlib.sha256(canonical(self._identity(manifest)).encode()).hexdigest()
-            manifest["bytes"] = _payload_bytes(staging, files)
+            manifest["bytes"] = self._payload_bytes(staging, files)
             manifest["adapter_bytes"] = sum(f["adapter_bytes"] for f in files)
             manifest["merge_scratch_bytes"] = max(f["merge_scratch_bytes"] for f in files)
             _atomic_json(staging / "manifest.json", manifest)
