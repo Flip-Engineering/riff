@@ -21,8 +21,18 @@ desktop release.
 | Host | Engine | Requirements |
 |---|---|---|
 | Apple Silicon macOS | Metal or CPU | Python 3.9+, Apple command-line tools |
-| Linux x86-64 | NVIDIA CUDA or CPU | Python 3.9+, Git, C++ compiler, Python venv support |
+| Linux x86-64 | NVIDIA CUDA or CPU | Python 3.9+, Git, C++ compiler, Python venv support; optional: OpenSSL libcrypto development files for faster model verification |
 | NVIDIA acceleration | CUDA | Compatible NVIDIA driver, CUDA Toolkit and `nvcc` on PATH |
+
+Linux engine builds discover dynamic system libcrypto at build time. It is never
+bundled or statically linked; without the development headers and library, setup
+builds portable SHA-256. After a distro upgrade, a changed or missing recorded
+libcrypto makes the managed engine unavailable with a clear message to run
+**Download and set up** in Settings. Rerunning setup discovers the current system,
+chooses a new library-bound engine fingerprint and rebuilds, or selects portable
+SHA if Crypto is unavailable. Models and recordings are retained. Terminal users
+can rerun `python3 setup_engine.py --backend cpu` (use `--backend cuda` for CUDA),
+or explicitly choose `--portable-sha`.
 
 The native Windows desktop is not currently supported. A Linux environment such
 as WSL2 may be used, but WSL2 has not been included in hardware validation.

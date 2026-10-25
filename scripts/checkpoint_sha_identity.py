@@ -7,6 +7,7 @@ CMake module, the caller's compiler environment, and the same portable override.
 import argparse
 import hashlib
 import json
+from functools import lru_cache
 from pathlib import Path
 import subprocess
 import sys
@@ -16,6 +17,74 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 PATCH = "patches/yue2-weight-system-sha.patch"
 MODULE = "cmake/riff_checkpoint_sha.cmake"
+REPAIR_MESSAGE = ("The engine's system crypto library changed or is unavailable. "
+                  "Choose Download and set up in Settings to rebuild for this system.")
+
+
+def file_identity(path):
+    value = Path(path).stat()
+    return (value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns, value.st_ctime_ns)
+
+
+@lru_cache(maxsize=16)
+def library_digest(path, identity):
+    if file_identity(path) != identity:
+        raise ValueError(REPAIR_MESSAGE)
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as source:
+        for block in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(block)
+    if file_identity(path) != identity:
+        raise ValueError(REPAIR_MESSAGE)
+    return digest.hexdigest()
+
+
+def runtime_receipt_path(binary):
+    return Path(binary).resolve().with_name("riff-sha256.json")
+
+
+def verify_runtime(binary):
+    """Guard managed engines before cached capability lookup or a new launch.
+
+    Unmanaged/older engines have no receipt. Recordings and models are untouched.
+    A library change invalidates this managed engine, rather than running it and
+    exposing a dynamic-linker error. Rebuilding remains an explicit setup action.
+    """
+    path = runtime_receipt_path(binary)
+    if not path.exists():
+        return
+    try:
+        receipt = json.loads(path.read_text())
+        if receipt["sha256_backend"] != "openssl-evp":
+            return
+        library = Path(receipt["library_path"]).resolve(strict=True)
+        if library_digest(str(library), file_identity(library)) != receipt["libcrypto_sha256"]:
+            raise ValueError(REPAIR_MESSAGE)
+    except (OSError, KeyError, ValueError) as error:
+        raise ValueError(REPAIR_MESSAGE) from error
+
+
+def write_runtime_receipt(binary, build, expected):
+    receipt = dict(expected)
+    entries = {}
+    for line in (Path(build) / "CMakeCache.txt").read_text().splitlines():
+        if "=" in line and ":" in line.split("=", 1)[0]:
+            key, value = line.split("=", 1)
+            entries[key.split(":", 1)[0]] = value
+    if entries.get("RIFF_CHECKPOINT_SHA_BACKEND") != receipt["sha256_backend"]:
+        raise ValueError("System crypto selection changed during the build; run setup again.")
+    if receipt["sha256_backend"] == "openssl-evp":
+        try:
+            library = Path(entries["OPENSSL_CRYPTO_LIBRARY"]).resolve(strict=True)
+        except (OSError, KeyError) as error:
+            raise ValueError("System libcrypto changed during the build; run setup again.") from error
+        if library_digest(str(library), file_identity(library)) != receipt["libcrypto_sha256"]:
+            raise ValueError("System libcrypto changed during the build; run setup again.")
+        receipt["library_path"] = str(library)
+    path = runtime_receipt_path(binary)
+    temporary = path.with_suffix(".json.tmp")
+    temporary.write_text(json.dumps(receipt, sort_keys=True) + "\n")
+    temporary.replace(path)
 
 
 def module_text(source=ROOT):

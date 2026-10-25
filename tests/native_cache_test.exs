@@ -83,6 +83,8 @@ defmodule Riff.NativeCacheTest do
              Cache.source!(root, "openssl-evp").engine_fingerprint
 
     assert Cache.source!(root, "portable").sha256 == Cache.source!(root, "openssl-evp").sha256
+    library = Path.join(root, "libcrypto-fixture.so")
+    File.write!(library, "library-v1")
     config = configured(root)
     [cmake | args] = config["configuration"]
 
@@ -94,7 +96,13 @@ defmodule Riff.NativeCacheTest do
     before = Cache.configured!(root, config, "cpu", %{})
 
     {_, 0} =
-      System.cmd(cmake, args ++ ["-DRIFF_CHECKPOINT_SHA_BACKEND:STRING=openssl-evp"],
+      System.cmd(
+        cmake,
+        args ++
+          [
+            "-DRIFF_CHECKPOINT_SHA_BACKEND:STRING=openssl-evp",
+            "-DOPENSSL_CRYPTO_LIBRARY:FILEPATH=#{library}"
+          ],
         stderr_to_stdout: true
       )
 
@@ -102,6 +110,13 @@ defmodule Riff.NativeCacheTest do
     assert before.descriptor["sha256_backend"] == "portable"
     assert after_change.descriptor["sha256_backend"] == "openssl-evp"
     refute before.sha256 == after_change.sha256
+    digest = Cache.hash_file(library)
+    assert after_change.descriptor["sha256_system_library"]["sha256"] == digest
+    File.write!(library, "library-v2")
+    refute Cache.configured!(root, config, "cpu", %{}).sha256 == after_change.sha256
+
+    refute Cache.source!(root, "openssl-evp", %{"libcrypto_sha256" => digest}).engine_fingerprint ==
+             Cache.source!(root, "openssl-evp", %{"libcrypto_sha256" => Cache.hash_file(library)}).engine_fingerprint
   end
 
   test "complete patch verification rejects missing, added and changed patch bytes", %{root: root} do

@@ -29,13 +29,16 @@ def cmake_executable(run, version):
     return str(local)
 
 
-def fingerprint(source=ROOT, sha_backend=None):
+def fingerprint(source=ROOT, sha_backend=None, sha_identity=None):
     manifest = json.loads((Path(source) / "sources.json").read_text())
     digest = hashlib.sha256(manifest["runtime_commit"].encode())
     for path in sorted((Path(source) / "patches").glob("*.patch")):
         digest.update(path.read_bytes())
     if sha_backend is not None:
         digest.update(b"\0sha256_backend=" + sha_backend.encode())
+    for key in ("libcrypto_sha256", "openssl_headers_sha256"):
+        if sha_identity and key in sha_identity:
+            digest.update(b"\0" + key.encode() + b"=" + sha_identity[key].encode())
     return digest.hexdigest()[:16]
 
 
@@ -128,11 +131,14 @@ def prepare(backend, run=None, source=ROOT, download_models=True, jobs=None, cud
             print(" ".join(map(str, command)), flush=True)
             subprocess.run(command, cwd=cwd, check=True)
     cmake = cmake_executable(run, manifest["cmake"])
-    sha_backend = None
+    sha_backend, sha_identity = None, None
     if "patches/yue2-weight-system-sha.patch" in manifest["local_patches"]:
         from scripts.checkpoint_sha_identity import discover
-        sha_backend = discover(portable_sha, source, cmake=cmake)["sha256_backend"]
-    build_root = WORKSPACE / "engines" / (fingerprint(source, sha_backend) + "-" + backend)
+        sha_identity = discover(portable_sha, source, cmake=cmake)
+        sha_backend = sha_identity["sha256_backend"]
+        if sha_backend == "portable":
+            print("System crypto is unavailable or disabled; using portable SHA-256.", flush=True)
+    build_root = WORKSPACE / "engines" / (fingerprint(source, sha_backend, sha_identity) + "-" + backend)
     checkout, build = build_root / "audio.cpp", build_root / "build"
     build_root.mkdir(parents=True, exist_ok=True)
     if not (checkout / ".git").exists():
@@ -156,6 +162,9 @@ def prepare(backend, run=None, source=ROOT, download_models=True, jobs=None, cud
     executable = build / "bin/audiocpp_cli"
     if not executable.is_file():
         raise ValueError("The build did not produce an audio.cpp executable.")
+    if sha_identity is not None:
+        from scripts.checkpoint_sha_identity import write_runtime_receipt
+        write_runtime_receipt(executable, build, sha_identity)
     if probe:
         run([str(executable), "--list-devices"])
     value = {"backend": backend, "binary": str(executable)}

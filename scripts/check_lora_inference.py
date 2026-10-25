@@ -318,7 +318,7 @@ def main():
         sha_backend = build_receipt.get("sha256_backend")
         if sha_backend not in ("portable", "commoncrypto", "openssl-evp"):
             raise ValueError("Build receipt has no supported SHA-256 backend")
-        native_key = fingerprint(sha_backend=sha_backend)
+        native_key = fingerprint(sha_backend=sha_backend, sha_identity=build_receipt.get("sha256_identity"))
         receipt["engine"] = {"binary_sha256": digest(binary), "key": native_key + "-" + args.backend,
                              "sha256_backend": sha_backend,
                              "runtime_commit": manifest["runtime_commit"], "patches": manifest["local_patches"]}

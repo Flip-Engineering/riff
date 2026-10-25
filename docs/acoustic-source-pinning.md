@@ -204,11 +204,19 @@ this change supplies no library payload or portable binary distribution promise.
 `implementation.yue2.sha256` in native CLI discovery records identifies
 `openssl-evp`, `commoncrypto` or `portable`. The CMake cache also records
 `RIFF_CHECKPOINT_SHA_BACKEND`; the queued build receipt records `sha256_backend`.
-The **engine fingerprint and build directory include the discovered choice**, and
+The **engine fingerprint and build directory include the discovered choice and
+libcrypto/header digests**, and
 configured compiler-cache input identity includes it too. The homelab queue's
 artifact key uses the same pinned CMake module to discover the choice and binds
 libcrypto/header hashes when selected. This keeps a portable artifact from being
-restored for a crypto-enabled build, or vice versa.
+restored for a crypto-enabled build, or vice versa. Managed engines also retain
+an adjacent private crypto receipt. Before capability cache lookup or a launch,
+Riff verifies its recorded library digest against current file identity. A
+changed or missing library makes the engine unavailable with a setup/rebuild
+message; it does not launch the stale engine and expose a linker error. Library
+hashes are cached against device/inode/size/mtime/ctime, so ordinary unchanged
+polls do not reread libcrypto. Setup rediscovers and fingerprints the new library,
+or builds portable when unavailable; it does not rebuild during a music request.
 
 EVP initialization, update or finalization errors fail hashing; they cannot yield
 an accepted partial digest. Existing file-read, identity and session retirement

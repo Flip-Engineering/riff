@@ -52,6 +52,8 @@ def build_command(*, lyrics, style, max_seconds, steps, cot, seed, threads, outp
     if score_file and (abc or cot == "off"):
         raise ValueError("Use a saved score with melody or full planning and an empty ABC input.")
     settings = platform_runtime.settings()
+    from scripts.checkpoint_sha_identity import verify_runtime
+    verify_runtime(settings["binary"])
     config_path = Path(settings["model_root"]) / "sidecars/yue2-vae-config.json"
     config = json.loads(config_path.read_text()) if config_path.exists() else {}
     token_rate = config.get("sample_rate", 48000) / config.get("downsampling_ratio", 1920)
@@ -171,6 +173,11 @@ def _engine_capabilities(binary, model_root, identity):
 
 def engine_capabilities(settings=None):
     settings = settings or platform_runtime.settings()
+    from scripts.checkpoint_sha_identity import verify_runtime
+    try:
+        verify_runtime(settings["binary"])
+    except ValueError as error:
+        return {"exact_score_replay": False, "error": str(error)}
     try:
         binary = str(Path(settings["binary"]).resolve())
         return dict(_engine_capabilities(binary, str(Path(settings["model_root"]).resolve()), file_identity(binary)))
@@ -179,6 +186,8 @@ def engine_capabilities(settings=None):
 
 
 def score_contract(settings=None):
+    from scripts.checkpoint_sha_identity import verify_runtime
+    verify_runtime((settings or platform_runtime.settings())["binary"])
     settings = settings or platform_runtime.settings()
     capability = engine_capabilities(settings)
     if not capability["exact_score_replay"]:
@@ -228,6 +237,8 @@ def decoder_options(value):
 
 def build_decode_command(acoustic_file, output, decoder=None):
     settings = platform_runtime.settings()
+    from scripts.checkpoint_sha_identity import verify_runtime
+    verify_runtime(settings["binary"])
     decoder_contract(settings)
     values = decoder_options({} if decoder is None else decoder)
     command = [settings["binary"], "--task", "gen", "--family", "yue2", "--model", settings["model_root"],
@@ -245,6 +256,8 @@ def build_decode_command(acoustic_file, output, decoder=None):
 
 
 def require_solver(solver, binary):
+    from scripts.checkpoint_sha_identity import verify_runtime
+    verify_runtime(binary)
     """An older/custom engine must not silently ignore an explicit AB2 request."""
     if solver == "ab2":
         result = subprocess.run([str(binary), "--family", "yue2", "--model", platform_runtime.settings()["model_root"], "--help"],

@@ -34,8 +34,9 @@ defmodule Riff.CachedNativeBuild do
         stderr_to_stdout: true
       )
 
-    selected_sha = :json.decode(String.trim(discovery))["sha256_backend"]
-    source = Cache.source!(app, selected_sha)
+    sha_identity = :json.decode(String.trim(discovery))
+    selected_sha = sha_identity["sha256_backend"]
+    source = Cache.source!(app, selected_sha, sha_identity)
 
     build =
       Path.join([
@@ -122,6 +123,7 @@ defmodule Riff.CachedNativeBuild do
           "native_fingerprint" => source.engine_fingerprint,
           "source_sha256" => source.sha256,
           "sha256_backend" => identity.entries["RIFF_CHECKPOINT_SHA_BACKEND"],
+          "sha256_identity" => sha_identity,
           "inputs_sha256" => identity.sha256,
           "namespace_sha256" => identity.namespace_sha256,
           "cache_enabled" => cache.enabled,
