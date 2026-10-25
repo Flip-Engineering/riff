@@ -91,10 +91,14 @@ class Families:
                 submissions.append(self.operations.submit("study.create", request, recipe, key=f"family:{family_id}:{position}", family_id=family_id))
             except (ValueError, KeyError) as error:
                 if position:
-                    # Some studies are already queued: say so, and that the same request finishes the rest.
+                    # Some studies are already queued. Repeating the request finishes them only when it carries
+                    # the same key; without one it would start a second family, so name this one instead.
                     message = error.args[0] if error.args else str(error)
-                    raise type(error)(f"Study {position + 1} was not queued ({message}). The family has {position} of "
-                                      f"{len(recipes)} studies; repeat the same request to add the rest.") from None
+                    have = f"The family has {position} of {len(recipes)} studies"
+                    advice = ("repeat the same request to add the rest." if key else
+                              f"it is family {family_id}; read it with GET /api/v1/families/{family_id} and add the rest with "
+                              "study.create and that family_id. Repeating this request would start a second family.")
+                    raise type(error)(f"Study {position + 1} was not queued ({message}). {have}; {advice}") from None
                 raise
         return {"family_id": family_id, "replayed": replayed, "submissions": submissions, "family": self.get(family_id)}
 

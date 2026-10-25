@@ -98,7 +98,9 @@ label and a place for provenance without changing any recorded take.
   (same `idempotency_key`, same `takes` in the same order) after a failure
   therefore queues only the studies still missing and returns the same family.
   Changing or reordering `takes` under one key is a different request and is
-  refused with 409. There is no limit on the number of takes.
+  refused with 409. Without an `idempotency_key` a repeat starts a second family, so a refusal
+  part way then names the family: read it with `GET /api/v1/families/{id}` and add the rest with
+  `study.create` and that `family_id`. There is no limit on the number of takes.
 - `study.create` with `family_id` adds a study to an existing family. The family's
   declared `shared` inputs are provenance and are never merged into that study; send
   the whole recipe.

@@ -169,6 +169,22 @@ class RefusalTests(FamilyFixture):
         self.assertEqual((status, done["replayed"], len(done["submissions"]), len(self.jobs())), (200, True, 3, 3))
         self.assertEqual(len(self.families()), 1)
 
+    def test_a_keyless_family_refused_part_way_names_the_family_instead_of_saying_repeat(self):
+        original, calls = Operations.submit, []
+        def refuse_second(operations, *arguments, **keywords):
+            calls.append(arguments[0])
+            if len(calls) == 2:
+                raise ValueError("Setup is still running. Your draft is saved.")
+            return original(operations, *arguments, **keywords)
+        with patch.object(Operations, "submit", refuse_second):
+            status, error = self.create(shared=BASE, takes=[{"seed": "1"}, {"seed": "2"}])
+        family_id = self.families()[0]["family_id"]
+        self.assertEqual(status, 400)
+        self.assertIn("The family has 1 of 2 studies", error["error"])
+        self.assertIn(family_id, error["error"])
+        self.assertIn("study.create", error["error"])
+        self.assertNotIn("repeat the same request", error["error"])
+
     def test_a_family_with_no_takes_can_still_be_read(self):
         with self.store.db() as db:
             db.execute("INSERT INTO families (id,name,created,updated) VALUES (?,?,?,?)", ("a" * 32, "Empty", 1.0, 1.0))
