@@ -93,6 +93,10 @@
     "patches/yue2-weight-digests.patch": {
       "bytes": 14130,
       "sha256": "327ff727d52c9c4fda1a9c344edbc47fd6500001b8e67e0d2e814a1355a8cca8"
+    },
+    "patches/yue2-weight-system-sha.patch": {
+      "bytes": 5783,
+      "sha256": "b336a88679cd9674f684ef51f2f4ff9f5eada1aa4b05b2bde27fce7cf18df616"
     }
   },
   "native_capabilities": {

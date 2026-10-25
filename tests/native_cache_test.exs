@@ -16,7 +16,7 @@ defmodule Riff.NativeCacheTest do
     File.mkdir_p!(root)
 
     for name <-
-          ~w(setup_engine.py paths.py platform_support.py scripts/native_cache.exs scripts/build_cached_native.exs scripts/compiler_cache_tool.json .github/workflows/ci.yml) do
+          ~w(setup_engine.py paths.py platform_support.py scripts/checkpoint_sha_identity.py scripts/native_cache.exs scripts/build_cached_native.exs scripts/compiler_cache_tool.json .github/workflows/ci.yml) do
       File.mkdir_p!(Path.dirname(Path.join(root, name)))
       File.cp!(Path.join(@repo, name), Path.join(root, name))
     end
@@ -76,6 +76,32 @@ defmodule Riff.NativeCacheTest do
       "cmake" => cmake,
       "configuration" => [cmake | arguments]
     }
+  end
+
+  test "configured SHA backend changes the native cache fingerprint", %{root: root} do
+    refute Cache.source!(root, "portable").engine_fingerprint ==
+             Cache.source!(root, "openssl-evp").engine_fingerprint
+
+    assert Cache.source!(root, "portable").sha256 == Cache.source!(root, "openssl-evp").sha256
+    config = configured(root)
+    [cmake | args] = config["configuration"]
+
+    {_, 0} =
+      System.cmd(cmake, args ++ ["-DRIFF_CHECKPOINT_SHA_BACKEND:STRING=portable"],
+        stderr_to_stdout: true
+      )
+
+    before = Cache.configured!(root, config, "cpu", %{})
+
+    {_, 0} =
+      System.cmd(cmake, args ++ ["-DRIFF_CHECKPOINT_SHA_BACKEND:STRING=openssl-evp"],
+        stderr_to_stdout: true
+      )
+
+    after_change = Cache.configured!(root, config, "cpu", %{})
+    assert before.descriptor["sha256_backend"] == "portable"
+    assert after_change.descriptor["sha256_backend"] == "openssl-evp"
+    refute before.sha256 == after_change.sha256
   end
 
   test "complete patch verification rejects missing, added and changed patch bytes", %{root: root} do

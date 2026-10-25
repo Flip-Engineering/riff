@@ -1,0 +1,138 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index b5edbfc..9e835d1 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -1368,6 +1368,9 @@ audiocpp_add_model(yue2
+         engine::models::yue2::make_yue2_loader
+ )
+ 
++include(cmake/riff_checkpoint_sha.cmake)
++target_link_libraries(engine_model_yue2 PRIVATE riff_checkpoint_sha)
++
+ audiocpp_add_model(supertonic
+     SOURCES
+         src/models/supertonic/assets.cpp
+@@ -1845,6 +1848,10 @@ add_library(engine_runtime STATIC
+     ${AUDIOCPP_RUNTIME_OBJECTS}
+ )
+ 
++if ("yue2" IN_LIST AUDIOCPP_LINKED_MODELS)
++    target_link_libraries(engine_runtime PUBLIC riff_checkpoint_sha)
++endif()
++
+ add_library(cjson_vendor STATIC
+     external/cJSON/cJSON.c
+ )
+diff --git a/cmake/riff_checkpoint_sha.cmake b/cmake/riff_checkpoint_sha.cmake
+new file mode 100644
+index 0000000..3e9d10e
+--- /dev/null
++++ b/cmake/riff_checkpoint_sha.cmake
+@@ -0,0 +1,23 @@
++# System SHA is optional; never download, bundle or select a static libcrypto.
++option(RIFF_CHECKPOINT_SYSTEM_SHA "Discover the platform system SHA-256 library" ON)
++add_library(riff_checkpoint_sha INTERFACE)
++set(backend portable)
++if(RIFF_CHECKPOINT_SYSTEM_SHA)
++    if(APPLE)
++        set(backend commoncrypto)
++    elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
++        set(OPENSSL_USE_STATIC_LIBS FALSE)
++        find_package(OpenSSL QUIET COMPONENTS Crypto)
++        if(OpenSSL_FOUND AND TARGET OpenSSL::Crypto AND
++           NOT OPENSSL_CRYPTO_LIBRARY MATCHES "\\.a$")
++            set(backend openssl-evp)
++            target_compile_definitions(riff_checkpoint_sha INTERFACE RIFF_CHECKPOINT_OPENSSL_SHA=1)
++            target_link_libraries(riff_checkpoint_sha INTERFACE OpenSSL::Crypto)
++        endif()
++    endif()
++endif()
++if(backend STREQUAL "portable")
++    target_compile_definitions(riff_checkpoint_sha INTERFACE RIFF_CHECKPOINT_PORTABLE_SHA=1)
++endif()
++set(RIFF_CHECKPOINT_SHA_BACKEND "${backend}" CACHE INTERNAL "Selected SHA-256 implementation" FORCE)
++message(STATUS "Riff checkpoint SHA-256: ${backend}")
+diff --git a/include/engine/models/yue2/acoustic_checkpoint.h b/include/engine/models/yue2/acoustic_checkpoint.h
+index 73c9815..5bde486 100644
+--- a/include/engine/models/yue2/acoustic_checkpoint.h
++++ b/include/engine/models/yue2/acoustic_checkpoint.h
+@@ -22,6 +22,7 @@ struct FileIdentity {
+ };
+ FileIdentity file_identity(const std::filesystem::path & path);
+ void require_unchanged(const std::filesystem::path & path, const FileIdentity & expected);
++const char * sha_backend() noexcept;
+ Digest hash_bytes(const void * bytes, size_t size);
+ Digest hash_file(const std::filesystem::path & path);
+ Digest hash_i32(const std::vector<int32_t> & values);
+diff --git a/src/models/yue2/acoustic_checkpoint.cpp b/src/models/yue2/acoustic_checkpoint.cpp
+index 4f619d7..99e56af 100644
+--- a/src/models/yue2/acoustic_checkpoint.cpp
++++ b/src/models/yue2/acoustic_checkpoint.cpp
+@@ -22,6 +22,9 @@
+ #include <fcntl.h>
+ #include <unistd.h>
+ #endif
++#if defined(RIFF_CHECKPOINT_OPENSSL_SHA) && !defined(RIFF_CHECKPOINT_PORTABLE_SHA)
++#include <openssl/evp.h>
++#endif
+ #if defined(__APPLE__)
+ #include <CommonCrypto/CommonDigest.h>
+ #include <mach-o/dyld.h>
+@@ -40,7 +43,26 @@ constexpr char kMagic[8] = {'R','I','F','F','Y','A','C','1'};
+     throw std::runtime_error(std::string("Yue2 acoustic checkpoint: ") + message);
+ }
+ 
+-#if defined(__APPLE__) && !defined(RIFF_CHECKPOINT_PORTABLE_SHA)
++#if defined(RIFF_CHECKPOINT_OPENSSL_SHA) && !defined(RIFF_CHECKPOINT_PORTABLE_SHA)
++class Sha256 {
++    std::unique_ptr<EVP_MD_CTX, decltype(&EVP_MD_CTX_free)> context_{EVP_MD_CTX_new(), EVP_MD_CTX_free};
++public:
++    Sha256() {
++        if (!context_ || EVP_DigestInit_ex(context_.get(), EVP_sha256(), nullptr) != 1)
++            fail("cannot initialize system SHA-256");
++    }
++    void update(const void * bytes, size_t size) {
++        if (size && EVP_DigestUpdate(context_.get(), bytes, size) != 1)
++            fail("cannot update system SHA-256");
++    }
++    Digest finish() {
++        Digest out{}; unsigned size = 0;
++        if (EVP_DigestFinal_ex(context_.get(), out.data(), &size) != 1 || size != out.size())
++            fail("cannot finalize system SHA-256");
++        return out;
++    }
++};
++#elif defined(__APPLE__) && !defined(RIFF_CHECKPOINT_PORTABLE_SHA)
+ #pragma clang diagnostic push
+ #pragma clang diagnostic ignored "-Wdeprecated-declarations"
+ class Sha256 {
+@@ -345,6 +367,17 @@ FileIdentity file_identity(const std::filesystem::path & path) {
+ void require_unchanged(const std::filesystem::path & path,const FileIdentity & expected) {
+     if (!(file_identity(path)==expected)) fail("a source file changed during the operation");
+ }
++const char * sha_backend() noexcept {
++#if defined(RIFF_CHECKPOINT_PORTABLE_SHA)
++    return "portable";
++#elif defined(RIFF_CHECKPOINT_OPENSSL_SHA)
++    return "openssl-evp";
++#elif defined(__APPLE__)
++    return "commoncrypto";
++#else
++    return "portable";
++#endif
++}
+ Digest hash_bytes(const void * bytes,size_t size) { Sha256 hash;hash.update(bytes,size);return hash.finish(); }
+ Digest hash_file(const std::filesystem::path & path) {
+     auto file=open_read(path);const auto before=descriptor_identity(file.get());
+diff --git a/src/models/yue2/session.cpp b/src/models/yue2/session.cpp
+index abd1660..ba509be 100644
+--- a/src/models/yue2/session.cpp
++++ b/src/models/yue2/session.cpp
+@@ -206,6 +206,7 @@ runtime::ModelCliInterface yue2_cli_interface() {
+         {"feature.yue2.acoustic_checkpoint", "1"},
+         {"feature.yue2.acoustic_decode", "1"},
+         {"format.yue2.acoustic", checkpoint::kFormat},
++        {"implementation.yue2.sha256", checkpoint::sha_backend()},
+         {"feature.yue2.keep_resident", "1"},
+         {"format.yue2.jobs", "riff.jobs.v1"},
+         {"feature.yue2.lora", "1"},

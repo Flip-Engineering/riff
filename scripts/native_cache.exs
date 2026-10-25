@@ -1,7 +1,7 @@
 defmodule Riff.NativeCache do
   @moduledoc "Compiler-object cache inputs; cached build trees and model files are never restored."
   @schema "riff.native-cache.v1"
-  @drivers ~w(setup_engine.py paths.py platform_support.py)
+  @drivers ~w(setup_engine.py paths.py platform_support.py scripts/checkpoint_sha_identity.py)
   @policy ~w(scripts/native_cache.exs scripts/build_cached_native.exs scripts/compiler_cache_tool.json .github/workflows/ci.yml)
   @flags ~w(CC CXX CUDACXX CUDAHOSTCXX CFLAGS CXXFLAGS CPPFLAGS CUDAFLAGS NVCC_PREPEND_FLAGS NVCC_APPEND_FLAGS LDFLAGS SDKROOT MACOSX_DEPLOYMENT_TARGET CMAKE_GENERATOR CMAKE_TOOLCHAIN_FILE CMAKE_OSX_ARCHITECTURES)
 
@@ -47,7 +47,7 @@ defmodule Riff.NativeCache do
     %{"path" => name, "bytes" => File.stat!(path).size, "sha256" => hash_file(path)}
   end
 
-  def source!(app) do
+  def source!(app, sha_backend \\ nil) do
     manifest = json(Path.join(app, "sources.json"))
     declared = manifest |> Map.fetch!("local_patches") |> Map.keys() |> Enum.sort()
 
@@ -76,7 +76,11 @@ defmodule Riff.NativeCache do
     }
 
     legacy =
-      digest([manifest["runtime_commit"] | Enum.map(actual, &File.read!(Path.join(app, &1)))])
+      digest([
+        manifest["runtime_commit"],
+        Enum.map(actual, &File.read!(Path.join(app, &1))),
+        if(sha_backend, do: [<<0>>, "sha256_backend=", sha_backend], else: [])
+      ])
       |> binary_part(0, 16)
 
     %{descriptor: descriptor, sha256: identity(descriptor), engine_fingerprint: legacy}
@@ -173,7 +177,14 @@ defmodule Riff.NativeCache do
     flags =
       entries
       |> Enum.filter(fn {name, _} ->
-        String.starts_with?(name, ["CMAKE_", "ENGINE_", "GGML_", "AUDIOCPP_"])
+        String.starts_with?(name, [
+          "CMAKE_",
+          "ENGINE_",
+          "GGML_",
+          "AUDIOCPP_",
+          "RIFF_CHECKPOINT_",
+          "OPENSSL_"
+        ])
       end)
       |> Enum.reject(fn {name, _} ->
         String.contains?(name, [
@@ -226,6 +237,7 @@ defmodule Riff.NativeCache do
     descriptor = %{
       "schema" => @schema,
       "native_source" => source.descriptor,
+      "sha256_backend" => entries["RIFF_CHECKPOINT_SHA_BACKEND"],
       "namespace" => namespace,
       "configuration_arguments_sha256" =>
         identity(normalize(configuration["configuration"], roots)),

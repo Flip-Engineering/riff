@@ -13,7 +13,8 @@ defmodule Riff.CachedNativeBuild do
           jobs: :integer,
           cuda_arch: :string,
           compile_only: :boolean,
-          build_only: :boolean
+          build_only: :boolean,
+          portable_sha: :boolean
         ]
       )
 
@@ -25,7 +26,16 @@ defmodule Riff.CachedNativeBuild do
 
     app = Path.expand("..", __DIR__)
     workspace = Path.expand(System.get_env("RIFF_HOME", app))
-    source = Cache.source!(app)
+    python = System.find_executable("python3") || raise("Python required")
+    discovery_args = if options[:portable_sha], do: ["--portable-sha"], else: []
+
+    {discovery, 0} =
+      System.cmd(python, [Path.join(app, "scripts/checkpoint_sha_identity.py") | discovery_args],
+        stderr_to_stdout: true
+      )
+
+    selected_sha = :json.decode(String.trim(discovery))["sha256_backend"]
+    source = Cache.source!(app, selected_sha)
 
     build =
       Path.join([
@@ -65,6 +75,10 @@ defmodule Riff.CachedNativeBuild do
            do: raise("Native setup and cache build paths differ")
 
     identity = Cache.configured!(app, configuration, options[:backend])
+
+    unless identity.entries["RIFF_CHECKPOINT_SHA_BACKEND"] == selected_sha,
+      do: raise("System SHA selection changed during native configuration")
+
     output = Path.join(workspace, "native-cache-receipts")
     File.mkdir_p!(output)
     Cache.write_json(Path.join(output, "inputs.json"), identity.descriptor)
@@ -107,6 +121,7 @@ defmodule Riff.CachedNativeBuild do
           "backend" => options[:backend],
           "native_fingerprint" => source.engine_fingerprint,
           "source_sha256" => source.sha256,
+          "sha256_backend" => identity.entries["RIFF_CHECKPOINT_SHA_BACKEND"],
           "inputs_sha256" => identity.sha256,
           "namespace_sha256" => identity.namespace_sha256,
           "cache_enabled" => cache.enabled,
