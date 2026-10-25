@@ -7,7 +7,7 @@ executes the owner step; implementation/test workers must not run it against the
 real queue or owner installation.
 
 The pinned helper is [prepare_release_0_6_31.py](../scripts/prepare_release_0_6_31.py),
-SHA-256 `625672e80f1f99b4fd8ed68051aef5c24bccad7184634faa99d2d9a5feffc4a5`.
+SHA-256 `7bdca6d9ae6542bf9c4c5406bcaa3b855877a45b26df97eb00835dcce68f4a59`.
 It uses explicit checks and rejects `-O`, `-OO` and `PYTHONOPTIMIZE`. Before staging
 or submitting a build it checks owner/archive/queue/tool access and an actual OTP
 `:json` encode/decode round trip. The build and imported Python validation use the
@@ -17,7 +17,8 @@ such as `CC`/`CXX` remain visible and are bound by native build receipts.
 
 ## Preconditions and privileged copy
 
-The install owner is `atari2036`. The host must provide that account with queue
+Choose the existing install-owner account and an owned persistent staging parent
+on the host build volume. The host must provide that account with queue
 executable/state access, Python 3.9+, Git, CMake, C++, CUDA `nvcc`, Elixir/OTP with
 `:json`, `nice` and `ionice` on its PATH. Confirm the owner toolchain environment
 before execution; the worker checkout and worker's private toolchain directories
@@ -33,16 +34,20 @@ execution does not depend on access to the worker checkout.
 
 ```sh
 set -eu
-prep_source=/mnt/nvme4tb/ci-runners/baton2-native-homelab/home/worktrees/riff-managed-update-queue-20261025/scripts/prepare_release_0_6_31.py
-prep_parent=/mnt/nvme4tb/riff-managed-update-atari2036
-prep_group=$(id -gn atari2036)
-printf '%s  %s\n' 625672e80f1f99b4fd8ed68051aef5c24bccad7184634faa99d2d9a5feffc4a5 "$prep_source" | sha256sum --check -
+: "${RIFF_PREP_SOURCE:?absolute path to the reviewed helper}"
+: "${RIFF_PREP_PARENT:?new persistent staging directory on the build volume}"
+: "${RIFF_INSTALL_OWNER:?existing install-owner account}"
+prep_source=$RIFF_PREP_SOURCE
+prep_parent=$RIFF_PREP_PARENT
+prep_owner=$RIFF_INSTALL_OWNER
+prep_group=$(id -gn "$prep_owner")
+printf '%s  %s\n' 7bdca6d9ae6542bf9c4c5406bcaa3b855877a45b26df97eb00835dcce68f4a59 "$prep_source" | sha256sum --check -
 mkdir -m 0700 "$prep_parent"
-chown "atari2036:$prep_group" "$prep_parent"
-install -m 0400 -o atari2036 -g "$prep_group" "$prep_source" "$prep_parent/prepare_release_0_6_31.py"
+chown "$prep_owner:$prep_group" "$prep_parent"
+install -m 0400 -o "$prep_owner" -g "$prep_group" "$prep_source" "$prep_parent/prepare_release_0_6_31.py"
 curl --fail --location --proto '=https' --proto-redir '=https' --output "$prep_parent/riff-v0.6.31.tar.gz" https://github.com/Flip-Engineering/riff/releases/download/v0.6.31/riff-v0.6.31.tar.gz
 printf '%s  %s\n' 9b4b9e2dfa25495d22230030e4850928956b77109e7a2cc462db8dd80ac5a0f3 "$prep_parent/riff-v0.6.31.tar.gz" | sha256sum --check -
-chown "atari2036:$prep_group" "$prep_parent/riff-v0.6.31.tar.gz"
+chown "$prep_owner:$prep_group" "$prep_parent/riff-v0.6.31.tar.gz"
 chmod 0400 "$prep_parent/riff-v0.6.31.tar.gz"
 ```
 
@@ -54,13 +59,15 @@ checksum before extraction.
 ## Exact install-owner command
 
 After the copy and toolchain preconditions pass, run the following **as
-atari2036**, not as root. This recipe intentionally does not embed a sudo command.
+the specified install owner**, not as root. This recipe intentionally does not embed a sudo command.
 
 ```sh
 set -eu
-cd /mnt/nvme4tb/riff-managed-update-atari2036
-printf '%s\n' '625672e80f1f99b4fd8ed68051aef5c24bccad7184634faa99d2d9a5feffc4a5  prepare_release_0_6_31.py' | sha256sum --check -
-nice -n 19 ionice -c 3 python3 prepare_release_0_6_31.py --archive /mnt/nvme4tb/riff-managed-update-atari2036/riff-v0.6.31.tar.gz --stage-parent /mnt/nvme4tb/riff-managed-update-atari2036
+: "${RIFF_PREP_PARENT:?owned persistent staging directory}"
+: "${RIFF_INSTALL_OWNER:?existing install-owner account}"
+cd "$RIFF_PREP_PARENT"
+printf '%s\n' '7bdca6d9ae6542bf9c4c5406bcaa3b855877a45b26df97eb00835dcce68f4a59  prepare_release_0_6_31.py' | sha256sum --check -
+nice -n 19 ionice -c 3 python3 prepare_release_0_6_31.py --expected-owner "$RIFF_INSTALL_OWNER" --archive "$RIFF_PREP_PARENT/riff-v0.6.31.tar.gz" --stage-parent "$RIFF_PREP_PARENT"
 ```
 
 The helper creates a unique retained `riff-v0.6.31-cuda-*` stage beneath that
@@ -114,7 +121,7 @@ maintenance task or pending update. This helper performs none of those writes.
 Activation must use Studio restart/`Maintenance.apply_pending`, which rechecks
 busy state and reserves `generator.quiesce`. An idle snapshot is not a reservation;
 do not call `install.activate` directly or cancel work to deploy. After separately
-reviewed activation, verify live v0.6.31, CUDA/device 0/threads 64/warm engine,
+reviewed activation, verify live v0.6.31, the previous backend/device/thread/warm-engine settings,
 existing model settings, library/recordings and continued musician work. That live
 execution and verification remain with the coordinator. The generic queue repair
 also requires updated running code and inherited queue policy; setting an

@@ -37,7 +37,7 @@ class OwnerPreparationTests(unittest.TestCase):
         self.environment = dict(os.environ, RIFF_HOME='/old/live-workspace', RIFF_INSTALL_ROOT='/old/live-install',
             CMAKE_TOOLCHAIN_FILE='/old/toolchain', SCCACHE_DIR='/old/cache', ACTIONS_CACHE_URL='old-service')
         contexts = [patch.dict(os.environ, self.environment, clear=True),
-                    patch.object(owner.pwd, 'getpwuid', return_value=Mock(pw_name='atari2036')),
+                    patch.object(owner.pwd, 'getpwuid', return_value=Mock(pw_name='fixture-owner')),
                     patch.object(owner, 'ARCHIVE_BYTES', self.archive.stat().st_size),
                     patch.object(owner, 'ARCHIVE_SHA256', hashlib.sha256(self.archive.read_bytes()).hexdigest()),
                     patch.object(owner, 'INSTALLER_SHA256', hashlib.sha256(b'fixture installer').hexdigest()),
@@ -46,7 +46,7 @@ class OwnerPreparationTests(unittest.TestCase):
         for context in contexts:
             context.start()
             self.addCleanup(context.stop)
-        self.args = ['--archive', str(self.archive), '--stage-parent', str(self.parent)]
+        self.args = ['--expected-owner', 'fixture-owner', '--archive', str(self.archive), '--stage-parent', str(self.parent)]
 
     def archive_with(self, files):
         with tarfile.open(self.archive, 'w:gz') as archive:
@@ -76,7 +76,7 @@ class OwnerPreparationTests(unittest.TestCase):
     def test_wrong_owner_or_archive_or_queue_stop_before_preflight_and_writes(self):
         with patch.object(owner, 'preflight_json') as preflight:
             with patch.object(owner.pwd, 'getpwuid', return_value=Mock(pw_name='other-owner')):
-                with self.assertRaisesRegex(ValueError, 'Run as install owner'):
+                with self.assertRaisesRegex(ValueError, 'Run as the specified install owner'):
                     self.main()
             with patch.object(owner, 'ARCHIVE_SHA256', 'wrong'):
                 with self.assertRaisesRegex(ValueError, 'immutable official'):
@@ -158,7 +158,9 @@ class OwnerValidationEnvironmentTests(unittest.TestCase):
         recipe = (HELPER.parents[1] / 'docs/owner-preparation-v0.6.31.md').read_text()
         digest = hashlib.sha256(HELPER.read_bytes()).hexdigest()
         self.assertEqual(recipe.count(digest), 3)
-        self.assertIn('install -m 0400 -o atari2036', recipe)
+        self.assertIn('install -m 0400 -o "$prep_owner"', recipe)
+        self.assertNotIn('/home/', recipe)
+        self.assertIn("parser.add_argument('--expected-owner', required=True", HELPER.read_text())
         self.assertIn('Pending metadata import is not approved', recipe)
 
     def test_imported_validation_observes_exact_cleaned_build_environment(self):

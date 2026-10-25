@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Prepare immutable v0.6.31 CUDA under queue custody without live install writes.
 
-Run the SHA-pinned, reviewed copy as atari2036 from a new owned NVMe staging
+Run the SHA-pinned, reviewed copy as the specified install owner from a new owned staging
 parent. See docs/owner-preparation-v0.6.31.md. Pending import requires a separate
 review; this helper never selects the engine or publishes installation metadata.
 """
@@ -124,11 +124,13 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--archive', type=Path, required=True)
     parser.add_argument('--stage-parent', type=Path, required=True)
+    parser.add_argument('--expected-owner', required=True, help='Install-owner account; root is not allowed')
     args = parser.parse_args(argv)
-    require(pwd.getpwuid(os.geteuid()).pw_name == 'atari2036', 'Run as install owner atari2036, never as root.')
+    require(args.expected_owner != 'root' and pwd.getpwuid(os.geteuid()).pw_name == args.expected_owner,
+            'Run as the specified install owner, never as root.')
     parent = args.stage_parent.resolve(strict=True)
-    require(parent.is_relative_to('/mnt/nvme4tb') and parent.stat().st_uid == os.geteuid(),
-            'Use an install-owner-owned NVMe staging parent.')
+    require(parent.is_dir() and parent.stat().st_uid == os.geteuid(),
+            'Use an install-owner-owned staging parent on the build volume.')
     require(os.access(parent, os.W_OK | os.X_OK), 'The owner cannot write the staging parent.')
     archive = args.archive.resolve(strict=True)
     require(archive.stat().st_size == ARCHIVE_BYTES and hashlib.sha256(archive.read_bytes()).hexdigest() == ARCHIVE_SHA256,
