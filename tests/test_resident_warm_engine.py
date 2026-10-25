@@ -8,7 +8,7 @@ from unittest.mock import patch
 import platform_support
 import run
 from model_admission import ModelAdmission
-from studio_core import Generator, Store
+from studio_core import Generator, Store, validate_recipe
 from fixture_waits import until
 from test_resident_admission import PORT, Observation
 from test_warm_engine import WarmFixture
@@ -73,6 +73,29 @@ class ResidentWarmTests(WarmFixture):
         warm_requests=[m for m in messages if m['op']=='request' and m['id']=='native:'+second]
         self.assertEqual(warm_requests[-1]['resident'],lease['id'])
         self.assertTrue(self.generator.warm.running())
+
+    def test_disabled_warm_mode_does_not_preview_the_command_before_artifact_setup(self):
+        self.settings['warm_engine']=False
+        builder=self.generator.command_builder
+        calls=[]
+        def command(recipe,output):
+            calls.append(recipe)
+            return builder(recipe,output)
+        self.generator.command_builder=command
+        first=self.submit();self.done(first)
+        self.assertEqual(len(calls),1)
+        self.assertEqual(self.metrics(first)['engine'],'process')
+
+    def test_sound_only_command_has_its_output_path_before_the_launch_receipt_exists(self):
+        recipe=validate_recipe({'title':'Sound','lyrics':'line','style':'ok','max_seconds':10,
+                                'steps':8,'seed':'42','cot':'off','abc':'','render_mode':'sound'})
+        output=self.root/'sound.wav'
+        with patch.object(run,'engine_capabilities',return_value={'acoustic_checkpoint':True}):
+            command=self.generator.native_command(recipe,output)
+        options=[command[i+1] for i,arg in enumerate(command) if arg=='--request-option']
+        self.assertIn('acoustic_latents_out='+str(output.with_suffix('.yac')),options)
+        self.assertIn('acoustic_only=true',options)
+        self.assertNotIn('acoustic_launch_sha256',recipe)
 
     def test_fit_failure_stops_the_old_lease_and_runs_a_cold_take_with_compared_figures(self):
         first=self.submit();self.done(first)

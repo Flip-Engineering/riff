@@ -917,7 +917,8 @@ class Generator:
                                     semantic_only=recipe.get("render_mode") == "performance",
                                     performance_file=self.store.performance_path(recipe["performance_source"]) if recipe.get("performance_source") else None,
                                     score_file=self.store.artifacts.input_path(Path(output).stem) if recipe.get("score_source") else None,
-                                    acoustic_out=Path(output).with_suffix(".yac") if recipe.get("acoustic_launch_sha256") else None,
+                                    acoustic_out=Path(output).with_suffix(".yac")
+                                    if recipe.get("acoustic_launch_sha256") or recipe.get("render_mode") == "sound" else None,
                                     acoustic_only=recipe.get("render_mode") == "sound",
                                     lora_options=self.store.loras.resolve_saved(recipe["lora_provenance"])
                                     if recipe.get("lora_provenance") else None)
@@ -972,13 +973,14 @@ class Generator:
 
     def _reserve_take(self, identity, recipe, kind, cancelled, waiting, output):
         capable = getattr(self.admission, "supports_residents", lambda: False)
+        warm_requested = engine.platform_runtime.settings().get("warm_engine", False)
         try:
-            supported = kind == "native" and capable()
+            supported = kind == "native" and warm_requested and capable()
         except SchedulerUnavailable:
             supported = False
         policy = {"key": None, "decision": None, "supported": supported, "reason": "", "resident": None}
         if not supported:
-            if kind == "native":
+            if kind == "native" and warm_requested:
                 policy["reason"] = "The scheduler lacks resident leases; using legacy warm admission"
             return self.admission.reserve(identity, recipe, kind, cancelled, on_wait=waiting), policy
         preview = self.command_builder(recipe, output)
