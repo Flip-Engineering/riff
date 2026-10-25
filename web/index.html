@@ -1225,6 +1225,10 @@
       <p id="system-error" class="form-error" role="alert" hidden></p>
       <section class="system-section"><h3>Music engine</h3>
         <form id="engine-form"><div class="advanced-grid"><div><label for="engine-backend">Acceleration</label><select id="engine-backend"><option value="metal">Apple Metal</option><option value="cuda">NVIDIA CUDA</option><option value="cpu">CPU</option></select></div><div><label for="engine-threads">CPU threads</label><input id="engine-threads" type="number" min="1" step="1" /></div></div>
+          <label class="review-check"><input id="engine-warm" type="checkbox" />Keep the music engine loaded between takes</label>
+          <p class="control-hint">Avoid repeated loading when memory allows. Turning this off releases the idle engine.</p>
+          <label class="review-check"><input id="engine-release-empty" type="checkbox" />Release the engine when the queue is empty</label>
+          <p class="control-hint" id="engine-memory-reserve"></p>
           <details><summary>Engine paths and device</summary><div class="advanced-grid"><div><label for="engine-device">GPU device</label><input id="engine-device" type="number" min="0" step="1" /></div><div><label for="engine-binary">audio.cpp executable</label><input id="engine-binary" type="text" /></div><div><label for="engine-model-root">Model folder</label><input id="engine-model-root" type="text" /></div><div><label for="engine-model-file">Music model GGUF</label><input id="engine-model-file" type="text" /></div><div><label for="engine-vae-file">Audio decoder GGUF</label><input id="engine-vae-file" type="text" /></div></div></details>
           <div class="system-actions"><button type="button" class="secondary-button" id="setup-engine">Download and set up</button><button type="submit" class="text-button">Use engine settings</button></div>
         </form>

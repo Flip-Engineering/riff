@@ -85,6 +85,7 @@ defmodule Riff.Runtime.SchedulerPort do
         {state,
          %{
            "state" => "capabilities",
+           "resident" => Admission.resident_protocol(),
            "artifacts" => %{
              "score" => "riff.yue2.score-tokens.v1",
              "acoustic" => "riff.yue2.acoustic.v1"

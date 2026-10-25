@@ -50,6 +50,52 @@ defmodule Riff.Runtime.SchedulerPortTest do
     }
   end
 
+  test "resident capability and versioned accounting cross the JSON-line protocol" do
+    port = start_port()
+    assert call(port, %{"op" => "capabilities"})["resident"] == "riff.resident.v1"
+
+    lease = %{
+      "op" => "resident",
+      "action" => "update",
+      "protocol" => "riff.resident.v1",
+      "id" => "engine",
+      "requirement" => %{"host_peak" => 1000, "basis" => %{"weights" => 600}},
+      "usage" => %{"host" => 600, "device" => 0}
+    }
+
+    assert call(port, Map.put(lease, "protocol", "riff.resident.v2"))["state"] == "error"
+    registered = call(port, lease)
+    assert registered["state"] == "resident"
+    assert registered["protocol"] == "riff.resident.v1"
+    assert registered["requirement"]["host_peak"] == 600
+    memory = %{"host" => %{"available" => 600, "pressure" => "normal"}}
+
+    assert call(port, %{
+             "op" => "request",
+             "id" => "writer",
+             "requirement" => %{"host_peak" => 100},
+             "snapshot" => memory
+           })["state"] == "admitted"
+
+    warm =
+      call(port, %{
+        "op" => "request",
+        "id" => "warm",
+        "requirement" => lease["requirement"],
+        "resident" => "engine",
+        "resident_protocol" => "riff.resident.v1",
+        "snapshot" => memory
+      })
+
+    assert warm["state"] == "admitted"
+    assert warm["requirement"]["host_peak"] == 400
+    release = Map.take(lease, ~w(op protocol id)) |> Map.put("action", "release_if_idle")
+    assert call(port, release)["state"] == "busy"
+    assert call(port, %{"op" => "release", "id" => "warm"})["state"] == "released"
+    assert call(port, %{"op" => "release", "id" => "writer"})["state"] == "released"
+    assert call(port, release)["state"] == "released"
+  end
+
   test "acoustic discovery and real file stages share the responsive score channel" do
     root = Path.expand("../_build/acoustic-port-#{System.unique_integer([:positive])}", __DIR__)
     for child <- ~w(artifacts outputs inputs), do: File.mkdir_p!(Path.join(root, child))
