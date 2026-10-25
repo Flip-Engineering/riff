@@ -1,15 +1,17 @@
 """Warm lease lifecycle through the real bridge and fake engine, without models."""
 import json
+from contextlib import contextmanager
 from pathlib import Path
+import sqlite3
 import sys
 import threading
 from unittest.mock import patch
 
 import platform_support
 import run
-from model_admission import ModelAdmission
+from model_admission import ModelAdmission, SchedulerUnavailable
 from studio_core import Generator, Store, validate_recipe
-from fixture_waits import until
+from fixture_waits import signalled, until
 from test_resident_admission import PORT, Observation
 from test_warm_engine import WarmFixture
 
@@ -174,6 +176,20 @@ class ResidentWarmTests(WarmFixture):
         requests=[m for m in self.control._exchange({'op':'inspect'})['messages'] if m['op']=='request']
         self.assertTrue(all('resident' not in m for m in requests))
 
+    def test_unmeasurable_residency_still_checks_fit_and_retires_under_pressure(self):
+        self.control.monitor.read=lambda pid:(0,0)
+        first=self.submit();self.done(first)
+        figures={'host_pressure':'warning','additional_resident':{'host':600}}
+        (self.state/'fit.json').write_text(json.dumps({'state':'resident_fit','keep':False,
+            'reason':'Memory pressure is not normal','figures':figures}))
+        following=self.submit();self.done(following)
+        self.assertEqual(self.metrics(following)['engine'],'process')
+        self.assertEqual(self.metrics(following)['warm_fit'],figures)
+        self.assertFalse(self.generator.warm.running())
+        fits=[m for m in self.control._exchange({'op':'inspect'})['messages'] if m['op']=='resident' and m['action']=='fit']
+        self.assertEqual(len(fits),2)
+        self.assertTrue(all('resident' not in m for m in fits))
+
     def test_older_scheduler_keeps_manual_reuse_and_receives_no_resident_operations(self):
         self.control.command=[sys.executable,'-u','-c',PORT.replace(",'resident':'riff.resident.v1'",'')]
         first=self.submit();self.done(first)
@@ -182,6 +198,114 @@ class ResidentWarmTests(WarmFixture):
         self.assertIn('legacy',self.metrics(second)['warm_reason'])
         messages=self.control._exchange({'op':'inspect'})['messages']
         self.assertFalse(any(m['op']=='resident' or 'resident' in m for m in messages))
+
+    def test_scheduler_without_capabilities_keeps_manual_native_takes_working(self):
+        legacy=PORT.replace("r={'state':'capabilities','resident':'riff.resident.v1'}",
+                            "r={'state':'error','error':'Unknown scheduling request.'}")
+        self.control.command=[sys.executable,'-u','-c',legacy]
+        first=self.submit();self.done(first)
+        following=self.submit();self.done(following)
+        self.assertEqual(len(self.starts()),1)
+        self.assertIn('legacy',self.metrics(following)['warm_reason'])
+        self.assertFalse(any(m['op']=='resident' for m in self.control._exchange({'op':'inspect'})['messages']))
+
+    def test_brief_outages_during_resident_planning_use_recoverable_cold_admission(self):
+        for stage in ('capabilities','update','fit'):
+            with self.subTest(stage=stage):
+                first=self.submit();self.done(first)
+                plan=self.control.resident_plan
+                message=self.control._resident_message
+                failed=threading.Event()
+                def unavailable(action,*args,**kwargs):
+                    if action==stage and not failed.is_set():
+                        failed.set()
+                        raise SchedulerUnavailable('Waiting for the resource scheduler to recover')
+                    return message(action,*args,**kwargs)
+                def discovery_outage(*args,**kwargs):
+                    failed.set()
+                    with patch.object(self.control,'supports_residents',side_effect=SchedulerUnavailable('Waiting for the resource scheduler to recover')):
+                        return plan(*args,**kwargs)
+                target=patch.object(self.control,'resident_plan',side_effect=discovery_outage) if stage=='capabilities' else patch.object(self.control,'_resident_message',side_effect=unavailable)
+                with target:
+                    following=self.submit();self.done(following)
+                self.assertTrue(failed.is_set())
+                self.assertEqual(self.metrics(following)['engine'],'process')
+                self.assertIn('recover',self.metrics(following)['warm_reason'])
+                self.assertFalse(self.control.residents)
+
+    def test_rejected_named_binding_releases_credit_and_runs_cold(self):
+        failing=PORT.replace("elif op=='request': r={'state':'admitted','requirement':m['requirement']}",
+            "elif op=='request': r={'state':'error','error':'The resident lease is no longer registered.'} if m.get('resident') else {'state':'admitted','requirement':m['requirement']}")
+        self.control.command=[sys.executable,'-u','-c',failing]
+        first=self.submit();self.done(first)
+        following=self.submit();self.done(following)
+        self.assertEqual(self.metrics(following)['engine'],'process')
+        self.assertIn('no longer registered',self.metrics(following)['warm_reason'])
+        requests=[m for m in self.control._exchange({'op':'inspect'})['messages'] if m['op']=='request' and m['id']=='native:'+following]
+        self.assertIn('resident',requests[-2])
+        self.assertNotIn('resident',requests[-1])
+        self.assertFalse(self.control.residents)
+
+    def test_slow_idle_stop_keeps_status_submission_cancellation_and_other_admission_responsive(self):
+        first=self.submit();self.done(first)
+        closing,finish,responsive=threading.Event(),threading.Event(),threading.Event()
+        stop=self.generator.warm.stop
+        def slow_stop():
+            closing.set()
+            finish.wait()
+            stop()
+        with patch.object(self.generator.warm,'stop',side_effect=slow_stop):
+            self.settings['warm_engine_release_when_empty']=True
+            self.generator.wake.set()
+            try:
+                self.assertTrue(signalled(closing,self.generator.thread))
+                self.assertIsNone(self.generator.warm_lease)
+                self.assertIsNone(self.generator.warm.resident_process())
+                def interact():
+                    self.generator.status()
+                    queued=self.submit()
+                    self.assertEqual(self.generator.cancel(queued),'cancelled')
+                    self.control.acquire('writer',{'host_peak':100},threading.Event())
+                    self.control.release('writer')
+                    responsive.set()
+                client=threading.Thread(target=interact)
+                client.start()
+                self.assertTrue(signalled(responsive,client))
+                client.join()
+                self.assertFalse(self.control.residents)
+            finally:
+                finish.set()
+            until(lambda:not self.generator.warm.running(),self.generator.thread)
+        following=self.submit();self.done(following)
+        requests=[m for m in self.control._exchange({'op':'inspect'})['messages'] if m['op']=='request' and m['id']=='native:'+following]
+        self.assertNotIn('resident',requests[-1])
+        self.assertFalse(self.metrics(following)['engine_reused'])
+
+    def test_idle_storage_failure_retries_without_killing_the_worker(self):
+        first=self.submit();self.done(first)
+        db=self.store.db
+        failed,recovered=threading.Event(),threading.Event()
+        class Connection:
+            def __init__(self,connection): self.connection=connection
+            def execute(self,sql,*args):
+                if sql.startswith('SELECT 1 FROM jobs WHERE status IN'):
+                    if not failed.is_set():
+                        failed.set()
+                        raise sqlite3.OperationalError('temporary storage failure')
+                    recovered.set()
+                return self.connection.execute(sql,*args)
+        @contextmanager
+        def storage():
+            with db() as connection:
+                yield Connection(connection)
+        with patch.object(self.store,'db',side_effect=storage):
+            self.settings['warm_engine_release_when_empty']=True
+            self.generator.wake.set()
+            self.assertTrue(signalled(recovered,self.generator.thread))
+            self.assertTrue(failed.is_set())
+            until(lambda:not self.generator.warm.running(),self.generator.thread)
+        self.assertTrue(self.generator.thread.is_alive())
+        following=self.submit();self.done(following)
 
     def test_mixed_session_keys_keep_queue_order_and_record_the_lost_reuse(self):
         first=self.submit();self.done(first)

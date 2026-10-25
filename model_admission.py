@@ -21,6 +21,10 @@ class ResidentUnavailable(ValueError):
     pass
 
 
+class ResidentBindingUnavailable(ResidentUnavailable):
+    pass
+
+
 class AdmissionCancelled(Exception):
     pass
 
@@ -136,10 +140,11 @@ class ModelAdmission:
             except SchedulerNotInstalled:
                 return False
             if self.resident_version is None:
-                version = self._exchange({"op": "capabilities"}).get("resident")
-                if version is not None and version != RESIDENT_PROTOCOL:
-                    raise ValueError("Unsupported resident lease protocol: " + str(version))
-                self.resident_version = version or False
+                try:
+                    version = self._exchange({"op": "capabilities"}).get("resident")
+                except ValueError:
+                    version = None  # Schedulers predating capability discovery.
+                self.resident_version = RESIDENT_PROTOCOL if version == RESIDENT_PROTOCOL else False
             return self.resident_version == RESIDENT_PROTOCOL
 
     def _snapshot(self, fresh=False):
@@ -245,8 +250,11 @@ class ModelAdmission:
                     pass
             self.residents.pop(identity, None)
 
-    def release_resident_if_idle(self, identity, stop):
-        """Serialize scheduler idleness, lease retirement and stop against acquire."""
+    def release_resident_if_idle(self, identity, retire):
+        """Retire under admission's lock; the caller waits for process exit outside it.
+
+        ``retire`` must only mark the engine unavailable for reuse, never wait.
+        """
         with self.lock:
             if self.entries:
                 return False
@@ -262,7 +270,7 @@ class ModelAdmission:
             if not idle:
                 return False
             self.residents.pop(identity, None)
-            stop()
+            retire()
             return True
 
     def _exchange(self, payload):
@@ -285,7 +293,11 @@ class ModelAdmission:
                         self.log.write(line + b"\n")
                         continue
                     if result.get("state") == "error":
-                        raise ValueError(result.get("error", "Invalid model scheduling request"))
+                        error = result.get("error", "Invalid model scheduling request")
+                        if error in ("The resident lease is no longer registered.",
+                                     "The resident lease uses a different device."):
+                            raise ResidentBindingUnavailable(error)
+                        raise ValueError(error)
                     return result
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:

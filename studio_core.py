@@ -23,7 +23,7 @@ from genres import genre_tags
 from inspiration import inspire, seed_number
 from paths import ROOT, WORKSPACE
 import model_options
-from model_admission import AdmissionCancelled, ModelAdmission, ResidentUnavailable, SchedulerUnavailable
+from model_admission import AdmissionCancelled, ModelAdmission, ResidentBindingUnavailable, ResidentUnavailable, SchedulerUnavailable
 from symbolic import read_plan
 from warm_engine import ResidentEngineChanged, WarmEngine, engine_key, job_from_command
 from loras import LoRALibrary
@@ -959,17 +959,21 @@ class Generator:
             self.engine_settings_dirty.clear()
         elif settings.get("warm_engine_release_when_empty"):
             # Submission shares this boundary; admission serializes other model
-            # owners while its scheduler check and process stop complete.
+            # owners through retirement. Waiting for exit holds neither lock.
+            retired = False
             with self.lock:
                 with self.store.db() as db:
                     queued = db.execute("SELECT 1 FROM jobs WHERE status IN ('queued','running','cancelling') LIMIT 1").fetchone()
                 release = getattr(self.admission, "release_resident_if_idle", None)
                 if queued is None and release is not None:
                     try:
-                        if release(self.warm_lease["id"] if self.warm_lease else None, self.warm.stop):
+                        if release(self.warm_lease["id"] if self.warm_lease else None, self.warm.retire):
                             self.warm_lease, self.warm_reason = None, ""
+                            retired = True
                     except (SchedulerUnavailable, ValueError) as error:
                         self.warm_reason = str(error)
+            if retired:
+                self.warm.stop()
 
     def _reserve_take(self, identity, recipe, kind, cancelled, waiting, output):
         capable = getattr(self.admission, "supports_residents", lambda: False)
@@ -996,33 +1000,41 @@ class Generator:
             self._stop_warm()
         if self.warm_reason and self.warm_lease is None:
             policy["reason"] = self.warm_reason
-            return self.admission.reserve(identity, recipe, kind, cancelled, on_wait=waiting), policy
         resident = self.warm_lease["id"] if self.warm_lease else None
-        try:
-            requirement, decision = self.admission.resident_plan(identity, recipe, kind, cancelled,
-                                                                  on_wait=waiting, resident=resident)
-            policy["decision"] = decision
-            if not decision["keep"]:
-                policy["reason"] = decision["reason"]
-                self._stop_warm()
-                resident = None
-            reservation = self.admission.acquire(identity, requirement, cancelled, on_wait=waiting, resident=resident)
-            policy["resident"] = resident
-            return reservation, policy
-        except ResidentUnavailable as error:
-            # A failed acquire releases its job reservation. If only measurement
-            # was lost, preserve legacy manual reuse but remove all lease credit.
-            policy["reason"] = str(error)
-            if self.warm.resident_process() is not None:
-                if self.warm_lease is not None:
-                    self.admission.release_resident(self.warm_lease["id"])
-                self.warm_lease = None
-                self.warm_reason = str(error)
-                policy["decision"] = None
-            else:
+        while True:
+            try:
+                requirement, decision = self.admission.resident_plan(identity, recipe, kind, cancelled,
+                                                                      on_wait=waiting, resident=resident)
+                policy["decision"] = decision
+                if not decision["keep"]:
+                    policy["reason"] = decision["reason"]
+                    self._stop_warm()
+                    resident = None
+                reservation = self.admission.acquire(identity, requirement, cancelled, on_wait=waiting, resident=resident)
+                policy["resident"] = resident
+                return reservation, policy
+            except ResidentUnavailable as error:
+                # Losing measurement removes credit but still checks pressure
+                # with estimated retained weights. Binding errors require cold.
+                policy["reason"] = str(error)
+                if self.warm.resident_process() is not None and not isinstance(error, ResidentBindingUnavailable):
+                    if self.warm_lease is not None:
+                        self.admission.release_resident(self.warm_lease["id"])
+                    self.warm_lease, self.warm_reason = None, str(error)
+                    policy["decision"] = None
+                    if resident is not None:
+                        resident = None
+                        continue
+                    return self.admission.reserve(identity, recipe, kind, cancelled, on_wait=waiting), policy
                 policy["decision"] = {"keep": False, "reason": str(error), "figures": {}}
                 self._stop_warm()
-            return self.admission.reserve(identity, recipe, kind, cancelled, on_wait=waiting), policy
+                return self.admission.reserve(identity, recipe, kind, cancelled, on_wait=waiting), policy
+            except SchedulerUnavailable as error:
+                # The regular cold reservation waits through policy recovery.
+                policy["reason"] = str(error)
+                policy["decision"] = {"keep": False, "reason": str(error), "figures": {}}
+                self._stop_warm()
+                return self.admission.reserve(identity, recipe, kind, cancelled, on_wait=waiting), policy
 
     @staticmethod
     def writer_ready():
@@ -1352,6 +1364,8 @@ class Generator:
                                 self.job_cancelled = threading.Event()
                                 self.live = {"id": row["id"], "title": row["title"], "stage": "Preparing the studio",
                                              "stage_index": 0, "elapsed": 0, "footprint": 0, "peak_footprint": 0}
+                if row is None:
+                    self._release_idle_warm()
             except sqlite3.OperationalError:
                 # Keep the worker alive while storage is temporarily unavailable.
                 # Shutdown interrupts the same polling interval used by rendering.
@@ -1363,7 +1377,6 @@ class Generator:
                     self.engine_settings_dirty.clear()
                 self.execute(dict(row))
                 continue
-            self._release_idle_warm()
             self.wake.wait()
             self.wake.clear()
 

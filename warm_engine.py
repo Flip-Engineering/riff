@@ -202,6 +202,11 @@ class WarmEngine:
         with self.lock:
             return self.process if self.process is not None and self.process.poll() is None and not self.retiring else None
 
+    def retire(self):
+        """Prevent reuse immediately, without waiting for the child to exit."""
+        with self.lock:
+            self.retiring = True
+
     def prepare(self, session, reuse_only=False):
         """Start or reuse an engine for ``session``; restart it if anything changed.
 

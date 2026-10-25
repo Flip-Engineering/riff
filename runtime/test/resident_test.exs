@@ -156,6 +156,27 @@ defmodule Riff.Runtime.ResidentTest do
     assert yes["figures"]["host_available_after_resident"] == 500
   end
 
+  test "exclusive model waiters still count when deciding whether to retain idle weights" do
+    {state, _} = resident(Admission.new())
+
+    {state, _} =
+      request(state, "solo", %{"host_peak" => 1, "exclusive" => true}, snapshot(1_000, 600))
+
+    {state, waiting} =
+      request(
+        state,
+        "decode",
+        %{"host_peak" => 400, "device_peak" => 900, "device" => "gpu"},
+        snapshot(1_000, 600)
+      )
+
+    assert waiting["reason"] == "Waiting for the current model"
+    {_, fit} = fit(state, snapshot(1_000, 600), %{"resident" => "engine"})
+    refute fit["keep"]
+    assert fit["figures"]["largest_waiting_host"] == 400
+    assert fit["figures"]["largest_waiting_devices"] == %{"gpu" => 900}
+  end
+
   test "no hypothetical peer or count gate is added to the fit check" do
     {_, yes} = fit(Admission.new(), snapshot(600))
     assert yes["keep"]

@@ -281,10 +281,7 @@ defmodule Riff.Runtime.Admission do
       })
 
     waiters =
-      Enum.filter(
-        state.waiting,
-        &(&1.id != message["id"] and state.reasons[&1.id] != "Waiting for the current model")
-      )
+      Enum.reject(state.waiting, &(&1.id == message["id"]))
 
     largest_host =
       Enum.reduce(waiters, 0, &max(&2, charge(state, &1.id, &1.requirement)["host_peak"]))

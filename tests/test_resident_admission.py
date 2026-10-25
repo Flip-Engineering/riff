@@ -7,7 +7,7 @@ import threading
 import unittest
 from unittest.mock import patch
 
-from model_admission import ModelAdmission, RESIDENT_PROTOCOL, ResidentUnavailable
+from model_admission import ModelAdmission, RESIDENT_PROTOCOL, ResidentBindingUnavailable, ResidentUnavailable, SchedulerUnavailable
 from fixture_waits import signalled
 
 PORT = r'''
@@ -142,10 +142,48 @@ class ResidentBridgeTests(unittest.TestCase):
         self.control.release('first')
         self.assertFalse(any(m['op'] == 'resident' or 'resident' in m for m in self.messages()))
 
-    def test_mismatched_capability_version_fails_clearly(self):
+    def test_mismatched_capability_version_selects_legacy_admission(self):
         self.control.command = [sys.executable, '-u', '-c', PORT.replace('riff.resident.v1', 'riff.resident.v2')]
-        with self.assertRaisesRegex(ValueError, 'Unsupported resident lease protocol'):
-            self.control.supports_residents()
+        self.assertFalse(self.control.supports_residents())
+        self.control.acquire('first', self.requirement, self.cancel)
+        self.assertFalse(any(m['op']=='resident' for m in self.messages()))
+        self.control.release('first')
+
+    def test_scheduler_predating_capabilities_selects_legacy_admission(self):
+        legacy=PORT.replace("r={'state':'capabilities','resident':'riff.resident.v1'}",
+                            "r={'state':'error','error':'Unknown scheduling request.'}")
+        self.control.command=[sys.executable,'-u','-c',legacy]
+        self.assertFalse(self.control.supports_residents())
+        self.control.acquire('first',self.requirement,self.cancel)
+        self.assertFalse(any(m['op']=='resident' for m in self.messages()))
+        self.control.release('first')
+
+    def test_explicit_resident_reply_version_still_fails_clearly(self):
+        self.control.command=[sys.executable,'-u','-c',PORT.replace('riff.resident.v1','riff.resident.v2')]
+        with self.assertRaisesRegex(ValueError,'unsupported resident lease protocol'):
+            self.control._resident_message('fit','next',requirement=self.requirement,snapshot=self.observer.value)
+
+    def test_discovery_outage_can_be_retried_without_caching_a_false_capability(self):
+        with patch.object(self.control,'_exchange',side_effect=SchedulerUnavailable('recovering')):
+            with self.assertRaises(SchedulerUnavailable):
+                self.control.supports_residents()
+        self.assertIsNone(self.control.resident_version)
+        self.assertTrue(self.control.supports_residents())
+
+    def test_missing_or_changed_bindings_release_the_job_and_allow_full_admission(self):
+        for error in ('The resident lease is no longer registered.','The resident lease uses a different device.'):
+            with self.subTest(error=error):
+                self.control._dispose()
+                failing=PORT.replace("elif op=='request': r={'state':'admitted','requirement':m['requirement']}",
+                    "elif op=='request': r={'state':'error','error':"+repr(error)+"} if m.get('resident') else {'state':'admitted','requirement':m['requirement']}")
+                self.control.command=[sys.executable,'-u','-c',failing]
+                lease=self.keep()
+                with self.assertRaises(ResidentBindingUnavailable):
+                    self.control.acquire('warm',self.requirement,self.cancel,resident=lease)
+                self.assertNotIn('warm',self.control.entries)
+                self.control.release_resident(lease)
+                self.control.acquire('cold',self.requirement,self.cancel)
+                self.control.release('cold')
 
     def test_a_malformed_fit_decision_is_not_treated_as_permission_to_reuse(self):
         self.control.command=[sys.executable,'-u','-c',PORT.replace("'keep':True", "'keep':'yes'")]
@@ -183,7 +221,7 @@ class ResidentBridgeTests(unittest.TestCase):
         lease_release = next(i for i,m in enumerate(messages) if m['op']=='resident' and m['action']=='release' and m['id']==lease)
         self.assertLess(job_release, lease_release)
 
-    def test_idle_release_waits_for_writer_ownership_then_serializes_against_new_admission(self):
+    def test_idle_release_retires_before_new_admission_without_holding_the_lock_during_stop(self):
         lease = self.keep()
         self.control.acquire('writer', {'host_peak': 100}, self.cancel)
         stopped = threading.Event()
@@ -191,11 +229,11 @@ class ResidentBridgeTests(unittest.TestCase):
         self.assertFalse(stopped.is_set())
         self.control.release('writer')
         closing, finish, admitted = threading.Event(), threading.Event(), threading.Event()
-        def stop():
-            closing.set()
-            finish.wait()
-            stopped.set()
-        release = threading.Thread(target=lambda: self.control.release_resident_if_idle(lease, stop))
+        def retire_and_stop():
+            if self.control.release_resident_if_idle(lease, closing.set):
+                finish.wait()
+                stopped.set()
+        release = threading.Thread(target=retire_and_stop)
         release.start()
         self.assertTrue(signalled(closing, release))
         def reserve():
@@ -204,7 +242,9 @@ class ResidentBridgeTests(unittest.TestCase):
         next_job = threading.Thread(target=reserve)
         next_job.start()
         try:
-            self.assertFalse(admitted.is_set())
+            self.assertTrue(signalled(admitted,next_job))
+            self.assertFalse(stopped.is_set())
+            self.assertFalse(self.control.residents)
         finally:
             finish.set()
             release.join()

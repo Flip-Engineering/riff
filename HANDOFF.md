@@ -181,7 +181,11 @@ Idle engine after one job: 2.86 GiB footprint; exit status 0 on stdin EOF.
 The scheduler advertises `resident: riff.resident.v1`. New resident update, fit,
 release and atomic release-if-idle messages carry that protocol version. A job
 names its lease with `resident` and `resident_protocol`; mismatches and missing
-leases are errors. Older schedulers receive no new operation or request field.
+leases are rejected. A lost or incompatible binding falls back to full cold
+admission, which waits through temporary scheduler outages. Older schedulers,
+including those predating capability discovery, and unknown advertised resident
+versions receive no new operation or request field. Explicit lease versions are
+still checked and rejected on mismatch.
 No automatic study-set reuse is introduced for an older scheduler.
 
 A lease records measured idle process bytes, not its estimated peak. A matching
@@ -195,8 +199,10 @@ pool returned by `Resources`; CUDA host and device pools remain independent.
 
 Before a warm take, a fresh fit decision compares availability after active
 growth, the existing `RIFF_MEMORY_RESERVE_MB` and projected retained bytes with
-the largest actual other memory waiter. An existing lease uses measured bytes;
-a new engine uses estimated weight bytes. Pressure must be normal and required
+the largest actual other queued model requirement, including waiters behind an
+exclusive/solo model. An existing lease uses measured bytes; a new engine, or
+an unmeasurable manual engine without lease credit, uses estimated weight bytes.
+Pressure must be normal and required
 host/device observations known. Failed fits stop the old lease before acquiring
 a full cold reservation and run that take in its own process. Inputs/session
 changes during admission discard the old credit before launch.
@@ -204,8 +210,13 @@ changes during admission discard the old credit before launch.
 Defaults remain `warm_engine: false` and `warm_engine_release_when_empty: false`.
 With warm mode enabled, the engine stays resident between manual takes. The new
 release option checks both the local queue and all scheduler waiting/running
-model work. Its scheduler check, retirement and process stop are serialized
-against new admission. Completion of other model work wakes the idle worker.
+model work. Its scheduler check and retirement are serialized against new
+admission and local submission. The engine is marked unavailable for reuse
+before those locks are released; process shutdown then waits outside the locks,
+so status, submit, cancel and other admission remain responsive. A new take has
+no lease credit and needs a full reservation. Completion of other model work
+wakes the idle worker. A temporary idle queue/storage error uses the worker's
+existing retry rather than ending the worker.
 Cancel of a running take retires its engine and lease; queued cancellation does
 not. Saving engine settings wakes the worker to retire the old idle session.
 Both toggles and the effective environment memory reserve are visible in Studio.
