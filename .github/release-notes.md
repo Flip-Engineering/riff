@@ -1,7 +1,11 @@
-Riff 0.6.30 saves the lyrics used for each composition and shows them alongside playback.
+Riff 0.6.31 improves composition workflows, saved-material recovery and engine setup.
 
-Open Lyrics in the player to read the saved words while listening. The panel preserves line breaks and Unicode text, supports right-to-left text, and remembers whether it is open. Track details also show the saved lyrics.
+Studio and agents now share discoverable operations for planning, generation, replay, development, selection and review, with the same queue, validation and receipts. Saved scores and sound material retain their lineage when reused, and concurrent saved-sound preparation no longer rejects an unchanged file during temporary-copy cleanup.
 
-Instrumental compositions and older recordings without saved lyrics have distinct status messages. Changing a recording's title or prompt preserves its original composition lyrics.
+Warm engines account for resident weights during memory admission. They stay resident between manual takes by default when warm mode is enabled; releasing the engine when the queue becomes empty is a separate opt-in setting. Source verification reuses unchanged file identities and can use the system SHA-256 implementation while still checking for changed or substituted models.
 
-The native music engine and model requirements are unchanged.
+Some virtual macOS Metal devices lack operations required by YuE2. Setup and Settings now identify those devices and offer CPU recovery before a generation starts. Hosted checks distinguish Metal compilation and CPU synthetic tests from model inference; the hosted LoRA workflow records an explicit not-qualified result on unsupported devices.
+
+LoRA storage reports retained disk bytes and offers explicit cleanup. Seed artwork updates correctly in the Canvas fallback, and video export and shared-runner checks include reliability fixes.
+
+Updates keep the library, recordings, saved material and settings in the persistent workspace. Verified model downloads are reused; source installations may rebuild a changed engine. Music, writing, reviews and exports must finish or be cancelled before activation.
