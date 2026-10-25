@@ -28,6 +28,7 @@ from symbolic import read_plan
 from warm_engine import ResidentEngineChanged, WarmEngine, engine_key, job_from_command
 from loras import LoRALibrary
 from operations import SCHEMA as OPERATIONS_SCHEMA, recipe_changes
+import timings
 
 CONTEXT = model_options.CONTEXT
 TOKEN_RATE = model_options.TOKEN_RATE
@@ -1392,8 +1393,15 @@ class Generator:
         policy, engine_reused, drop_lease = None, False, False
         cancelled = self.job_cancelled
         identity = f"native:{job_id}"
+        # What this take waited for, recorded in its metrics. Only measured values are kept.
+        queue = {}
+        if job.get("created"):
+            # The claimed row was read before its start time was written, so measure from the claim itself.
+            queue["waited_seconds"] = max(0.0, time.time() - job["created"])
+        prepare_seconds = None
 
         def waiting(reason):
+            queue["last_wait_reason"] = reason
             with self.lock:
                 if self.live and self.live["id"] == job_id:
                     self.live.update(stage=reason, elapsed=time.monotonic() - started)
@@ -1419,7 +1427,9 @@ class Generator:
                 recipe = self.store.prepare_performance(recipe, cancelled=cancelled)
                 recipe = self.store.prepare_loras(recipe)
                 kind = "native"
+            admission_started = time.monotonic()
             reservation, policy = self._reserve_take(identity, recipe, kind, cancelled, waiting, output)
+            queue["admission_wait_seconds"] = time.monotonic() - admission_started
             reserved = True
             if kind == "native":
                 recipe = self.store.artifacts.launch(job_id, recipe, cancelled=cancelled)
@@ -1447,8 +1457,12 @@ class Generator:
                 warm = None
             if warm:
                 engine_reused = self.warm.matches(warm[0])
+                # Starting or restarting the engine happens before the take is
+                # published as running, outside the studio lock.
+                prepared = time.monotonic()
                 try:
                     self.warm.prepare(warm[0], reuse_only=policy["resident"] is not None)
+                    prepare_seconds = time.monotonic() - prepared
                 except ResidentEngineChanged as error:
                     self.admission.release(identity)
                     reserved = False
@@ -1514,6 +1528,17 @@ class Generator:
                 metrics["memory_note"] += " Warm engine: sampled footprint of the shared engine process during this take."
             if self.monitor.libproc and not warm:
                 metrics["macos_lifetime_peak_footprint_bytes_observed"] = peak
+            try:
+                with log_path.open(errors="replace") as log_lines:
+                    summary = timings.summarize(log_lines)
+            except OSError:
+                summary = timings.summarize(())
+            metrics["timings"] = summary
+            metrics["warm"] = timings.warm_record(metrics["engine"], summary, prepare_seconds)
+            metrics["queue"] = queue
+            metrics["memory"] = {"observed_peak_bytes": peak, **{name: reservation[key] for name, key in (
+                ("reserved_host_bytes", "host_peak"), ("reserved_device_bytes", "device_peak"))
+                if isinstance(reservation, dict) and isinstance(reservation.get(key), int)}}
             output.with_suffix(".metrics.json").write_text(json.dumps(metrics, indent=2) + "\n")
             # Keep completed stages after user cancellation; application shutdown
             # can interrupt capture and recover it from the launch receipt later.
