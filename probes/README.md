@@ -21,6 +21,11 @@ the Ardour demo bundle, rendered WAVs) are NOT retained; the committed
   hand-written 2-track LMMS project used for the headless render/stem
   receipts. Note the v1.3 schema: `<pattern>` is a child of `<track>`,
   not of `<instrumenttrack>`.
+- `verify/mmp_generator.py`: riff-daw-glm-20261025 — per-voice SMFs +
+  voice-map → v1.3-schema `.mmp` generator (contrasting built-in
+  instruments, discrete tempo automation map on the Song tempo model,
+  global 4/4); used for the musical workflow probe
+  (`docs/evidence/lmms-arrangement-probe-20261025.json`).
 - `fixtures/arrangement-v1.abc`, `fixtures/arrangement-v2.abc`,
   `fixtures/voice-map.json`: conductor — the shared arrangement for the
   root-review musical workflow probe (v2 is the meaningful edit of v1;

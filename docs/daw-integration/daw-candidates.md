@@ -56,10 +56,18 @@ does not select a DAW; it constrains the joint selection proposal.
   `utils/ardour8-new_empty_session` created a session headlessly, but
   `ardour8-export` segfaulted with the Dummy backend in that extraction
   (environment-negative receipt, not an upstream verdict).
-- Open gate: **headless MIDI import** — `Editor:do_import` is a GUI path;
-  a template/generated-session route is unproven. This, not export, is
-  Ardour's decisive comparison now (see DeepSeek's
-  `docs/daw-integration/headless-import-correction.md`).
+- Construction: template/generated-session routes are now PROVEN by runtime
+  receipts — conductor's template-swap (agent-authored SMF swapped into a
+  copied session, nonzero render) and DeepSeek's two/four-track generated
+  sessions with solo stems reconstructing the master within 1–2 LSB
+  (`ardour-headless-probe.md`, `ardour-two-track-probe.md`,
+  `ardour-template-swap-probe.md`). Remaining Ardour gates: a general
+  version-pinned N-voice session generator, per-track stem export, reopen-
+  after-edit, and a supported (non-`Editor:`) import API.
+- Open gate: **headless MIDI import through a supported API** —
+  `Editor:do_import` is a GUI path and the proven construction route is
+  template XML + source-file swap, not an import call (DeepSeek's
+  `headless-import-correction.md`).
 - MIDI/per-instrument: full SMF workflows, JACK MIDI, per-track instrument
   plugin hosting (LV2; VST/LADSPA per platform), mixing, automation, tempo
   maps; production-grade arrangement and editing (manual: Sessions & Tracks,
@@ -115,9 +123,27 @@ does not select a DAW; it constrains the joint selection proposal.
   failure mode that any `.mmp` generator/validator must handle per pinned
   version.
 - Project format: XML (`.mmp` / compressed `.mmpz`), agent-writable and
-  diffable; `dump`/`upgrade` give text-level access — in the alpha.2
-  AppImage they still require a display and MMPZ input (round-trip receipt
-  above).
+  diffable. Scope of the dump receipt: `dump` proves **serialization
+  fidelity** (parse-back of the generated XML), NOT full project
+  reopen/edit/persistence — loading, editing and re-saving a generated
+  project through LMMS remains a qualification item (root review wording).
+  In the alpha.2 AppImage `dump`/`upgrade` require a display and MMPZ input
+  (round-trip receipt above).
+- Musical workflow receipt `[probe]` (root-review authorization): the shared
+  4-voice fixture (arrangement-v1/v2) was converted per-voice with abc2midi
+  (`%%MIDI gchordoff`), generated to `.mmp` by `probes/verify/
+  mmp_generator.py`, rendered headlessly (mix + 4 voice stems), event-checked
+  with `wav_note_check.py`, edited (v2: flute octave + D7→Em) and re-rendered.
+  Tempo map 100→72→100 verified audible at the bar-5 boundary; **meter map
+  (4/4→3/4→4/4) is NOT representable** — LMMS Song time signature is global
+  (`Song::setTimeSignature` rescales ticksPerBar project-wide); absolute
+  event timing survives, notation-grade meter does not. Stem/mix routing
+  established: both pass the master-volume stage (stem hashes change with
+  mastervol); track-level clipping (osc overdrive) was the cause of
+  full-scale stems, fixed with per-track headroom; mix ≈ Σ stems only with
+  headroom (best-fit 0.9812, residual ≈ −27 dB from quantization + nonlinear
+  master taper). Full receipts:
+  [docs/evidence/lmms-arrangement-probe-20261025.json](../evidence/lmms-arrangement-probe-20261025.json).
 - Instruments/hosting: bundled synths (TripleOscillator, OpulenZ, Monstro,
   Watsyn...), SF2 (`Sf2Player`), GIG (`GigPlayer`), embedded ZynAddSubFX,
   VST2 via `Vestige`, and on master `Lv2Instrument`/`Lv2Effect` plus embedded
@@ -218,6 +244,43 @@ GPL/Commercial license" with "multiple commercial licensing tiers"
 (https://github.com/Tracktion/tracktion_engine/blob/v3.2.0/README.md).
 No runtime probe by this seat; license review remains a proposal item there.
 
+### 2.9 Editing-interface maintenance tradeoff (fair comparison)
+
+Both finalists carry a version-coupled authoring interface, and neither
+coupling disqualifies a pinned implementation:
+
+- **Ardour**: the Lua scripting API is upstream-documented as "fully
+  functional, yet still in a prototyping stage" with "interfaces may change"
+  (https://manual.ardour.org/lua-scripting/) — scripts written against a
+  pinned Ardour release may need porting across releases.
+- **LMMS**: the `.mmp` schema is source-defined and version-specific —
+  measured schema change between 1.2 and 1.3.0-alpha.2 (clip/pattern elements
+  moved from `<instrumenttrack>` children to `<track>` children,
+  `src/core/Track.cpp` `loadTrack`), plus one-way project-file upgrades
+  warned in alpha release notes.
+
+In both cases the adapter is version-locked to a pinned binary with
+validation by load-and-render (LMMS) or load-and-export (Ardour) per pinned
+version; upgrades are deliberate re-validations, not silent drift. Selection
+should weigh which coupling is cheaper for Riff to maintain: a Lua script
+surface (Ardour) or an XML generator (LMMS).
+
+### 2.10 LMMS AppImage distribution inventory (licensing input)
+
+Inventory of `lmms-1.3.0-alpha.2-linux-x86_64.AppImage` (sha256
+`7580e832…`) extracted contents: 60 plugin shared objects under
+`usr/lib/lmms/` (191 MB), 954 ZynAddSubFX `.xiz` presets, ~8 MB sample
+bundles (`samples/basses|bassloops|beats|drums|drumsynth|effects|…`),
+644 KB wavetables, 10 MB presets, locale/theme data. **No LICENSE, COPYING or
+copyright file ships anywhere in the payload** — the distributed artifact
+carries no license texts, so the ffmpeg-pattern obligation (pinned sources +
+license texts) must be satisfied from upstream sources at packaging time.
+Separate-process execution alone is not blanket clearance: the payload
+embeds third-party components (ZynAddSubFX — GPL; bundled samples and
+wavetables of unstated in-payload provenance) whose redistribution terms
+need the §5 license review. No `.sf2`/`.sf3`/`.gig` files ship (Sf2Player/
+GigPlayer require externally sourced, license-reviewed fonts).
+
 ## 3. ABC → MIDI conversion trace (probe)
 
 Deep ABC-semantics fidelity is the DeepSeek seat's axis; this section records
@@ -249,7 +312,7 @@ Observed mappings (event receipts in `probe.mftext`):
 | `D>E` broken rhythm | Asymmetric 720/240-tick pair | preserved |
 | `(3DEF` triplet | Three 160-tick notes in one 480-tick beat | preserved |
 | `\|: ... :\|` | Expanded (played twice; 86 note-ons total) | expansion (repeat structure not kept as structure) |
-| Voice length mismatch | Warnings; pad/truncate to common length | lossy edge |
+| Voice length mismatch | Warnings; tracks keep their own unequal extents (CORRECTED: earlier "pad/truncate" here was my inference from warnings; DeepSeek's event-level matrix observed unequal extents, authoritative) | lossy edge (mismatch warned, not silently aligned) |
 
 Malformed input behavior: a syntax error (`D.2`) aborted note generation for
 the remainder of that pass with a parse error — conversion is not

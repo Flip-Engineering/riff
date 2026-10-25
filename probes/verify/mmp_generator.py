@@ -17,7 +17,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from midi_summary import parse  # noqa: E402
+from midi_summary import summarize  # noqa: E402
 
 # Voice-name -> instrument settings. Three timbre engines, all bundled in
 # LMMS (license-clean, deterministic XML): two TripleOscillator variants and
@@ -28,7 +28,7 @@ INSTRUMENTS = {
         "basenote": 69,
         "attrs": {"wavetype0": "0", "wavetype1": "0", "wavetype2": "0",
                   "coarse0": "0", "coarse1": "0", "coarse2": "12",
-                  "vol0": "200", "vol1": "100", "vol2": "50",
+                  "vol0": "100", "vol1": "100", "vol2": "50",
                   "modalgo1": "2", "modalgo2": "1", "modalgo3": "2"},
     },
     "acoustic_bass": {
@@ -36,7 +36,7 @@ INSTRUMENTS = {
         "basenote": 45,
         "attrs": {"wavetype0": "2", "wavetype1": "2", "wavetype2": "2",
                   "coarse0": "-12", "coarse1": "-24", "coarse2": "0",
-                  "vol0": "200", "vol1": "120", "vol2": "60",
+                  "vol0": "70", "vol1": "40", "vol2": "20",
                   "modalgo1": "2", "modalgo2": "1", "modalgo3": "2"},
     },
     "acoustic_grand": {
@@ -56,7 +56,7 @@ PATTERN_LEN = 1536  # 8 bars x 192 LMMS ticks (song end at bar 8)
 
 def voice_notes(smf_path):
     """Notes of the voice track (channel 0) as (pos, len, key) LMMS ticks."""
-    m = parse(smf_path)
+    m = summarize(smf_path)
     notes = []
     for trk in m["tracks"]:
         for n in trk.get("notes", []):
@@ -70,7 +70,7 @@ def voice_notes(smf_path):
 
 def tempo_map(smf_path):
     """[(lmms_tick, bpm)] from the SMF conductor track."""
-    m = parse(smf_path)
+    m = summarize(smf_path)
     pts = [(round(t["tick"] / TICK_DIVISOR), t["bpm"])
            for t in m["tracks"][0].get("tempos", [])]
     return sorted(pts)
@@ -140,7 +140,9 @@ def build(voices, tempo, out_path, mastervol=65, title="riff arrangement probe")
   </song>
 </lmms-project>
 '''
-    return xml
+    with open(out_path, "w") as fh:
+        fh.write(xml)
+    return out_path
 
 
 def main():
