@@ -118,6 +118,15 @@ try {
   await page.unroute(frameRoute);
   await page.unroute(`${base}/api/capabilities`);
   console.log("PASS Browser batches honor the byte budget without dropping the frame held for the next batch");
+  await page.route(frameRoute, route => route.fulfill({ status: 400, json: { error: "Owned upload failure" } }));
+  const failedCreation = page.waitForResponse(response => response.request().method() === "POST" && response.url().endsWith("/video-exports"));
+  await page.evaluate(() => document.querySelector("#video-form").requestSubmit());
+  const failedJob = await (await failedCreation).json();
+  await page.waitForFunction(() => videoExport === null);
+  assert.match(await page.locator("#video-error").textContent(), /Owned upload failure/);
+  assert.equal((await (await page.request.get(`${base}/api/video-exports/${failedJob.id}`)).json()).status, "cancelled");
+  await page.unroute(frameRoute);
+  console.log("PASS Fatal upload failure interrupts active draw/encode waits and cancels the owned server job");
   assert.deepEqual(errors, []);
   console.log("PASS Cancellation aborts a pending frame batch and cancels its owned server encoder");
 } finally { await browser.close(); }
