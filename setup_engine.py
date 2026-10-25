@@ -15,6 +15,20 @@ from paths import ROOT, WORKSPACE, MODELS
 import platform_support
 
 
+def cmake_executable(run, version):
+    cmake = shutil.which("cmake")
+    if cmake:
+        return cmake
+    tools_env = WORKSPACE / "tools"
+    local = tools_env / "bin/cmake"
+    if not local.is_file():
+        interpreter = tools_env / "bin/python"
+        if not interpreter.exists():
+            run([sys.executable, "-m", "venv", str(tools_env)])
+        run([str(interpreter), "-m", "pip", "install", "cmake==" + version])
+    return str(local)
+
+
 def fingerprint(source=ROOT, sha_backend=None):
     manifest = json.loads((Path(source) / "sources.json").read_text())
     digest = hashlib.sha256(manifest["runtime_commit"].encode())
@@ -113,10 +127,11 @@ def prepare(backend, run=None, source=ROOT, download_models=True, jobs=None, cud
         def run(command, cwd=None):
             print(" ".join(map(str, command)), flush=True)
             subprocess.run(command, cwd=cwd, check=True)
+    cmake = cmake_executable(run, manifest["cmake"])
     sha_backend = None
     if "patches/yue2-weight-system-sha.patch" in manifest["local_patches"]:
         from scripts.checkpoint_sha_identity import discover
-        sha_backend = discover(portable_sha, source)["sha256_backend"]
+        sha_backend = discover(portable_sha, source, cmake=cmake)["sha256_backend"]
     build_root = WORKSPACE / "engines" / (fingerprint(source, sha_backend) + "-" + backend)
     checkout, build = build_root / "audio.cpp", build_root / "build"
     build_root.mkdir(parents=True, exist_ok=True)
@@ -130,14 +145,6 @@ def prepare(backend, run=None, source=ROOT, download_models=True, jobs=None, cud
         run(["git", "-C", str(checkout), "fetch", "--depth", "1", "origin", manifest["runtime_commit"]])
         run(["git", "-C", str(checkout), "checkout", "--detach", "FETCH_HEAD"])
     apply_pinned_patches(checkout, source, manifest, run)
-    cmake = shutil.which("cmake")
-    if not cmake:
-        tools_env = WORKSPACE / "tools"
-        interpreter = tools_env / "bin/python"
-        if not interpreter.exists():
-            run([sys.executable, "-m", "venv", str(tools_env)])
-        run([str(interpreter), "-m", "pip", "install", "cmake==" + manifest["cmake"]])
-        cmake = str(tools_env / "bin/cmake")
     configuration = [cmake, *cmake_command(checkout, build, backend, cuda_arch, portable_sha)]
     run(configuration)
     if configure_only:

@@ -8,11 +8,12 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
-import shutil
 import subprocess
+import sys
 import tempfile
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
 PATCH = "patches/yue2-weight-system-sha.patch"
 MODULE = "cmake/riff_checkpoint_sha.cmake"
 
@@ -29,10 +30,13 @@ def module_text(source=ROOT):
     return "\n".join(line[1:] for line in section.splitlines() if line.startswith("+") and not line.startswith("+++")) + "\n"
 
 
-def discover(portable=False, source=ROOT):
-    cmake = shutil.which("cmake")
-    if not cmake:
-        raise ValueError("CMake is required for native build discovery")
+def discover(portable=False, source=ROOT, cmake=None):
+    if cmake is None:
+        from setup_engine import cmake_executable
+        def provision(command):
+            subprocess.run(command, capture_output=True, text=True, check=True)
+        manifest = json.loads((Path(source) / "sources.json").read_text())
+        cmake = cmake_executable(provision, manifest["cmake"])
     with tempfile.TemporaryDirectory(prefix="riff-sha-discovery-") as directory:
         root = Path(directory)
         (root / "sha.cmake").write_text(module_text(source))
