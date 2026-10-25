@@ -81,6 +81,7 @@
     $("#setup-description").hidden = system.desktop && system.engine.ready;
     if (!settingsFilled) {
       for (const [key, id] of Object.entries(engineFields)) $("#" + id).value = system.engine[key];
+      $("#engine-backend").value = system.engine.recommended_backend || system.engine.backend;
       for (const [key, id] of Object.entries(engineChecks)) $("#" + id).checked = !!system.engine[key];
       $("#automatic-checks").checked = system.preferences.automatic_checks;
       $("#automatic-downloads").checked = system.preferences.automatic_downloads;
