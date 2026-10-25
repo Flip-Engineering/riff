@@ -20,12 +20,20 @@ jobs:
     name: Hosted Apple Silicon pinned LoRA inference
     runs-on: macos-14
     env:
-      EVIDENCE: ${{ runner.temp }}/riff-metal-lora-evidence
-      MODELS: ${{ runner.temp }}/riff-metal-lora-models
-      TMPDIR: ${{ runner.temp }}
       OMP_NUM_THREADS: '2'
       OPENBLAS_NUM_THREADS: '2'
     steps:
+      # The runner context is not available in job-level env, so the paths
+      # under the runner's temporary directory are set by the first step.
+      - name: Set evidence, model and temporary paths
+        run: |
+          set -euo pipefail
+          {
+            echo "EVIDENCE=$RUNNER_TEMP/riff-metal-lora-evidence"
+            echo "MODELS=$RUNNER_TEMP/riff-metal-lora-models"
+            echo "TMPDIR=$RUNNER_TEMP"
+          } >> "$GITHUB_ENV"
+
       - name: Check out the exact requested commit
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
@@ -94,11 +102,11 @@ jobs:
         with:
           name: riff-metal-lora-${{ inputs.source_sha }}
           path: |
-            ${{ env.EVIDENCE }}/*.log
-            ${{ env.EVIDENCE }}/hardware.json
-            ${{ env.EVIDENCE }}/native-lora/*.json
-            ${{ env.EVIDENCE }}/native-lora/*.log
-            ${{ env.EVIDENCE }}/inference/receipt.json
-            ${{ env.EVIDENCE }}/inference/*.log
+            ${{ runner.temp }}/riff-metal-lora-evidence/*.log
+            ${{ runner.temp }}/riff-metal-lora-evidence/hardware.json
+            ${{ runner.temp }}/riff-metal-lora-evidence/native-lora/*.json
+            ${{ runner.temp }}/riff-metal-lora-evidence/native-lora/*.log
+            ${{ runner.temp }}/riff-metal-lora-evidence/inference/receipt.json
+            ${{ runner.temp }}/riff-metal-lora-evidence/inference/*.log
             native-cache-receipts/*.json
           if-no-files-found: warn

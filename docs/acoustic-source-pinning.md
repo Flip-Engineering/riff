@@ -180,3 +180,189 @@ than claiming stat caching provides that guarantee. Ordinary changes present
 before a take must be detected before planning; changes during a stage must fail
 that stage's output verification. Preserve an already validated NAR checkpoint
 when a later VAE stage fails.
+
+## Optional system SHA-256 implementation
+
+The coordinator selected platform crypto discovered at build time, with portable
+SHA-256 when it is unavailable. The sixteenth pinned patch,
+[`yue2-weight-system-sha.patch`](../patches/yue2-weight-system-sha.patch), uses:
+
+- macOS: the existing CommonCrypto path.
+- Linux: `find_package(OpenSSL QUIET COMPONENTS Crypto)` and EVP when headers and
+  dynamic libcrypto are found. Missing Crypto or a static-only library selects
+  portable SHA; nothing is downloaded, bundled or statically linked.
+- Other platforms: portable SHA. Riff's engine workflows support Linux/macOS;
+  [native Windows is unsupported](install.md), so this change does not add CNG.
+
+`python setup_engine.py --backend cpu --portable-sha` explicitly disables system
+SHA discovery; direct CMake builds can set `RIFF_CHECKPOINT_SYSTEM_SHA=OFF`.
+The normal setup command explicitly re-enables discovery on subsequent builds.
+No new package is required: installing a platform's OpenSSL development package
+is optional. A dynamically linked engine uses that target system's libcrypto;
+this change supplies no library payload or portable binary distribution promise.
+
+`implementation.yue2.sha256` in native CLI discovery records identifies
+`openssl-evp`, `commoncrypto` or `portable`. The CMake cache also records
+`RIFF_CHECKPOINT_SHA_BACKEND`; the queued build receipt records `sha256_backend`.
+The **engine fingerprint and build directory include the discovered choice,
+libcrypto SONAME and OpenSSL header major version**. Configured compiler-cache
+input identity and the homelab queue's artifact key bind the same ABI identity,
+using the pinned CMake module for discovery. This keeps a portable artifact from
+being restored for a crypto-enabled build, or vice versa. Managed engines also
+retain an adjacent private crypto receipt. Before capability cache lookup or a
+launch, Riff checks that the recorded SONAME path still exists and has the same
+SONAME. A missing or incompatible library makes the engine unavailable with a
+setup/rebuild message. Compatible patch updates remain usable: library and header
+bytes are not part of this ABI identity. Setup rediscovers the current ABI, or
+builds portable when unavailable; it does not rebuild during a music request.
+
+EVP initialization, update or finalization errors fail hashing; they cannot yield
+an accepted partial digest. Existing file-read, identity and session retirement
+guards remain in place. The source check runs the same 80 format/cache cases with
+the selected backend and forced portable SHA, comparing complete digest and
+checkpoint bytes and cross-checking file digests with OTP. Fixtures include empty
+files, 63/64/65-byte boundaries, read-block boundaries and a 1 MiB + 1-byte file.
+A fresh CMake helper build with Crypto discovery disabled verifies portable
+selection and identical output; macOS CI forces portable alongside CommonCrypto.
+These are targeted component checks, not a second native engine build.
+
+A fresh first-take CPU comparison pins in **2,875.162 ms with EVP**, versus
+**18,803.990 ms with portable SHA**: 6.54× faster pinning and 15.929 s saved.
+The full process took 36.110 s versus 51.670 s. Both runs used a fresh process,
+two CPU threads, seed 1234, 25 semantic frames and two midpoint steps, with the
+page cache warmed by verifying the shared files first. This is one paired sample
+on a shared host, not a multi-machine or GPU-render benchmark.
+
+Both takes hashed all sources with zero session-cache hits. Their WAVs and
+checkpoint payloads are identical; checkpoint metadata agrees except for the
+producer binary digest. All six shared files retained their identities. The
+[normalized receipt](evidence/acoustic-pin-system-sha-2026-10-25.json) records
+timings, byte counts, binary digests, queue proof and qualifications.
+
+The queue-built Linux engine passed all 80 cases with EVP, forced portable SHA
+and a fresh no-Crypto CMake build, plus all 69 pipeline checks. OTP independently
+verified the file digests. Production inputs remained unchanged. The macOS
+native CI job at `3fe049e` also passed the selected CommonCrypto, portable,
+no-Crypto and pipeline checks. These component checks load no neural weights;
+the paired first-take measurement above runs the actual CPU engine and models.
+The local engine was built at frozen `3cdf887`; subsequent ABI-identity and
+lifecycle driver fixes leave its pinned native patch unchanged. Final CI at the
+published PR head remains required.
+
+## First-use SHA-256 acceleration options
+
+Part of [#60](https://github.com/Flip-Engineering/riff/issues/60), after the
+session cache merged in [#64](https://github.com/Flip-Engineering/riff/pull/64).
+The options below preserve the design comparison that informed the coordinator
+decision above; system discovery and fallback refine the original recommendation.
+
+On the same EPYC host, `openssl dgst -sha256` (OpenSSL 3.0.13), reading the
+2,665,632,320-byte main GGUF through stdin with a warm page cache, took
+3.064 s wall / 2.339 s user. `sha256sum` took 3.256 s wall / 2.187 s user.
+Both produced the pinned `97af67d7…` digest, incurred zero input blocks and left
+the shared file's identity unchanged. The normalized
+[reference receipt](evidence/acoustic-pin-accelerated-sha-2026-10-24.json)
+preserves the results; the original portable native probe took 21.270 s.
+These were separate single samples on a busy host, not an integrated comparison
+or proof of which instructions OpenSSL selected.
+
+Matching the OpenSSL reference would save about **18.21 s per first main-file
+hash**, an 85.6% reduction (6.94 times faster). Applying only that saving to the
+baseline 23.386 s total source-hashing stage gives about 5.18 s. If all four
+hashes improved by the same factor, that stage would be about 3.37 s. These are
+projections, not measured first-take or end-to-end generation times; cold storage
+can reduce the benefit. The cached second take already hashes zero source bytes.
+
+### Link OpenSSL's libcrypto
+
+Use its streaming [EVP digest API](https://docs.openssl.org/3.0/man3/EVP_DigestInit/)
+for SHA-256, retaining the current file reads and identity guards. Only libcrypto
+is needed, not libssl or an `openssl` subprocess. OpenSSL handles CPU dispatch;
+its [x86 capability documentation](https://docs.openssl.org/3.0/man3/OPENSSL_ia32cap/)
+includes SHA extensions. The measured CLI makes this the best-supported route
+to the saving above, though the native integration still needs measurement.
+
+Linux x86_64/arm64 and Windows need a new native build dependency and matching
+target libraries; assembly support and cross-compilation must be checked.
+macOS can retain CommonCrypto. CMake discovery/linking, native cache fingerprints,
+CI images and release manifests must account for the chosen library. Dynamic
+linking needs a packaged library and reliable loader paths on clean installs;
+static linking increases the binary and makes library updates require a rebuild.
+Python's or Erlang's own crypto dependency does not satisfy the native CLI's
+packaging contract. An explicit portable build can remain available.
+
+OpenSSL 3 is [Apache-2.0 licensed](https://github.com/openssl/openssl/blob/openssl-3.0/LICENSE.txt).
+Pin a maintained release and preserve its license and applicable notices in the
+distributed components; track its security updates. For digest equivalence, run
+the common plan below with EVP, the portable path and CommonCrypto. Also exercise
+OpenSSL's supported capability masking, digest initialization/update/finalization
+errors, and clean installations with the intended library/provider configuration.
+
+### Reuse ggml or audio.cpp code
+
+Inspected runtime `fbe3eedbf6c504e45189e2cdcf1b257740a28863` and its vendored ggml:
+no accelerated SHA-256 implementation was found in ggml's `src` or `include`.
+audio.cpp's
+[`sanotts/runtime.cpp`](https://github.com/0xShug0/audio.cpp/blob/fbe3eedbf6c504e45189e2cdcf1b257740a28863/src/community_models/sanotts/runtime.cpp)
+contains scalar SHA-256 for a truncated text seed. It is not an incremental
+full-digest file API. The current checkpoint fallback already uses that standard
+compression algorithm; factoring it into a shared utility offers **no demonstrated
+first-take acceleration** and cannot justify the 18.21 s saving.
+
+This route adds no external library or runtime packaging requirement. It would
+need an upstream API/refactor, streaming state and full-digest exposure, with
+cross-platform builds and patch maintenance. audio.cpp is
+[Apache-2.0](https://github.com/0xShug0/audio.cpp/blob/fbe3eedbf6c504e45189e2cdcf1b257740a28863/LICENSE);
+its ggml is
+[MIT](https://github.com/0xShug0/audio.cpp/blob/fbe3eedbf6c504e45189e2cdcf1b257740a28863/external/ggml/LICENSE).
+Retain the corresponding notices if moving code. Equivalence testing must cover
+both the complete 32-byte digest and unchanged SanoTTS text-seed outputs, in
+addition to the common plan. A future upstream accelerated API could be revisited;
+it is not present in this pinned revision.
+
+### Vendor SHA-NI and ARMv8 SHA2 compression paths
+
+Keep the portable streaming/padding code and add isolated accelerated block
+functions, selected by runtime CPU detection. For example, the
+[SHA-Intrinsics x86](https://github.com/noloader/SHA-Intrinsics/blob/master/sha256-x86.c)
+and [ARM](https://github.com/noloader/SHA-Intrinsics/blob/master/sha256-arm.c)
+sources provide compression functions, not complete guarded file hashing.
+Their headers declare public-domain dedication and identify earlier contributors;
+pin and review the exact source/provenance and preserve attribution before adoption.
+
+There is no new shared-library payload. The cost moves into Riff: separate
+compiler-specific translation units/flags, CPU detection for every required x86
+feature and platform-specific ARM capability queries, plus GCC/Clang/MSVC and
+cross-compilation coverage. Never enable SHA instructions for the whole binary
+or infer runtime support from a compiler macro; unsupported CPUs must reach the
+portable fallback safely. macOS can keep CommonCrypto. CPU acceleration could
+approach the reference saving, but this candidate has not been benchmarked.
+Equivalence tests must explicitly select each supported accelerated path and the
+fallback, test unaligned input, and run on CPUs without the extensions to detect
+illegal instructions. Riff would own ongoing correctness and portability fixes.
+
+### Common equivalence and integration checks
+
+For any candidate, compare all 32 digest bytes with independent known SHA-256
+vectors and the existing portable implementation: empty input, binary data,
+padding/block boundaries, varied incremental chunk boundaries, unaligned buffers,
+and a streamed input beyond 4 GiB to catch length truncation. Compare the actual
+pinned main/VAE/tokenizer hashes too. Preserve the existing source-mutation,
+inode replacement, alias retargeting and warm-session retirement checks; an
+accelerated hash must not bypass a failed identity guard. Verify checkpoint
+header/payload hashes and equivalent capture/replay output, accounting for the
+changed producer executable digest. Then measure first capture and cached repeat
+on each supported platform, reporting source bytes, cache hits, CPU/wall time and
+page-cache conditions. This note has not run those future implementation tests.
+
+### Recommendation
+
+Choose **OpenSSL libcrypto through EVP** for a separate implementation proposal,
+keeping CommonCrypto on macOS and an explicit portable build. It has measured
+headroom and maintained CPU dispatch, with less custom cryptographic code to
+maintain than vendored intrinsics. Accept it only with an explicit native
+dependency, license/notices and clean-install packaging plan; do not rely on a
+developer machine's library. Internal reuse has no current speed evidence, and
+vendoring avoids a library at the cost of Riff owning dispatch and architecture
+maintenance. The coordinator accepted system-library discovery with portable fallback, rather
+than a required or bundled dependency, as implemented above.

@@ -149,6 +149,40 @@ class ConfigureOnlyTests(unittest.TestCase):
         activate.assert_not_called()
         self.assertEqual(result["configuration"], self.commands[-1])
 
+    def test_cmake_bootstrap_precedes_system_sha_discovery(self):
+        from scripts.checkpoint_sha_identity import module_text
+        native = self.upstream
+        module = native / "cmake/riff_checkpoint_sha.cmake"
+        module.parent.mkdir()
+        module.write_text(module_text())
+        cmakelists = native / "CMakeLists.txt"
+        cmakelists.write_text(cmakelists.read_text() + "include(cmake/riff_checkpoint_sha.cmake)\n")
+        subprocess.run(["git", "-C", str(native), "add", "-N", str(module)], check=True)
+        patch = self.source / "patches/yue2-weight-system-sha.patch"
+        patch.write_bytes(subprocess.check_output(["git", "-C", str(native), "diff"]))
+        subprocess.run(["git", "-C", str(native), "reset", "--hard", "HEAD"], check=True, capture_output=True)
+        manifest_path = self.source / "sources.json"
+        manifest = json.loads(manifest_path.read_text())
+        manifest["local_patches"]["patches/yue2-weight-system-sha.patch"] = {
+            "bytes": patch.stat().st_size, "sha256": hashlib.sha256(patch.read_bytes()).hexdigest()}
+        manifest_path.write_text(json.dumps(manifest))
+        real_which = shutil.which
+        real_cmake = real_which("cmake")
+        def bootstrap(command, cwd=None):
+            if command[1:3] == ["-m", "venv"]:
+                tools = Path(command[-1]) / "bin"
+                tools.mkdir(parents=True)
+                (tools / "python").touch()
+            elif command[1:4] == ["-m", "pip", "install"]:
+                (self.root / "workspace/tools/bin/cmake").symlink_to(real_cmake)
+            else:
+                self.run_command(command, cwd)
+        with mock.patch.object(setup_engine.shutil, "which", side_effect=lambda name: None if name == "cmake" else real_which(name)):
+            result = setup_engine.prepare("cpu", source=self.source, run=bootstrap, configure_only=True)
+        self.assertEqual(result["cmake"], str(self.root / "workspace/tools/bin/cmake"))
+        cache = (Path(result["build_directory"]) / "CMakeCache.txt").read_text()
+        self.assertIn("RIFF_CHECKPOINT_SHA_BACKEND:INTERNAL=", cache)
+
     def test_normal_build_after_configuration_still_compiles_and_links_current_source(self):
         configured = setup_engine.prepare("cpu", source=self.source, run=self.run_command, configure_only=True)
         result = setup_engine.prepare("cpu", source=self.source, run=self.run_command,

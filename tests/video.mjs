@@ -45,7 +45,8 @@ try {
     drawSeedArtwork(context, width, height, seed);
     const rest = context.getImageData(0, 0, width, height).data;
     const image = new Image();
-    image.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(artSVG(seed));
+    // Paint the poster again now. A cached poster may have been painted earlier, while WebGL was briefly unavailable.
+    image.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(artSVG(seed, true));
     await image.decode(); context.setTransform(1, 0, 0, 1, 0, 0); context.drawImage(image, 0, 0, width, height);
     const original = context.getImageData(0, 0, width, height).data;
     let difference = 0;
