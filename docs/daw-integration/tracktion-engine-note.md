@@ -18,11 +18,28 @@ deliberate, not accidental.
   file-player or sequencer to a full blown DAW." It is a JUCE module/library,
   not an end-user DAW application; the commercial Waveform DAW is built on it.
   https://github.com/Tracktion/tracktion_engine#readme
-- **License**: dual GPLv3-or-later / commercial, and the README explicitly
-  requires an appropriate JUCE licence for distribution. A separate helper
-  binary could follow Riff's ffmpeg precedent, but the JUCE/AGPL-or-commercial
-  obligation needs review; linking into the MIT app would not be appropriate.
+- **License**: dual GPLv3-or-later / commercial, verbatim: "Tracktion Engine
+  is published under a dual GPL3 (or later) / Commercial license"
+  (LICENSE.md); README §License: "you must make sure you have an appropriate
+  JUCE licence from juce.com when distributing Tracktion Engine based
+  products" (JUCE is separately licensed, GPL3/commercial). Bundled
+  third-party code: rpmalloc (public domain), ConcurrentQueue (BSD/BSL),
+  choc (ISC), crill (BSL-1.0) (README).
   https://github.com/Tracktion/tracktion_engine/blob/v3.2.0/LICENSE.md
+  Obligations by distribution approach (evidence, not a verdict):
+  (a) a separate helper binary built from Tracktion+JUCE under GPLv3 would
+  be a GPLv3 covered work with source-offer and license-text duties;
+  whether Riff's separate-process MIT studio is unaffected follows the same
+  reasoning as the existing ffmpeg/x264 precedent (desktop/package.exs
+  ships their sources+licenses) — this needs license review, not
+  assumption;
+  (b) linking engine code into Riff's MIT-licensed studio or engine
+  processes would make those combined works subject to GPLv3 conditions on
+  distribution — obligations to evaluate against Riff's MIT LICENSE before
+  choosing this shape;
+  (c) commercial Tracktion Engine AND JUCE licences are the priced
+  alternative (tier terms not reviewed).
+  No approach is selected here; the license review is an open proposal item.
 - **Headless render**: `Renderer` is the library-level render path, with
   `Parameters` for destination file, format, bit depth, sample rate, time
   range, selected tracks, plugins on/off, real-time on/off, and
@@ -58,16 +75,20 @@ deliberate, not accidental.
 | License/distribution | GPLv3 + JUCE licence | GPLv2+ | GPLv2 |
 | Maturity/risk | production engine, but no Riff-side app | mature app, scripting "prototyping" | stable 1.2.2 old; 1.3 alpha |
 
-## Recommendation implication
+## Recommendation implication (for the joint proposal, not a blocker)
 
-Tracktion Engine is the best technical fit for **agent authorship**, but
-selecting it would make Riff build a production service/UI around a DAW engine
-rather than integrate a complete DAW. That is a scope decision for the root,
-not something this seat should assume. If Ardour's project-construction gate
-fails and the user wants first-class agent MIDI authoring, Tracktion Engine is
-the evidence-backed fallback; if the user wants a complete DAW application,
-Ardour or LMMS remain the relevant set.
-
-Limits: no runtime build/render probe; no macOS test; no plugin/GM instrument
-verification; JUCE and SF2/plugin licensing need review; C++20 helper build,
-pinning and signing are unestimated.
+Tracktion Engine is the strongest evidence-backed fit for **agent
+authorship** (first-class MIDI API, GUI-independent `Renderer`, project
+persistence), at the cost that Riff would build and maintain a thin
+headless helper/service around an engine rather than integrate a complete
+DAW application: the helper would need its own minimal project/track/MIDI
+authoring surface, instrument hosting choices (no bundled GM instrument was
+found — an SF2 host or bundled synth must be selected), and packaging
+(native C++20 helper build, pin, signing). The user asked to integrate an
+existing production-quality DAW, not build a new DAW UI; the proposal
+should therefore present this tradeoff explicitly: complete application
+(Ardour/LMMS, with a project-construction adapter) vs engine component
+(Tracktion, with a thin helper Riff owns), with the license review above
+and the unbuilt-helper cost priced in. Unknowns retained: no runtime
+build/render probe, no macOS test, plugin hosting unverified, helper build
+cost unestimated.
