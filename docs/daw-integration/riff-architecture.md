@@ -141,7 +141,8 @@ locations involved would be:
 3. **Validation**: `validate_recipe` (`studio_core.py:62-175`) or a parallel
    validator; `render_mode` is a closed enum (`music|plan|performance|sound`,
    `studio_core.py:118-120`) and receipts hard-code stages
-   plan/performance/sound/audio (`operations.py:195-225`, 855-857) — a DAW
+   plan/performance/sound/audio (`operations.py:210-238`, receipt schema
+   properties `operations.py:855-857`) — a DAW
    render either maps onto these or extends both.
 4. **Job→process mapping**: `Generator.execute` kind branch
    (`studio_core.py:1415-1421`) + command builder (`native_command`
