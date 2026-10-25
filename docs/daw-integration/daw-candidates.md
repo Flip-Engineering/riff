@@ -21,7 +21,7 @@ does not select a DAW; it constrains the joint selection proposal.
 | Stargate | rolling (stargatedaw org; 882 stars) | https://github.com/stargatedaw/stargate |
 | BespokeSynth | nightly channel | https://github.com/BespokeSynth/BespokeSynth |
 | abcMIDI | 5.07 (2026-10-14), commit `6582eb8` (2026-10-20), built locally | https://github.com/sshlien/abcmidi (canonical: https://ifdo.ca/~seymour/runabc/) |
-
+| Tracktion Engine | 3.2.0 (2025-05-15) | https://github.com/Tracktion/tracktion_engine/releases/tag/v3.2.0 — see [docs/daw-integration/tracktion-engine-note.md](tracktion-engine-note.md) (DeepSeek) |
 ## 2. Candidate assessments
 
 ### 2.1 Ardour 9.8
@@ -187,6 +187,17 @@ does not select a DAW; it constrains the joint selection proposal.
 - BespokeSynth: GPL-3.0 modular live environment; VST/VST3/LV2 hosting,
   Python livecoding; live-patch oriented, no documented headless render; not
   an arranger DAW.
+
+### 2.8 Tracktion Engine (cross-reference)
+
+DeepSeek's [tracktion-engine-note.md](tracktion-engine-note.md) covers the
+engine candidate (library not app; dual GPLv3/commercial plus a separate
+JUCE license requirement; GUI-independent `Renderer`; first-class MIDI API;
+no bundled GM instrument found). Spot-checked by this seat:
+README.md at v3.2.0 states "Tracktion Engine is covered by a
+GPL/Commercial license" with "multiple commercial licensing tiers"
+(https://github.com/Tracktion/tracktion_engine/blob/v3.2.0/README.md).
+No runtime probe by this seat; license review remains a proposal item there.
 
 ## 3. ABC → MIDI conversion trace (probe)
 
