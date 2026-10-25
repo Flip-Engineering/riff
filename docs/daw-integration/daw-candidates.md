@@ -81,15 +81,32 @@ does not select a DAW; it constrains the joint selection proposal.
   project — my runtime probe hung exactly there under Xvfb. `render` /
   `rendertracks` are headless (`Engine::init(true)` with no GUI,
   `src/core/main.cpp` in the v1.3.0-alpha.2 tag).
-- Runtime receipt `[probe]` (this checkout, no root, nice -n 19/ionice -c3):
-  a hand-written 2-track `.mmp` (2× TripleOscillator, 11 notes, 4 bars,
-  108 BPM) rendered headlessly by the official `lmms-1.3.0-alpha.2-linux-x86_64.AppImage`
-  (sha256 `7580e832…` verified against the release page): mix
-  `out.wav` (pcm_s16le 44.1 kHz stereo, 6.66 s) in ~1 s wall with no X
-  display, plus `rendertracks` stems `1_Melody.wav` / `2_Bass.wav`
-  (volumedetect mean ≈ −3.2 dB). sha256s: mix `16b64791…`, melody
-  `f765c0ce…`, bass `36eb555e…`, source project `19a04c9e…`. Receipts under
-  `.probe-tmp/lmms/` (gitignored).
+- Runtime receipt `[probe]`, CORRECTED (this checkout, no root, nice -n 19/
+  ionice -c3): a hand-written 2-track `.mmp` (2× TripleOscillator, 11 notes,
+  4 bars, 108 BPM) rendered headlessly by the official
+  `lmms-1.3.0-alpha.2-linux-x86_64.AppImage` (sha256 `7580e832…` verified
+  against the release page): mix `out.wav` (pcm_s16le 44.1 kHz stereo,
+  6.66 s) in ~1 s wall with no X display, plus `rendertracks` stems
+  `1_Melody.wav` (−3.8 dB mean) / `2_Bass.wav` (−3.2 dB) — distinct per-voice
+  content. sha256s: mix `d63f77e9…90fe08`, melody `97c1354d…68e223`, bass
+  `4d4bb0e7…762c1`, source project `d280d92e…c7bcc`. CORRECTION DISCLOSED:
+  an earlier render (mix `16b64791…`, stems `f765c0ce…`/`36eb555e…`) used a
+  probe file whose pattern blocks my tooling had duplicated into BOTH tracks
+  (22 notes, stems not voice-distinct); the tooling defect was found and
+  fixed, the corrected file has 11 correctly-assigned notes, and the hashes
+  above supersede the earlier ones. Receipts under `.probe-tmp/lmms/`
+  (gitignored).
+- Round-trip receipt `[probe]`: `write → MMPZ → dump` returns
+  LMMS-canonical XML with all 11 notes byte-identical
+  (`dump-qt.xml` `06f595ca…`; project `d280d92e…`). Format/API quirks
+  pinned by the probe: `dump` takes only MMPZ = **Qt qCompress** format
+  (4-byte big-endian uncompressed length + zlib; plain gzip fails
+  `qUncompress: Z_DATA_ERROR`); `dump` and `upgrade` construct a
+  QApplication — they need a display (Xvfb suffices) and **segfault/abort on
+  plain-`.mmp` input including LMMS's own bundled demo** (`rc=134`), while
+  `render`/`rendertracks` are QCoreApplication-only. `upgrade probe.mmp`
+  also crashed (same class). Generator/validator consequence: validate by
+  load-and-render (or Xvfb `dump`), never by parse-success alone.
 - Schema-migration landmine for hand-written projects: v1.3.0-alpha.2's
   `Track::loadTrack` (`src/core/Track.cpp`) treats clip/pattern elements as
   children of `<track>` (siblings of `<instrumenttrack>`); nesting them
@@ -98,7 +115,9 @@ does not select a DAW; it constrains the joint selection proposal.
   failure mode that any `.mmp` generator/validator must handle per pinned
   version.
 - Project format: XML (`.mmp` / compressed `.mmpz`), agent-writable and
-  diffable; `dump`/`upgrade` give text-level access without the GUI.
+  diffable; `dump`/`upgrade` give text-level access — in the alpha.2
+  AppImage they still require a display and MMPZ input (round-trip receipt
+  above).
 - Instruments/hosting: bundled synths (TripleOscillator, OpulenZ, Monstro,
   Watsyn...), SF2 (`Sf2Player`), GIG (`GigPlayer`), embedded ZynAddSubFX,
   VST2 via `Vestige`, and on master `Lv2Instrument`/`Lv2Effect` plus embedded
