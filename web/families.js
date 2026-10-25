@@ -8,6 +8,7 @@
   const ROLE = { study: "Study", develop: "Developed", replay: "Replayed", resume: "Resumed", other: "Take" };
   const FINISHED = ["done", "planned", "performed", "synthesized"];
   let families = [], currentId = "", loadedCatalog, reload = 0, currentFamily = null;
+  const drafts = new Map();
   const operation = (name, body, key) => api(`/api/v1/operations/${name}`, "POST", body, key ? { headers: { "Idempotency-Key": key } } : {});
 
   function format(field, value) {
@@ -66,39 +67,39 @@
         ${take.track_id ? `<button type="button" class="text-button" data-play="${esc(take.track_id)}" data-key="${key}-play">Play</button>` : ""}
         <button type="button" class="text-button" data-develop-open aria-expanded="false" aria-controls="develop-${esc(take.operation_id)}" data-key="${key}-develop"${finished ? "" : ' disabled title="Available when this take has finished"'}>Develop this study</button>
       </div>
-      <form class="family-select" data-select><label class="sr-only" for="why-${esc(take.operation_id)}">Why ${esc(take.title)}</label>
-        <input id="why-${esc(take.operation_id)}" name="rationale" type="text" placeholder="Why this one (optional)" autocomplete="off" />
+      <form class="family-select" data-select data-draft="${key}-select"><label class="sr-only" for="why-${esc(take.operation_id)}">Why ${esc(take.title)}</label>
+        <input id="why-${esc(take.operation_id)}" name="rationale" type="text" placeholder="Why this one (optional)" autocomplete="off" data-key="${key}-rationale" />
         <button type="submit" class="secondary-button" data-key="${key}-select"${finished ? "" : " disabled"}>Select this take</button></form>
-      <form class="family-develop" id="develop-${esc(take.operation_id)}" data-develop hidden>
+      <form class="family-develop" id="develop-${esc(take.operation_id)}" data-develop data-draft="${key}-develop" hidden>
         <div class="advanced-grid">
-          <div><label for="length-${esc(take.operation_id)}">Length (seconds)</label><input id="length-${esc(take.operation_id)}" name="duration" type="number" min="0.04" step="any" value="${esc(take.settings.max_seconds ?? 30)}"${canPerformance ? " disabled" : ""} required /></div>
-          <div><label for="steps-${esc(take.operation_id)}">Solver steps</label><input id="steps-${esc(take.operation_id)}" name="steps" type="number" min="1" step="1" value="${esc(take.settings.steps ?? 8)}" required /></div>
-          <div><label for="solver-${esc(take.operation_id)}">Synthesis method</label><select id="solver-${esc(take.operation_id)}" name="solver"><option value="midpoint"${take.settings.solver === "ab2" ? "" : " selected"}>Midpoint</option><option value="ab2"${take.settings.solver === "ab2" ? " selected" : ""}>Multistep (AB2)</option></select></div>
-          <div><label for="title-${esc(take.operation_id)}">Title</label><input id="title-${esc(take.operation_id)}" name="title" type="text" placeholder="${esc(take.title)} — developed" /></div>
+          <div><label for="length-${esc(take.operation_id)}">Length (seconds)</label><input id="length-${esc(take.operation_id)}" name="duration" type="number" min="0.04" step="any" value="${esc(take.settings.max_seconds ?? 30)}"${canPerformance ? " disabled" : ""} required data-key="${key}-duration" /></div>
+          <div><label for="steps-${esc(take.operation_id)}">Solver steps</label><input id="steps-${esc(take.operation_id)}" name="steps" type="number" min="1" step="1" value="${esc(take.settings.steps ?? 8)}" required data-key="${key}-steps" /></div>
+          <div><label for="solver-${esc(take.operation_id)}">Synthesis method</label><select id="solver-${esc(take.operation_id)}" name="solver" data-key="${key}-solver"><option value="midpoint"${take.settings.solver === "ab2" ? "" : " selected"}>Midpoint</option><option value="ab2"${take.settings.solver === "ab2" ? " selected" : ""}>Multistep (AB2)</option></select></div>
+          <div><label for="title-${esc(take.operation_id)}">Title</label><input id="title-${esc(take.operation_id)}" name="title" type="text" placeholder="${esc(take.title)} — developed" data-key="${key}-title" /></div>
         </div>
-        <details class="family-inputs"><summary>Edit inputs</summary>
-          <label for="direction-${esc(take.operation_id)}">Sound direction</label><textarea id="direction-${esc(take.operation_id)}" name="style" rows="3">${esc(take.settings.style ?? "")}</textarea>
-          <label for="words-${esc(take.operation_id)}">Words</label><textarea id="words-${esc(take.operation_id)}" name="lyrics" rows="6">${esc(take.settings.lyrics ?? "")}</textarea>
+        <details class="family-inputs" data-key="${key}-inputs"><summary>Edit inputs</summary>
+          <label for="direction-${esc(take.operation_id)}">Sound direction</label><textarea id="direction-${esc(take.operation_id)}" name="style" rows="3" data-key="${key}-style">${esc(take.settings.style ?? "")}</textarea>
+          <label for="words-${esc(take.operation_id)}">Words</label><textarea id="words-${esc(take.operation_id)}" name="lyrics" rows="6" data-key="${key}-lyrics">${esc(take.settings.lyrics ?? "")}</textarea>
           <div class="advanced-grid">
-            <div><label for="guidance-${esc(take.operation_id)}">Guidance</label><input id="guidance-${esc(take.operation_id)}" name="guidance" type="number" min="0" max="20" step="any" value="${esc(take.settings.cfg_scale ?? 1)}" /></div>
-            <div><label for="variation-${esc(take.operation_id)}">Variation</label><input id="variation-${esc(take.operation_id)}" name="variation" type="number" min="0" max="5" step="any" value="${esc(take.settings.temperature ?? 1)}" /></div>
+            <div><label for="guidance-${esc(take.operation_id)}">Guidance</label><input id="guidance-${esc(take.operation_id)}" name="guidance" type="number" min="0" max="20" step="any" value="${esc(take.settings.cfg_scale ?? 1)}" data-key="${key}-guidance" /></div>
+            <div><label for="variation-${esc(take.operation_id)}">Variation</label><input id="variation-${esc(take.operation_id)}" name="variation" type="number" min="0" max="5" step="any" value="${esc(take.settings.temperature ?? 1)}" data-key="${key}-variation" /></div>
           </div>
           <p class="control-hint">Only what you change is sent. A kept score still applies to edited words.</p></details>
         <fieldset><legend>Keep from this take</legend>
-          <label><input type="checkbox" name="retain" value="seed" checked /> Seed</label>
-          <label><input type="checkbox" name="retain" value="score"${canScore ? " checked" : " disabled"} /> Composed score${canScore ? "" : " (this take has none)"}</label>
-          <label><input type="checkbox" name="retain" value="performance"${canPerformance ? " checked" : " disabled"} /> Saved performance${canPerformance ? " (fixes the length)" : ""}</label>
+          <label><input type="checkbox" name="retain" value="seed" checked data-key="${key}-retain-seed" /> Seed</label>
+          <label><input type="checkbox" name="retain" value="score"${canScore ? " checked" : " disabled"} data-key="${key}-retain-score" /> Composed score${canScore ? "" : " (this take has none)"}</label>
+          <label><input type="checkbox" name="retain" value="performance"${canPerformance ? " checked" : " disabled"} data-key="${key}-retain-performance" /> Saved performance${canPerformance ? " (fixes the length)" : ""}</label>
           <p class="control-hint">The seed, score and saved performance keep the musical idea. A saved performance fixes the length: clear it to choose a longer or shorter take, which then gets a new performance.</p></fieldset>
         <p class="form-error" role="alert" hidden></p>
-        <button type="submit" class="secondary-button">Develop</button>
+        <button type="submit" class="secondary-button" data-key="${key}-develop-submit">Develop</button>
       </form></li>`;
   }
   function boardHtml(family) {
     const history = family.selection.history;
     return `<header class="family-head"><h3 id="family-title" tabindex="-1">${esc(label(family.name))}</h3>
-      <form data-rename class="family-rename"><label class="sr-only" for="family-name-input">Family name</label>
-        <input id="family-name-input" name="name" type="text" value="${esc(family.name || "")}" placeholder="Name this family" required />
-        <button type="submit" class="text-button">${family.named ? "Rename" : "Name it"}</button></form></header>
+      <form data-rename data-draft="family-${esc(family.family_id)}-rename" class="family-rename"><label class="sr-only" for="family-name-input">Family name</label>
+        <input id="family-name-input" name="name" type="text" value="${esc(family.name || "")}" placeholder="Name this family" required data-key="family-${esc(family.family_id)}-rename-name" />
+        <button type="submit" class="text-button" data-key="family-${esc(family.family_id)}-rename-submit">${family.named ? "Rename" : "Name it"}</button></form></header>
       ${Object.keys(family.context).length ? `<dl class="family-context">${Object.entries(family.context).map(([name, value]) => `<div><dt>${esc(name)}</dt><dd>${text(name, value)}</dd></div>`).join("")}</dl>` : ""}
       <section aria-labelledby="family-shared-heading"><h4 id="family-shared-heading">Shared by the studies</h4>
         ${family.common.length ? `<dl class="family-shared">${family.common.map(item => `<div><dt>${esc(item.label)}</dt><dd>${text(item.field, item.value)}</dd></div>`).join("")}</dl>`
@@ -108,21 +109,53 @@
         const take = family.takes.find(entry => entry.job_id === item.take_job_id || entry.track_id === item.take_job_id);
         return `<li>${esc(take ? take.title : "A take")}${item.rationale ? ` — ${esc(item.rationale)}` : ""}</li>`; }).join("")}</ol></details>`;
   }
+  function syncRetention(form) {
+    const performance = form.querySelector("[name=retain][value=performance]");
+    if (performance) form.elements.duration.disabled = performance.checked;
+  }
+  function rememberDraft(form) {
+    if (!form?.dataset.draft) return;
+    const values = new Map();
+    for (const field of form.querySelectorAll("[data-key][name]"))
+      values.set(field.dataset.key, field.type === "checkbox" ? field.checked : field.value);
+    drafts.set(form.dataset.draft, values);
+  }
+  function restoreDraft(form) {
+    const saved = drafts.get(form.dataset.draft);
+    if (!saved) return;
+    for (const field of form.querySelectorAll("[data-key][name]")) {
+      if (!saved.has(field.dataset.key)) continue;
+      const value = saved.get(field.dataset.key);
+      if (field.type === "checkbox") field.checked = value;
+      else field.value = value;
+    }
+    if (form.matches("[data-develop]")) syncRetention(form);
+  }
   async function showFamily(id, focus) {
     currentId = id;
     const request = ++reload;
-    const active = document.activeElement?.dataset?.key;
     status.textContent = "";
     try {
       const family = await api(`/api/v1/families/${encodeURIComponent(id)}`);
       if (request !== reload) return;
       currentFamily = family;
       const open = new Set([...board.querySelectorAll("form[data-develop]:not([hidden])")].map(form => form.id));
+      const openDetails = new Set([...board.querySelectorAll("details[data-key][open]")].map(details => details.dataset.key));
+      const activeElement = document.activeElement;
+      const active = board.contains(activeElement) ? activeElement.dataset.key : "";
+      const selection = active && typeof activeElement.selectionStart === "number" ? {
+        start: activeElement.selectionStart, end: activeElement.selectionEnd, direction: activeElement.selectionDirection } : null;
       board.innerHTML = boardHtml(family);
+      for (const form of board.querySelectorAll("form[data-draft]")) restoreDraft(form);
+      for (const details of board.querySelectorAll("details[data-key]")) if (openDetails.has(details.dataset.key)) details.open = true;
       for (const form of board.querySelectorAll("form[data-develop]")) if (open.has(form.id)) { form.hidden = false; board.querySelector(`[aria-controls="${form.id}"]`)?.setAttribute("aria-expanded", "true"); }
       renderList();
       if (focus) $("#family-title").focus();
-      else if (active) board.querySelector(`[data-key="${active}"]`)?.focus();
+      else if (active) {
+        const element = board.querySelector(`[data-key="${active}"]`);
+        element?.focus();
+        if (selection && element?.setSelectionRange) element.setSelectionRange(selection.start, selection.end, selection.direction);
+      }
     } catch (error) { if (request === reload) status.textContent = error.message; }
   }
   async function openDialog(id) {
@@ -144,14 +177,16 @@
 
   board.addEventListener("submit", async (event) => {
     event.preventDefault();
-    const form = event.target, family = currentFamily;
+    const form = event.target, family = currentFamily, submittedDraft = drafts.get(form.dataset.draft);
     try {
       if (form.matches("[data-rename]")) {
         await operation("family.rename", { family_id: family.family_id, name: form.elements.name.value });
+        if (drafts.get(form.dataset.draft) === submittedDraft) drafts.delete(form.dataset.draft);
         await loadFamilies(); await showFamily(family.family_id, true);
       } else if (form.matches("[data-select]")) {
         const take = form.closest("[data-operation]").dataset.operation, rationale = form.elements.rationale.value.trim();
         await keyed(`select${take}${rationale}`, key => operation("take.select", { take, rationale, idempotency_key: key }));
+        if (drafts.get(form.dataset.draft) === submittedDraft) drafts.delete(form.dataset.draft);
         await loadFamilies(); await showFamily(family.family_id);
         status.textContent = "Selection recorded.";
       } else if (form.matches("[data-develop]")) {
@@ -172,6 +207,7 @@
         try {
           const result = await keyed(`develop${take.operation_id}${JSON.stringify([retain, changes])}`,
             key => operation("take.develop", { source: take.operation_id, retain, changes, idempotency_key: key }));
+          if (drafts.get(form.dataset.draft) === submittedDraft) drafts.delete(form.dataset.draft);
           notify(`“${result.receipt.effective_recipe.title}” is on its way.`);
           form.hidden = true;
           await refresh(); await loadFamilies(); await showFamily(family.family_id);
@@ -189,10 +225,11 @@
       if (!form.hidden) form.elements.duration.focus();
     }
   });
+  board.addEventListener("input", (event) => rememberDraft(event.target.form));
   board.addEventListener("change", (event) => {
+    rememberDraft(event.target.form);
     if (event.target.name !== "retain") return;
-    const form = event.target.form, performance = form.querySelector("[name=retain][value=performance]").checked;
-    form.elements.duration.disabled = performance;
+    syncRetention(event.target.form);
   });
   list.addEventListener("click", (event) => {
     const item = event.target.closest("[data-family]");

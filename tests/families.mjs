@@ -1,17 +1,17 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { chromium } from "playwright";
+import { launch } from "./browser-launch.mjs";
 
 // Study families through the Studio's own controls, against a real server: start a family from a study,
 // add another, see what they share and how each differs, select one and develop it with edited controls.
-const server = spawn(process.env.RIFF_PYTHON || "python3", ["-u", "tests/review_browser_server.py"], { env: { ...process.env } });
+const server = spawn(process.env.RIFF_PYTHON || "python3", ["-u", "tests/review_browser_server.py"], { env: { ...process.env, RIFF_QUEUE_FIXTURE: "1" } });
 let diagnostics = ""; server.stderr.on("data", data => diagnostics += data);
 const fixture = await new Promise((resolve, reject) => {
   let output = "";
   server.stdout.on("data", data => { output += data; if (output.includes("\n")) resolve(JSON.parse(output.split("\n")[0])); });
   server.once("exit", code => reject(new Error(`Fixture exited ${code}: ${diagnostics}`)));
 });
-const browser = await chromium.launch({ executablePath: process.env.RIFF_BROWSER_EXECUTABLE });
+const browser = await launch({ executablePath: process.env.RIFF_BROWSER_EXECUTABLE });
 const page = await browser.newPage({ viewport: { width: 1280, height: 1000 } });
 const errors = []; page.on("pageerror", error => errors.push(error.message));
 const call = (path, body) => page.evaluate(({ path, body }) => api(path, body ? "POST" : "GET", body), { path, body });
@@ -85,11 +85,61 @@ try {
   assert(!(await form.locator("[name=style]").isVisible()), "Style and words stay behind Edit inputs until asked for");
   await form.locator("summary", { hasText: "Edit inputs" }).click();
   await form.locator("[name=style]").fill("brushed drums, warm bass");
+  await form.locator("[name=lyrics]").fill("Words drafted while another take is running");
+  await form.locator("[name=retain][value=seed]").uncheck();
+  await page.locator(".family-take").first().locator("[name=rationale]").fill("Unsent first-take rationale");
+  await page.locator("#family-name-input").fill("Unsent family rename");
+  await form.locator("[name=lyrics]").evaluate(input => { input.focus(); input.setSelectionRange(7, 14); });
+  const assertDraft = async (focus = true) => {
+    assert.equal(await form.locator("[name=duration]").inputValue(), "20");
+    assert.equal(await form.locator("[name=steps]").inputValue(), "12");
+    assert.equal(await form.locator("[name=title]").inputValue(), "Night Orchard, developed");
+    assert.equal(await form.locator("[name=style]").inputValue(), "brushed drums, warm bass");
+    assert.equal(await form.locator("[name=lyrics]").inputValue(), "Words drafted while another take is running");
+    assert(!(await form.locator("[name=retain][value=seed]").isChecked()));
+    assert.equal(await page.locator(".family-take").first().locator("[name=rationale]").inputValue(), "Unsent first-take rationale");
+    assert.equal(await page.locator("#family-name-input").inputValue(), "Unsent family rename");
+    assert(await form.locator(".family-inputs").evaluate(details => details.open));
+    if (focus) {
+      assert.equal(await page.evaluate(() => document.activeElement.name), "lyrics");
+      assert.deepEqual(await form.locator("[name=lyrics]").evaluate(input => [input.selectionStart, input.selectionEnd]), [7, 14]);
+    }
+  };
+
+  const developRoute = "**/api/v1/operations/take.develop";
+  await page.route(developRoute, route => route.fulfill({ status: 400, json: { error: "Fixture develop failure" } }));
   await form.getByRole("button", { name: "Develop", exact: true }).click();
+  await form.locator(".form-error").waitFor();
+  assert.equal(await form.locator(".form-error").innerText(), "Fixture develop failure");
+  await assertDraft(false);
+  assert.equal((await call(`/api/v1/families/${family.family_id}`)).takes.length, 2);
+  await page.unroute(developRoute);
+  await form.locator("[name=lyrics]").evaluate(input => { input.focus(); input.setSelectionRange(7, 14); });
+  console.log("PASS A failed develop submission retains every unsent draft and creates no take");
+
+  // A real background job creates and then changes catalog revisions without discarding unsent edits.
+  const beforeRevision = await page.evaluate(() => state.catalog_revision);
+  await operation("study.create", { family_id: family.family_id, recipe: {
+    title: "Background revision", style: "family fixture delay", lyrics: "Background words", mode: "lyrics",
+    seed: "33", max_seconds: 9, steps: 8, cot: "off" } });
+  await page.evaluate(() => refresh());
   await page.locator(".family-take").nth(2).waitFor();
+  await until(async () => await page.evaluate(revision => state.catalog_revision !== revision, beforeRevision), "the queued catalog revision");
+  const runningRevision = await page.evaluate(() => state.catalog_revision);
+  await assertDraft();
+  await until(async () => (await call(`/api/v1/families/${family.family_id}`)).takes[2].status === "done", "the background study to finish");
+  await page.evaluate(() => refresh());
+  await until(async () => await page.evaluate(revision => state.catalog_revision !== revision, runningRevision), "the completed catalog revision");
+  await until(async () => await page.locator(".family-take").nth(2).locator(".family-status").textContent() === "Ready", "the completed catalog revision");
+  await assertDraft();
+  console.log("PASS Repeated background catalog revisions retain develop, selection and rename drafts, checkbox state, focus and text selection");
+
+  await form.locator("[name=retain][value=seed]").check();
+  await form.getByRole("button", { name: "Develop", exact: true }).click();
+  await page.locator(".family-take").nth(3).waitFor();
   const grown = await call(`/api/v1/families/${family.family_id}`);
-  assert.equal(grown.takes.length, 3);
-  const developed = grown.takes[2];
+  assert.equal(grown.takes.length, 4);
+  const developed = grown.takes[3];
   assert.equal(developed.role, "develop");
   assert.equal(developed.seed, "22");
   assert.deepEqual(developed.parent, { kind: "operation", id: grown.takes[1].operation_id });
@@ -98,15 +148,47 @@ try {
   assert.equal(developed.settings.max_seconds, 20);
   assert.equal(developed.settings.steps, 12);
   assert.equal(developed.settings.style, "brushed drums, warm bass");
+  assert.equal(developed.settings.lyrics, "Words drafted while another take is running");
   assert.equal(grown.takes[1].settings.style, "");
   assert.deepEqual(developed.diff.find(item => item.field === "style").before, "");
   const first = grown.takes[0], original = await call(`/api/jobs/${grown.takes[1].job_id}`);
   assert.equal(original.recipe.max_seconds, 7);
   assert.equal(original.recipe.seed, "22");
-  assert.match(await page.locator(".family-take").nth(2).innerText(), /Length\s+7 seconds\s+→\s+20 seconds/);
-  assert.equal(await page.locator(".family-take .family-role").nth(2).textContent(), "Developed");
+  assert.match(await page.locator(".family-take").nth(3).innerText(), /Length\s+7 seconds\s+→\s+20 seconds/);
+  assert.equal(await page.locator(".family-take .family-role").nth(3).textContent(), "Developed");
   assert.equal(first.role, "study");
-  console.log("PASS Select records the choice with its reason, and develop keeps the seed, applies the edited controls and records parent, family and selection");
+  assert.equal(await page.locator(".family-take").first().locator("[name=rationale]").inputValue(), "Unsent first-take rationale");
+  assert.equal(await page.locator("#family-name-input").inputValue(), "Unsent family rename");
+  await second.getByRole("button", { name: "Develop this study" }).click();
+  assert.equal(await form.locator("[name=duration]").inputValue(), "7");
+  assert.equal(await form.locator("[name=steps]").inputValue(), "8");
+  assert.equal(await form.locator("[name=title]").inputValue(), "");
+  assert.equal(await form.locator("[name=style]").inputValue(), "");
+  assert.equal(await form.locator("[name=lyrics]").inputValue(), grown.takes[1].settings.lyrics ?? "");
+  assert(await form.locator("[name=retain][value=seed]").isChecked());
+  await second.getByRole("button", { name: "Develop this study" }).click();
+  console.log("PASS Select records the choice with its reason, and develop keeps the seed, applies the edited controls and records parent, family and selection; success clears the submitted draft");
+
+  // Edits made after a request must survive that request's success and subsequent redraws.
+  await second.getByRole("button", { name: "Develop this study" }).click();
+  await form.locator("[name=title]").fill("Title submitted before the delay");
+  let requestStarted;
+  const started = new Promise(resolve => { requestStarted = resolve; });
+  await page.route(developRoute, async route => {
+    const response = await route.fetch();
+    requestStarted();
+    await new Promise(resolve => setTimeout(resolve, 500));
+    await route.fulfill({ response });
+  });
+  await form.getByRole("button", { name: "Develop", exact: true }).click();
+  await started;
+  await form.locator("[name=title]").fill("Title typed while the request was in flight");
+  await page.locator(".family-take").nth(4).waitFor();
+  await page.unroute(developRoute);
+  assert.equal(await page.locator(".family-take").nth(4).locator("h4").innerText(), "Title submitted before the delay");
+  assert.equal(await form.locator("[name=title]").inputValue(), "Title typed while the request was in flight");
+  await second.getByRole("button", { name: "Develop this study" }).click();
+  console.log("PASS A delayed successful submission clears only its submitted snapshot, not newer edits");
 
   // The board fits narrow screens and works from the keyboard.
   for (const width of [390, 320]) {
