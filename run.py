@@ -187,8 +187,8 @@ def engine_capabilities(settings=None):
 
 def score_contract(settings=None):
     from scripts.checkpoint_sha_identity import verify_runtime
-    verify_runtime((settings or platform_runtime.settings())["binary"])
     settings = settings or platform_runtime.settings()
+    verify_runtime(settings["binary"])
     capability = engine_capabilities(settings)
     if not capability["exact_score_replay"]:
         raise ValueError("Update the selected music engine to reuse saved scores. Your score is kept.")
@@ -256,9 +256,9 @@ def build_decode_command(acoustic_file, output, decoder=None):
 
 
 def require_solver(solver, binary):
+    """An older/custom engine must not silently ignore an explicit AB2 request."""
     from scripts.checkpoint_sha_identity import verify_runtime
     verify_runtime(binary)
-    """An older/custom engine must not silently ignore an explicit AB2 request."""
     if solver == "ab2":
         result = subprocess.run([str(binary), "--family", "yue2", "--model", platform_runtime.settings()["model_root"], "--help"],
                                 capture_output=True, text=True, timeout=10)

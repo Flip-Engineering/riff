@@ -26,12 +26,12 @@ desktop release.
 
 Linux engine builds discover dynamic system libcrypto at build time. It is never
 bundled or statically linked; without the development headers and library, setup
-builds portable SHA-256. After a distro upgrade, a changed or missing recorded
-libcrypto makes the managed engine unavailable with a clear message to run
-**Download and set up** in Settings. Rerunning setup discovers the current system,
-chooses a new library-bound engine fingerprint and rebuilds, or selects portable
-SHA if Crypto is unavailable. Models and recordings are retained. Terminal users
-can rerun `python3 setup_engine.py --backend cpu` (use `--backend cuda` for CUDA),
+builds portable SHA-256. After a distro upgrade, a missing system libcrypto,
+or one with a different major version, makes the managed engine unavailable
+with a clear message to run **Download and set up** in Settings. Rerunning setup
+discovers the current system, chooses an engine fingerprint for that ABI and
+rebuilds, or selects portable SHA if Crypto is unavailable. Compatible patch
+updates remain usable. Models and recordings are retained. Terminal users can rerun `python3 setup_engine.py --backend cpu` (use `--backend cuda` for CUDA),
 or explicitly choose `--portable-sha`.
 
 The native Windows desktop is not currently supported. A Linux environment such

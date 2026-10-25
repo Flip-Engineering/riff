@@ -81,7 +81,7 @@ defmodule Riff.NativeCache do
         Enum.map(actual, &File.read!(Path.join(app, &1))),
         if(sha_backend, do: [<<0>>, "sha256_backend=", sha_backend], else: []),
         for(
-          key <- ~w(libcrypto_sha256 openssl_headers_sha256),
+          key <- ~w(libcrypto_soname openssl_version_major),
           Map.has_key?(sha_identity, key),
           do: [<<0>>, key, "=", sha_identity[key]]
         )
@@ -239,15 +239,23 @@ defmodule Riff.NativeCache do
 
     source = source!(app)
 
+    sha_identity =
+      if entries["RIFF_CHECKPOINT_SHA_BACKEND"] == "openssl-evp" do
+        {text, 0} =
+          System.cmd(
+            System.find_executable("python3") || raise("Python required"),
+            [Path.join(app, "scripts/checkpoint_sha_identity.py"), "--cmake-cache", build],
+            stderr_to_stdout: true
+          )
+
+        :json.decode(String.trim(text))
+      end
+
     descriptor = %{
       "schema" => @schema,
       "native_source" => source.descriptor,
       "sha256_backend" => entries["RIFF_CHECKPOINT_SHA_BACKEND"],
-      "sha256_system_library" =>
-        if(entries["RIFF_CHECKPOINT_SHA_BACKEND"] == "openssl-evp",
-          do: file_record(entries["OPENSSL_CRYPTO_LIBRARY"], "system-libcrypto"),
-          else: nil
-        ),
+      "sha256_identity" => sha_identity,
       "namespace" => namespace,
       "configuration_arguments_sha256" =>
         identity(normalize(configuration["configuration"], roots)),

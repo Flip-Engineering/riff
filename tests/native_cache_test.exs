@@ -83,8 +83,25 @@ defmodule Riff.NativeCacheTest do
              Cache.source!(root, "openssl-evp").engine_fingerprint
 
     assert Cache.source!(root, "portable").sha256 == Cache.source!(root, "openssl-evp").sha256
-    library = Path.join(root, "libcrypto-fixture.so")
-    File.write!(library, "library-v1")
+    library = Path.join(root, "libcrypto.so.3")
+    # Reuse the owned ELF metadata fixture; no system library is changed or loaded.
+    fixture = fn soname, patch ->
+      {_, 0} =
+        System.cmd(System.find_executable("python3"), [
+          "-c",
+          "import sys; sys.path[:0] = sys.argv[1:3]; from test_engine_crypto import elf_library; from pathlib import Path; Path(sys.argv[3]).write_bytes(elf_library(sys.argv[4], sys.argv[5].encode()))",
+          @repo,
+          Path.join(@repo, "tests"),
+          library,
+          soname,
+          patch
+        ])
+    end
+
+    fixture.("libcrypto.so.3", "patch-1")
+    File.mkdir_p!(Path.join(root, "openssl"))
+    header = Path.join(root, "openssl/opensslv.h")
+    File.write!(header, "#define OPENSSL_VERSION_MAJOR 3\n#define OPENSSL_VERSION_PATCH 1\n")
     config = configured(root)
     [cmake | args] = config["configuration"]
 
@@ -101,7 +118,8 @@ defmodule Riff.NativeCacheTest do
         args ++
           [
             "-DRIFF_CHECKPOINT_SHA_BACKEND:STRING=openssl-evp",
-            "-DOPENSSL_CRYPTO_LIBRARY:FILEPATH=#{library}"
+            "-DOPENSSL_CRYPTO_LIBRARY:FILEPATH=#{library}",
+            "-DOPENSSL_INCLUDE_DIR:PATH=#{root}"
           ],
         stderr_to_stdout: true
       )
@@ -110,13 +128,43 @@ defmodule Riff.NativeCacheTest do
     assert before.descriptor["sha256_backend"] == "portable"
     assert after_change.descriptor["sha256_backend"] == "openssl-evp"
     refute before.sha256 == after_change.sha256
-    digest = Cache.hash_file(library)
-    assert after_change.descriptor["sha256_system_library"]["sha256"] == digest
-    File.write!(library, "library-v2")
-    refute Cache.configured!(root, config, "cpu", %{}).sha256 == after_change.sha256
 
-    refute Cache.source!(root, "openssl-evp", %{"libcrypto_sha256" => digest}).engine_fingerprint ==
-             Cache.source!(root, "openssl-evp", %{"libcrypto_sha256" => Cache.hash_file(library)}).engine_fingerprint
+    abi = %{
+      "sha256_backend" => "openssl-evp",
+      "libcrypto_soname" => "libcrypto.so.3",
+      "openssl_version_major" => "3"
+    }
+
+    assert after_change.descriptor["sha256_identity"] == abi
+
+    {python_fingerprint, 0} =
+      System.cmd(System.find_executable("python3"), [
+        "-c",
+        "import sys,json; sys.path.insert(0,sys.argv[1]); import setup_engine; print(setup_engine.fingerprint(sys.argv[1], 'openssl-evp', json.loads(sys.argv[2])))",
+        root,
+        IO.iodata_to_binary(:json.encode(abi))
+      ])
+
+    assert String.trim(python_fingerprint) ==
+             Cache.source!(root, "openssl-evp", abi).engine_fingerprint
+
+    fixture.("libcrypto.so.3", "security patch bytes")
+    File.write!(header, "#define OPENSSL_VERSION_MAJOR 3\n#define OPENSSL_VERSION_PATCH 2\n")
+    assert Cache.configured!(root, config, "cpu", %{}).sha256 == after_change.sha256
+
+    for changed <- [
+          Map.put(abi, "libcrypto_soname", "libcrypto.so.4"),
+          Map.put(abi, "openssl_version_major", "4")
+        ] do
+      refute Cache.source!(root, "openssl-evp", abi).engine_fingerprint ==
+               Cache.source!(root, "openssl-evp", changed).engine_fingerprint
+    end
+
+    fixture.("libcrypto.so.4", "new major")
+    refute Cache.configured!(root, config, "cpu", %{}).sha256 == after_change.sha256
+    fixture.("libcrypto.so.3", "patch")
+    File.write!(header, "#define OPENSSL_VERSION_MAJOR 4\n")
+    refute Cache.configured!(root, config, "cpu", %{}).sha256 == after_change.sha256
   end
 
   test "complete patch verification rejects missing, added and changed patch bytes", %{root: root} do

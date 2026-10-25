@@ -36,7 +36,7 @@ def fingerprint(source=ROOT, sha_backend=None, sha_identity=None):
         digest.update(path.read_bytes())
     if sha_backend is not None:
         digest.update(b"\0sha256_backend=" + sha_backend.encode())
-    for key in ("libcrypto_sha256", "openssl_headers_sha256"):
+    for key in ("libcrypto_soname", "openssl_version_major"):
         if sha_identity and key in sha_identity:
             digest.update(b"\0" + key.encode() + b"=" + sha_identity[key].encode())
     return digest.hexdigest()[:16]
