@@ -226,11 +226,28 @@ A fresh CMake helper build with Crypto discovery disabled verifies portable
 selection and identical output; macOS CI forces portable alongside CommonCrypto.
 These are targeted component checks, not a second native engine build.
 
-Validation in progress: the fresh portable first-take baseline pins in
-18,803.990 ms with the prior queue-built CPU engine. Its WAV matches the earlier
-baseline and shared model identities remain unchanged. The new CPU engine is
-waiting in the shared compile queue; the after timing, backend equivalence checks
-and 69 pipeline checks are not yet qualified for this patch.
+A fresh first-take CPU comparison pins in **2,875.162 ms with EVP**, versus
+**18,803.990 ms with portable SHA**: 6.54× faster pinning and 15.929 s saved.
+The full process took 36.110 s versus 51.670 s. Both runs used a fresh process,
+two CPU threads, seed 1234, 25 semantic frames and two midpoint steps, with the
+page cache warmed by verifying the shared files first. This is one paired sample
+on a shared host, not a multi-machine or GPU-render benchmark.
+
+Both takes hashed all sources with zero session-cache hits. Their WAVs and
+checkpoint payloads are identical; checkpoint metadata agrees except for the
+producer binary digest. All six shared files retained their identities. The
+[normalized receipt](evidence/acoustic-pin-system-sha-2026-10-25.json) records
+timings, byte counts, binary digests, queue proof and qualifications.
+
+The queue-built Linux engine passed all 80 cases with EVP, forced portable SHA
+and a fresh no-Crypto CMake build, plus all 69 pipeline checks. OTP independently
+verified the file digests. Production inputs remained unchanged. The macOS
+native CI job at `3fe049e` also passed the selected CommonCrypto, portable,
+no-Crypto and pipeline checks. These component checks load no neural weights;
+the paired first-take measurement above runs the actual CPU engine and models.
+The local engine was built at frozen `3cdf887`; subsequent ABI-identity and
+lifecycle driver fixes leave its pinned native patch unchanged. Final CI at the
+published PR head remains required.
 
 ## First-use SHA-256 acceleration options
 
