@@ -37,11 +37,15 @@ path, input schema and output schema.
 | `references.resolve` | Verifies `score_source`, `performance_source`, `acoustic_source` and `parent_track_id`, or with `{"subject": id}` lists the references that take, job or operation offers. Each result is `verified`, `incompatible` or `unavailable`, with provenance. |
 | `study.create` | Queues `{"recipe": {...}}` and returns identity before any work runs. Optional `family_id` (an existing family), `parent` (`{"kind": "track\|job\|operation", "id": ...}`) and `idempotency_key`. |
 | `inputs.compare` | `{"subjects": [id, id, ...]}` with takes, jobs or operations. Returns the recorded inputs the subjects `shared`, and the `differences` with each subject's value and whether it was recorded. The field list is the one the lineage view uses, plus the composed score and performance hash. |
-| `take.develop` | Develops a take into a new one, for example a longer take from a study. `{"source": id, "changes": {...}}`. Keeps the seed and the verified composed score by default. Every recorded input can be replaced in `changes`. Records the parent, the family, what was retained and the selection it came from. **The issues' "promote" is this operation.** Optional `review_id` names a saved producer review of the source take; the new take records that review's reference clips (`review_references`: ID, SHA-256 and label) as provenance, the same as a take queued from the Studio. |
+| `take.develop` | Develops a take into a new one, for example a longer take from a study. `{"source": id, "changes": {...}}`. Keeps the seed, the verified composed score and the verified saved performance by default; a saved performance fixes the length, so it is skipped (with a note) when `changes` sets a new length. Every recorded input can be replaced in `changes`. Records the parent, the family, what was retained and the selection it came from. **The issues' "promote" is this operation.** Optional `review_id` names a saved producer review of the source take; the new take records that review's reference clips (`review_references`: ID, SHA-256 and label) as provenance, the same as a take queued from the Studio. |
 | `take.replay` | `{"source": id, "replay": "score" \| "performance" \| "sound"}`. Replays the take's exact composed score, saved performance or saved sound as a new take, retaining the seed. A stage that cannot be replayed is an error, not a silent fallback. `changes` apply as for develop; for `sound` only `decoder` and `title`. |
 | `take.select` | `{"take": id, "rationale": "..."}`. Records a durable choice of a completed take within its family. Append-only: a later choice is added to the history, never replaces it. Queues nothing. |
 | `operation.resume` | `{"operation_id": id}`. For an interrupted, failed or cancelled operation. Queues a new operation, linked by `resumes`, that continues from the last captured stage (saved sound, then performance, then composed score, then a plain rerun) with the same seed. It happens only when called: Riff never resumes or re-queues a cancelled or interrupted take by itself. `POST /api/jobs/{id}/retry` is the same call. |
 | `operation.cancel` | `{"operation_id": id}`. Cancels the job. Completed stages stay in the receipt. |
+| `family.create` | `{"name": "...", "takes": [recipe, ...], "shared": {...}, "context": {...}}`. Creates a named family and queues one study per take. See Study families. |
+| `GET /api/v1/families/{id}` | A family's name, shared inputs, takes with their differences, and selection history. |
+| `GET /api/v1/families` | Families, most recently active first. `named=true\|false`, `limit` and `cursor` as for operations. |
+| `family.rename` | `{"family_id": id, "name": "..."}`. Names a family started implicitly, or renames one. Changes only the name. |
 
 The Studio's `POST /api/generations` and `POST /api/plans` run the same
 implementation, so a take queued from the form has the same operation record as
@@ -57,14 +61,17 @@ source's recorded inputs, so an agent does not hydrate a draft from page state.
 References are chosen with `retain`, a list of `seed`, `score` and
 `performance`; they cannot be set in `changes`.
 
-- `take.develop` defaults to `["seed", "score"]`. A default that cannot be kept
-  (no composed score, planning set to Direct, edited notation supplied) is
-  skipped and explained in `derivation.notes`. Naming it in `retain` makes it
-  an error instead.
+- `take.develop` defaults to `["seed", "score", "performance"]`: whatever the source
+  verifiably has. A default that cannot be kept (no composed score, planning set to
+  Direct, edited notation supplied, no saved performance, or a new length in
+  `changes` while a performance is kept) is skipped and explained in
+  `derivation.notes`. Naming it in `retain` makes it an error instead.
 - `retain: []` carries the inputs only, which is an ordinary variation with a new
   seed.
-- A retained performance fixes the duration; `changes.max_seconds` with it is
-  refused. Retained scores and performances are verified when the draft is
+- A retained performance fixes the duration, so the new take is as long as the
+  performance. To make a longer or shorter take, set `changes.max_seconds` (the
+  default then skips the performance with a note) or leave `performance` out of
+  `retain`; naming `performance` in `retain` together with `max_seconds` is refused. Retained scores and performances are verified when the draft is
   built, and again by the queue.
 - `enqueue: false` returns `{draft, derivation, parent, validation}` and queues
   nothing. The Studio uses it to fill the editor.
@@ -76,6 +83,55 @@ The receipt's `derivation` records the source, what was `retained`, `notes`, the
 input `changed` against the source (the lineage difference format), and the
 `selection` it came from: the one passed as `selection`, or the source take's
 latest selection in its family.
+
+## Study families
+
+A family groups studies and everything grown from them. It is the `family_id` every
+operation already carries: a new study starts one, and `take.develop`,
+`take.replay` and `operation.resume` join their source's family. Naming adds a
+label and a place for provenance without changing any recorded take.
+
+- `family.create` takes one or more study recipes in `takes`. Recipe fields that
+  every study has can be given once in `shared`; each study is `{...shared, ...take}`.
+  Every study is validated before any is queued. Each study's own key is derived
+  from the family and the take's position in `takes`. Repeating the same request
+  (same `idempotency_key`, same `takes` in the same order) after a failure
+  therefore queues only the studies still missing and returns the same family.
+  Changing or reordering `takes` under one key is a different request and is
+  refused with 409. Without an `idempotency_key` a repeat starts a second family, so a refusal
+  part way then names the family: read it with `GET /api/v1/families/{id}` and add the rest with
+  `study.create` and that `family_id`. There is no limit on the number of takes.
+- `study.create` with `family_id` adds a study to an existing family. The family's
+  declared `shared` inputs are provenance and are never merged into that study; send
+  the whole recipe.
+- `family.rename` names a family that began implicitly, or renames one. It changes
+  only the name.
+- `context` is free JSON the caller wants kept with the family, for example the
+  brief it started from. It is set by `family.create`, returned unchanged, and not
+  changed by `family.rename`.
+
+`GET /api/v1/families/{id}` returns:
+
+- `declared_shared`: the shared recipe fields the caller declared at creation.
+  Provenance only.
+- `common`: the recorded inputs every study actually has in common, computed from
+  the takes (same field list as `inputs.compare`, plus the composed score and
+  performance). This is what the Studio shows as shared.
+- `takes`, oldest first, each with `role` (`study`, `develop`, `replay`,
+  `resume`), `status`, `seed`, `stages`, `outputs`, editable `settings`,
+  `parent`, `children`, `selected`, and `diff`. For a study, `diff` lists the
+  recorded inputs where it differs from the other studies, so the studies' own
+  differences (seed, length, solver, score source, planning mode, acoustic
+  settings) are what you read. For a developed, replayed or resumed take, `diff`
+  lists its changes against the take it continues, with `before` and `value`
+  (null if that take is unavailable). A value that was never recorded has
+  `recorded: false` and is not treated as a default.
+- `selection`: the current choice and the full history from `take.select`.
+
+To promote a chosen study, call `take.select` with a rationale, then
+`take.develop` with the take and the controls to change. The new take keeps the
+seed and verified score by default and records its parent, family and selection.
+The studies' own recipes are never edited.
 
 ## Identity
 
@@ -143,10 +199,12 @@ response returns the take already queued instead of queueing a second one.
 
 The Studio's editor still fills itself from a take in browser code. It holds
 fields only the page has (readable notation, draft text, undo), and the browser
-tests that cover score replay mock the API with synthetic recipes. Moving that
-hydration onto the server drafts (`enqueue: false`) is deferred to the study
-families work (#10). Until then the two are held together by tests rather than by
-construction:
+tests that cover score replay mock the API with synthetic recipes. The study
+families work (#10) did not change this: its Develop form calls `take.develop`
+directly, but Refine this performance, Render performance and variation still fill
+the editor in browser code. Moving them onto the server drafts (`enqueue: false`)
+is a separate follow-up. Until then the two are held together by tests rather
+than by construction:
 
 - `tests/agent-parity.mjs` drives the real controls against a real server and checks
   that the recipe the Studio builds for **Refine this performance**, for **Render

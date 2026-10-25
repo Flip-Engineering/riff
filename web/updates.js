@@ -7,7 +7,7 @@
   // Only creative inputs belong in the handoff. Credentials and settings do not.
   const creative = ["title", "lyrics", "style", "duration", "custom-steps", "solver", "planning", "seed", "abc",
     "creative-brief", "idea-engine", "writer-tokens", "guidance", "temperature", "idea-theme", "energy", "texture",
-    "render-mode", "audition-length", "audition-steps", "audio-core", "audio-halo", "audio-storage"];
+    "render-mode", "audition-length", "audition-steps", "study-family", "study-family-name", "audio-core", "audio-halo", "audio-storage"];
   const panels = [".creative-controls", ".refinement-controls", ".study-controls", "#producer-panel", "#take-comparison", "#audio-refinements"];
   let handoff = null, changed = false, saveError = false, refreshing = false, lastCreative = "", fieldsRestored = false;
   try {
@@ -41,6 +41,8 @@
       if (!value || typeof value.value !== "string") continue;
       if (fieldsRestored && !input.id.startsWith("control-")) continue;
       input.value = value.value;
+      // A select whose option is not listed yet (the families load after the page): the families script applies it.
+      if (input.tagName === "SELECT" && input.value !== value.value) input.dataset.restore = value.value;
       if (Number.isInteger(value.start) && Number.isInteger(value.end)) {
         try { input.setSelectionRange(value.start, value.end); } catch {}
       }

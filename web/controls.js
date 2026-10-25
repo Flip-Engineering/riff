@@ -81,6 +81,7 @@
     $("#setup-description").hidden = system.desktop && system.engine.ready;
     if (!settingsFilled) {
       for (const [key, id] of Object.entries(engineFields)) $("#" + id).value = system.engine[key];
+      $("#engine-backend").value = system.engine.recommended_backend || system.engine.backend;
       for (const [key, id] of Object.entries(engineChecks)) $("#" + id).checked = !!system.engine[key];
       $("#automatic-checks").checked = system.preferences.automatic_checks;
       $("#automatic-downloads").checked = system.preferences.automatic_downloads;
@@ -183,7 +184,7 @@
     if (!$("#audition-length").reportValidity() || !$("#audition-steps").reportValidity()) return;
     studySubmitting = true; $("#audition").disabled = true; $("#audition").textContent = "Queuing study…";
     try {
-      const job = await queueTake("/api/generations", recipe);
+      const job = window.RiffFamilies ? await window.RiffFamilies.queueStudy(recipe) : await queueTake("/api/generations", recipe);
       await refresh(); notify(`“${job.recipe.title}” is on its way.`);
       $("#queue-panel").scrollIntoView({ behavior: "smooth", block: "nearest" });
     } catch (error) { errorMessage("#study-error", error.message); }

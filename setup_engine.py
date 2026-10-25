@@ -166,7 +166,14 @@ def prepare(backend, run=None, source=ROOT, download_models=True, jobs=None, cud
         from scripts.checkpoint_sha_identity import write_runtime_receipt
         write_runtime_receipt(executable, build, sha_identity)
     if probe:
-        run([str(executable), "--list-devices"])
+        if backend == "metal":
+            from engine_devices import probe_metal_device
+            device = probe_metal_device(executable)
+            print(device.get("output", ""), flush=True)
+            if device.get("error"):
+                raise ValueError(device["error"])
+        else:
+            run([str(executable), "--list-devices"])
     value = {"backend": backend, "binary": str(executable)}
     if download_models:
         model_root = model_directory(manifest["model"])

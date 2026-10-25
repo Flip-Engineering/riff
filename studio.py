@@ -29,6 +29,7 @@ from paths import DATA, OUTPUTS
 from model_options import schema
 from maintenance import Maintenance
 from operations import Conflict, Operations
+from families import Families
 from video import VideoExports, VIDEO_FRAME_BATCH
 from network_access import read_access, request_origin
 import platform_support
@@ -43,6 +44,7 @@ REVIEW_ROUTE = re.compile(r"/api/reviews/([a-f0-9]{32})(?:/(cancel))?")
 REFERENCE_ROUTE = re.compile(r"/api/review/references/([a-f0-9]{32})")
 LORA_ROUTE = re.compile(r"/api/loras/([a-f0-9]{64})(?:/(updates|clean))?")
 LORA_TASK_ROUTE = re.compile(r"/api/loras/tasks/([a-f0-9]{32})(?:/(cancel))?")
+FAMILY_ROUTE = re.compile(r"/api/v1/families(?:/([a-f0-9]{32}))?")
 OPERATION_ROUTE = re.compile(r"/api/v1/operations(?:/([a-f0-9]{32}|[a-z]+(?:\.[a-z]+)*))?")
 
 
@@ -88,6 +90,7 @@ class StudioServer(ThreadingHTTPServer):
     def __init__(self, address, store, generator, reviews=None, maintenance=None):
         self.store, self.generator = store, generator
         self.operations = Operations(store, generator, admit=self.admission)
+        self.families = Families(self.operations)
         self.reviews = reviews
         self.maintenance = maintenance
         self.restart_requested = False
@@ -268,6 +271,13 @@ class Handler(BaseHTTPRequestHandler):
                     self.json_response(200, self.server.operations.list(
                         family=one("family"), status=one("status"), parent=one("parent"),
                         since=one("since"), limit=one("limit"), cursor=one("cursor")))
+            elif (match := FAMILY_ROUTE.fullmatch(path)) and self.command in ("GET", "HEAD"):
+                if match[1]:
+                    self.json_response(200, self.server.families.get(match[1]))
+                else:
+                    query = parse_qs(parsed.query)
+                    one = lambda key: query.get(key, [None])[0]
+                    self.json_response(200, self.server.families.list(named=one("named"), limit=one("limit"), cursor=one("cursor")))
             elif path == "/api/health":
                 self.json_response(200, {"app": "Riff", "status": "ready"})
             elif path == "/api/capabilities":
@@ -334,7 +344,7 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 files = {"/": "index.html", "/app.js": "app.js", "/explore.js": "explore.js", "/review.js": "review.js",
                          "/loras.js": "loras.js",
-                         "/artwork.js": "artwork.js", "/visualizer.js": "visualizer.js", "/video.js": "video.js", "/video-encoder.js": "video-encoder.js", "/lineage.js": "lineage.js", "/style.css": "style.css",
+                         "/artwork.js": "artwork.js", "/visualizer.js": "visualizer.js", "/video.js": "video.js", "/video-encoder.js": "video-encoder.js", "/lineage.js": "lineage.js", "/families.js": "families.js", "/style.css": "style.css",
                          "/theme.js": "theme.js", "/suite.css": "suite.css", "/controls.js": "controls.js", "/updates.js": "updates.js", "/acoustics.js": "acoustics.js",
                          "/flip-face.svg": "flip-face.svg", "/score.js": "score.js", "/compare.js": "compare.js",
                          "/vendor/abcjs-basic-min.js": "vendor/abcjs-basic-min.js",
@@ -547,6 +557,11 @@ class Handler(BaseHTTPRequestHandler):
             self.json_response(200 if result["replayed"] else 201, result)
         elif name == "operation.resume":
             self.queued(operations.resume(payload.get("operation_id") or "", key))
+        elif name == "family.create":
+            result = self.server.families.create({**payload, **({"idempotency_key": key} if key is not None else {})})
+            self.json_response(200 if result["replayed"] else 201, result)
+        elif name == "family.rename":
+            self.json_response(200, self.server.families.rename(payload))
         elif name == "operation.cancel":
             self.json_response(200, operations.cancel(payload.get("operation_id") or ""))
         else:

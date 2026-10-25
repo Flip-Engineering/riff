@@ -23,6 +23,7 @@
     <script src="/loras.js" defer></script>
     <script src="/app.js" defer></script>
     <script src="/lineage.js" defer></script>
+    <script src="/families.js" defer></script>
     <script src="/compare.js" defer></script>
     <script src="/video.js" defer></script>
     <script src="/review.js" defer></script>
@@ -577,6 +578,11 @@
                 <p class="control-hint">Try the opening, or select lyrics for a new performance of those lines. A selected passage gets its own score when planning is enabled. Your full draft stays open.</p>
                 <blockquote id="audition-excerpt" class="study-excerpt" hidden></blockquote>
                 <div class="advanced-grid"><div><label for="audition-length">Study length (seconds)</label><input id="audition-length" form="study-form" type="number" min="0.04" step="any" value="28" required /></div><div><label for="audition-steps">Study solver steps</label><input id="audition-steps" form="study-form" type="number" min="1" step="1" value="8" required /></div></div>
+                <div class="study-family"><label for="study-family">Study family</label>
+                  <select id="study-family"><option value="">None: a one-off study</option><option value="__new">A new family…</option></select>
+                  <input id="study-family-name" type="text" placeholder="Family name" aria-label="New family name" autocomplete="off" hidden />
+                  <p class="control-hint">A family keeps studies together, shows what they share and how each differs, and lets you develop the one you choose.</p>
+                  <button type="button" class="text-button" id="families-open">Open study families</button></div>
                 <p id="study-error" class="form-error" role="alert" hidden></p>
                 <button type="button" class="secondary-button" id="audition">Generate study</button>
               </details>
@@ -1302,6 +1308,12 @@
         <div id="update-task-slot"></div>
         <p id="managed-hint" class="control-hint">This copy runs from source. <a href="https://github.com/Flip-Engineering/riff/releases" target="_blank" rel="noreferrer">Install a release</a> to enable app updates.</p>
       </section>
+    </dialog>
+    <dialog id="families-dialog" class="families-dialog" aria-labelledby="families-heading">
+      <div class="dialog-top"><div><p class="eyebrow">Studies</p><h2 id="families-heading">Study families</h2></div><button type="button" class="icon-button" data-close="families-dialog" aria-label="Close study families">×</button></div>
+      <p class="dialog-description">Compare studies that share an idea, choose one, and develop it into a longer take. The seed and score you choose to keep stay with it.</p>
+      <p id="families-status" class="control-hint" role="status" aria-live="polite"></p>
+      <div class="families-layout"><nav id="families-list" class="families-list" aria-label="Families"></nav><div id="family-board" class="family-board"></div></div>
     </dialog>
     <dialog id="lora-dialog" class="lora-dialog" aria-labelledby="lora-heading">
       <div class="dialog-top"><div><p class="eyebrow">YuE2 collection</p><h2 id="lora-heading">Find a new sound.</h2></div><button type="button" class="icon-button" data-close="lora-dialog" aria-label="Close LoRA library">×</button></div>
