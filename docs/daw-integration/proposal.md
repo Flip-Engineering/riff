@@ -10,7 +10,7 @@ asked for. All receipts are reproducible; docs cited live on branch
 
 Evidence base: `riff-architecture.md` (Riff source facts),
 `daw-candidates.md` (GLM official-source matrix + LMMS receipts),
-`abc-semantics.md` (DeepSeek 10-case fidelity matrix),
+`abc-semantics.md` (DeepSeek 18-case + smoke-probe fidelity matrix),
 `ardour-headless-probe.md` + `ardour-two-track-probe.md` (DeepSeek),
 `ardour-template-swap-probe.md` (conductor), `tracktion-engine-note.md`
 (DeepSeek), `headless-import-correction.md` (DeepSeek),
@@ -23,16 +23,20 @@ Baton knowledge records by all three seats.
 under the batch-render hypothesis (H1), with a pinned server-side abc2midi
 conversion stage. Retain Ardour as the production-depth alternative and
 Tracktion Engine as the engine-component alternative, both with documented
-open gates.**
+open gates.** This is a proposal FOR ROOT REVIEW, not a selected production
+implementation; production readiness for Riff is not established — the
+gates in §5 (including the absent end-to-end instrument bridge and any
+macOS run) remain open.
 
 Why LMMS first, on evidence:
 
 1. It is the only candidate with a complete headless PROJECT→MIX+STEMS
    chain receipted for a hand-written `.mmp`: agent-authored 2-track XML →
    headless mix render (`render`, ~1 s wall, no display) → per-track stems
-   (`rendertracks`, distinct per-voice content) → deterministic output
-   (three renders byte-identical, sha256-verified by two seats
-   independently). (GLM probe; conductor and DeepSeek cross-checks.)
+   (`rendertracks`, distinct per-voice content) → deterministic output:
+   re-run byte-identical — GLM's original render and its re-run, plus the
+   conductor's two independent invocations, share one sha256
+   (`d63f77e9…90fe08`). (GLM probe; conductor and DeepSeek cross-checks.)
    The end-to-end ABC→MIDI→`.mmp` product bridge, macOS headless,
    instrument/timbre path, and stem-vs-mix semantics are NOT yet receipted —
    they are explicit gates in §5, not buried under this claim.
@@ -43,11 +47,17 @@ Why LMMS first, on evidence:
    follows Riff's existing ffmpeg/x264/lame compliance pattern
    (obligation review still required — see §5).
 4. The project format is agent-writable XML with a text-level `dump`
-   round-trip receipt (11 notes byte-identical after write→MMPZ→dump).
+   reparse/round-trip receipt (11 notes byte-identical after
+   write→MMPZ→dump; this is a reparse of the generated project, NOT a
+   reopen-and-edit receipt).
 
 Why not the others first (all reversible, evidence in the cited docs):
 
-- **Ardour 9.8**: strongest arrangement/mixing/automation depth; headless
+- **Ardour 9.8**: strongest arrangement/mixing/automation depth. BUILD
+  PROVENANCE, kept distinct: source citations are release **tag 9.8**
+  (commit `059c9588`); ALL runtime receipts are from the official
+  **9.8.241 DEMO NIGHTLY** Linux build — demo-nightly behavior must not be
+  quoted as release-9.8 behavior. Headless
   render PROVEN (DeepSeek: MIDI+gmsynth→WAV via `ardour9-export` CLI and
   in-process `SimpleExport`, non-silent, sha256-pinned); construction gates
   partially proven (DeepSeek two-track template generation, extended to
@@ -91,8 +101,8 @@ Why not the others first (all reversible, evidence in the cited docs):
 | Arrangement/editing | Song editor model in XML | production-grade | engine-level Edit model |
 | Mixing | FX mixer, per-track vol/pan | full buses/sends/mature mixing | via plugins/API |
 | Automation | automation clips/controllers in XML | mature automation | AutomatableParameter API |
-| Persistence/reopen | .mmp/.mmpz; alpha one-way-upgrade caveat; reopen receipt via dump round-trip | .ardour XML; reopen receipt missing | ProjectManager/Edit (source) |
-| Audio export | mix + per-track stems, wav/flac/ogg/mp3, ≤192 kHz, 32-bit float `[probe]` | master-bus export `[probe]`; solo-render per-track stems `[probe]`; raw/GUI/batch stems unproven | renderToFile incl. track selection (source) |
+| Persistence/reopen | .mmp/.mmpz; alpha one-way-upgrade caveat; write→MMPZ→dump reparse/round-trip receipt `[probe]` (not a reopen+edit receipt) | .ardour XML; reopen receipt missing | ProjectManager/Edit (source) |
+| Audio export | WAV mix + per-track stems `[probe]`; flac/ogg/mp3, 44.1–192 kHz, 32-bit float documented (man page, not probed; mp3 needs lame in the pinned build) | master-bus export `[probe]`; solo-render per-track stems `[probe]`; raw/GUI/batch stems unproven | renderToFile incl. track selection (source) |
 | Platforms | macOS arm64 (1.3 alpha), Linux, Windows | macOS arm64 official, Linux, Windows | macOS/Linux/Windows/mobile |
 | Health | 1.3 alpha churn risk; active | active, mature | v3.2.0 2025-05; active |
 | Resource profile | ~1 s short-render, CPU-only `[probe]` | demo-build CPU render `[probe]` | unmeasured |
@@ -171,12 +181,19 @@ the operator's instruction.
    stem-vs-mix signal semantics (stems did not sample-sum to the mix in
    cross-check — DeepSeek reproduced: mix peak 32767, stem-sum peak 32768,
    difference RMS 7775; document pre/post-master behavior); render
-   level sanity (probe content clipped at full scale).
-2. Ardour: general session generator; raw/pre-fader/GUI/batch stem export
-   (solo-render stems proven); reopen; controlled
-   mute/solo voice-isolation receipt (current two-track evidence is
-   master-mix level); demo-nightly vs release-tag re-verification;
-   DummyMidiBuffer warning investigation.
+   level sanity (probe content clipped at full scale). Runtime-environment
+   hygiene for the job runner (GLM review): headless render requires an
+   owned HOME/XDG_CONFIG_HOME/XDG_RUNTIME_DIR and JACK_NO_START_SERVER=1
+   (JACK autostart hangs without it); `dump`/`upgrade` additionally need a
+   display (Xvfb) and MMPZ (Qt qCompress) input and crash on plain `.mmp` —
+   the queued-job contract must encode these.
+2. Ardour: general session generator; raw/pre-fader/GUI/batch stem export;
+   session reopen receipt; demo-nightly vs release-tag re-verification;
+   DummyMidiBuffer warning investigation. Voice ISOLATION evidence note:
+   the conductor's initial template-swap observation was mix-level only;
+   DeepSeek's later solo-render stems (two- and four-track) DO isolate
+   voices — that controlled receipt exists; what remains unproven is the
+   non-solo stem paths named above.
 3. Converter: exact octave/pitch mapping through the full chain; malformed
    input policy; the abcjs defects stay browser-side unless fixed upstream.
 4. Contract: N-artifact (stems) provenance shape, SURFACE_VERSION policy
@@ -198,8 +215,9 @@ the operator's instruction.
   inline-field defects are recorded, not silently relied on.
 - No lossless-ABC claims anywhere: the fidelity matrix defines preserved /
   converted / approximated / dropped.
-- No stacking on unmerged #47/#75; no changes to existing YuE2 generation;
-  no deployment; musician session preserved.
+- No stacking on pending work: #47 is MERGED (main `0230da64`); #75 remains
+  unmerged — no dependence on `family.*`. No changes to existing YuE2
+  generation; no deployment; musician session preserved.
 - No macOS run was possible from this host: every macOS claim is
   official-page evidence, not a receipt.
 

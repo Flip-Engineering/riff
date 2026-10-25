@@ -95,7 +95,8 @@ lora, score_format, prefix_contract)`.
   deferral but keeps this evidentiary bar.
 - #44: DAW-facing agent actions must ride the same versioned operation/queue/
   receipt contract (idempotency, transactional records, no path leakage).
-- #47/#75 unmerged: do not stack on `family.*` or new timing/warm metrics.
+- #47 merged (main `0230da64`); #75 remains unmerged: do not stack on
+  `family.*`; #47's timing metrics may now be read as merged evidence.
 - #14/#15: additive and reversible; measured admission; serial fallback.
 - Musician session and existing YuE2 workflows remain operational; no
   deployment in this scope.
