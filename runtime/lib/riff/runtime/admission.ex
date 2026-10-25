@@ -12,19 +12,41 @@ defmodule Riff.Runtime.Admission do
   for a different resource. The owning studio retains cancellation authority.
   """
 
-  defstruct active: %{}, waiting: [], reasons: %{}
+  @resident_protocol "riff.resident.v1"
+  def resident_protocol, do: @resident_protocol
+
+  defstruct active: %{}, waiting: [], reasons: %{}, residents: %{}, bindings: %{}, usage: %{}
 
   def new, do: %__MODULE__{}
 
+  def step(state, %{"op" => "resident"} = message) do
+    with :ok <- resident_version(message["protocol"]),
+         :ok <- resident_id(message["id"]) do
+      {next, response} = resident_step(state, message)
+      {next, Map.put(response, "protocol", @resident_protocol)}
+    else
+      {:error, error} -> {state, %{"state" => "error", "error" => error}}
+    end
+  end
+
   def step(state, %{"op" => "request", "id" => id, "requirement" => requirement} = message)
       when is_binary(id) and byte_size(id) > 0 do
-    with :ok <- validate_requirement(requirement) do
+    with :ok <- validate_requirement(requirement),
+         :ok <- validate_binding(state, message) do
       existing = Map.has_key?(state.active, id) or Enum.any?(state.waiting, &(&1.id == id))
 
       next =
         if existing,
           do: state,
-          else: %{state | waiting: state.waiting ++ [%{id: id, requirement: requirement}]}
+          else: %{
+            state
+            | waiting: state.waiting ++ [%{id: id, requirement: requirement}],
+              bindings:
+                if(message["resident"],
+                  do: Map.put(state.bindings, id, message["resident"]),
+                  else: state.bindings
+                )
+          }
 
       next = admit(next, message)
       {next, result(next, id)}
@@ -43,7 +65,8 @@ defmodule Riff.Runtime.Admission do
       state
       | active: Map.delete(state.active, id),
         waiting: Enum.reject(state.waiting, &(&1.id == id)),
-        reasons: Map.delete(state.reasons, id)
+        reasons: Map.delete(state.reasons, id),
+        bindings: Map.delete(state.bindings, id)
     }
 
     {next, %{"state" => if(operation == "cancel", do: "cancelled", else: "released"), "id" => id}}
@@ -54,11 +77,275 @@ defmodule Riff.Runtime.Admission do
      %{
        "state" => "ready",
        "active" => Map.keys(state.active),
-       "waiting" => Enum.map(state.waiting, & &1.id)
+       "waiting" => Enum.map(state.waiting, & &1.id),
+       "residents" => Map.new(state.residents, fn {id, lease} -> {id, lease_charge(lease)} end)
      }}
   end
 
   def step(state, _), do: {state, %{"state" => "error", "error" => "Unknown scheduling request."}}
+
+  defp resident_version(@resident_protocol), do: :ok
+
+  defp resident_version(_),
+    do: {:error, "Unsupported resident lease protocol; expected riff.resident.v1."}
+
+  defp resident_id(id) when is_binary(id) and byte_size(id) > 0, do: :ok
+  defp resident_id(_), do: {:error, "A resident lease identity is required."}
+
+  defp validate_binding(state, message) do
+    if Map.has_key?(message, "resident") do
+      with :ok <- resident_version(message["resident_protocol"]),
+           :ok <- resident_id(message["resident"]) do
+        lease = state.residents[message["resident"]]
+
+        cond do
+          lease == nil ->
+            {:error, "The resident lease is no longer registered."}
+
+          lease.requirement["device"] != message["requirement"]["device"] ->
+            {:error, "The resident lease uses a different device."}
+
+          true ->
+            :ok
+        end
+      end
+    else
+      :ok
+    end
+  end
+
+  defp resident_step(state, %{"action" => "release_if_idle"} = message) do
+    if map_size(state.active) == 0 and state.waiting == [] do
+      resident_step(state, Map.put(message, "action", "release"))
+    else
+      {state,
+       %{
+         "state" => "busy",
+         "id" => message["id"],
+         "active" => Map.keys(state.active),
+         "waiting" => Enum.map(state.waiting, & &1.id)
+       }}
+    end
+  end
+
+  defp resident_step(state, %{"action" => "release", "id" => id}) do
+    if Enum.any?(state.bindings, fn {_, resident} -> resident == id end) do
+      {state,
+       %{
+         "state" => "error",
+         "error" => "Release the resident's job reservations before its lease."
+       }}
+    else
+      {%{state | residents: Map.delete(state.residents, id)},
+       %{"state" => "released", "id" => id}}
+    end
+  end
+
+  defp resident_step(state, %{"action" => "fit", "requirement" => requirement} = message) do
+    with :ok <- validate_requirement(requirement),
+         :ok <-
+           if(message["resident"],
+             do:
+               validate_binding(state, Map.put(message, "resident_protocol", message["protocol"])),
+             else: :ok
+           ) do
+      {state, fit(state, message)}
+    else
+      {:error, error} -> {state, %{"state" => "error", "error" => error}}
+    end
+  end
+
+  defp resident_step(state, %{
+         "action" => "update",
+         "id" => id,
+         "requirement" => requirement,
+         "usage" => usage
+       }) do
+    with :ok <- validate_requirement(requirement),
+         true <-
+           is_map(usage) and is_integer(usage["host"]) and usage["host"] >= 0 and
+             is_integer(usage["device"]) and usage["device"] >= 0 do
+      lease = %{requirement: requirement, usage: usage}
+
+      {%{state | residents: Map.put(state.residents, id, lease)},
+       %{
+         "state" => "resident",
+         "protocol" => @resident_protocol,
+         "id" => id,
+         "requirement" => lease_charge(lease)
+       }}
+    else
+      {:error, error} ->
+        {state, %{"state" => "error", "error" => error}}
+
+      _ ->
+        {state,
+         %{
+           "state" => "error",
+           "error" => "Resident usage must contain measured nonnegative host and device bytes."
+         }}
+    end
+  end
+
+  defp resident_step(state, _),
+    do:
+      {state,
+       %{
+         "state" => "error",
+         "error" => "Choose resident update, fit, release or release_if_idle."
+       }}
+
+  defp lease_charge(lease),
+    do: %{
+      "host_peak" => lease.usage["host"],
+      "device_peak" => lease.usage["device"],
+      "device" => lease.requirement["device"]
+    }
+
+  defp working_usage(state, id) do
+    usage = state.usage[id] || %{}
+    lease = state.residents[state.bindings[id]]
+
+    Map.new(~w(host device), fn resource ->
+      resident = if lease, do: lease.usage[resource], else: 0
+      {resource, max(0, nonnegative(usage[resource]) - resident)}
+    end)
+  end
+
+  defp weights(requirement), do: nonnegative(get_in(requirement, ["basis", "weights"]))
+
+  defp charge(state, id, requirement) do
+    lease = state.residents[state.bindings[id]]
+
+    if lease do
+      held = min(weights(requirement), weights(lease.requirement))
+      host = min(held, lease.usage["host"])
+
+      device =
+        if (requirement["device_peak"] || 0) > 0, do: min(held, lease.usage["device"]), else: 0
+
+      working = working_usage(state, id)
+
+      Map.merge(requirement, %{
+        "host_peak" => max(requirement["host_peak"] - host, working["host"]),
+        "device_peak" => max((requirement["device_peak"] || 0) - device, working["device"]),
+        "resident" => %{
+          "id" => state.bindings[id],
+          "protocol" => @resident_protocol,
+          "usage" => lease.usage,
+          "host_weights" => host,
+          "device_weights" => device
+        }
+      })
+    else
+      requirement
+    end
+  end
+
+  defp fit(state, message) do
+    snapshot = message["snapshot"] || %{}
+    host = snapshot["host"] || %{}
+    reserve_bytes = nonnegative(host["reserve"])
+    # The same user reserve applies independently to host and CUDA availability.
+    devices =
+      Map.new(snapshot["devices"] || %{}, fn {id, value} ->
+        {id, Map.put(value, "reserve", max(reserve_bytes, nonnegative(value["reserve"])))}
+      end)
+
+    state = %{
+      state
+      | active: Map.delete(state.active, message["id"]),
+        usage: message["usage"] || %{}
+    }
+
+    remaining = budget(state, Map.put(snapshot, "devices", devices))
+    after_active_growth = remaining
+    lease = state.residents[message["resident"]]
+    requirement = message["requirement"]
+
+    retained =
+      if lease,
+        do: lease.usage,
+        else: %{
+          "host" => weights(requirement),
+          "device" => if((requirement["device_peak"] || 0) > 0, do: weights(requirement), else: 0)
+        }
+
+    extra = if lease, do: %{"host" => 0, "device" => 0}, else: retained
+
+    remaining =
+      reserve(remaining, %{
+        "host_peak" => extra["host"],
+        "device_peak" => extra["device"],
+        "device" => requirement["device"]
+      })
+
+    waiters =
+      Enum.reject(state.waiting, &(&1.id == message["id"]))
+
+    largest_host =
+      Enum.reduce(waiters, 0, &max(&2, charge(state, &1.id, &1.requirement)["host_peak"]))
+
+    largest_devices =
+      Enum.reduce(waiters, %{}, fn item, acc ->
+        charge = charge(state, item.id, item.requirement)
+
+        if (charge["device_peak"] || 0) > 0,
+          do:
+            Map.update(
+              acc,
+              charge["device"],
+              charge["device_peak"],
+              &max(&1, charge["device_peak"])
+            ),
+          else: acc
+      end)
+
+    relevant_devices =
+      if (requirement["device_peak"] || 0) > 0,
+        do: Map.put_new(largest_devices, requirement["device"], 0),
+        else: largest_devices
+
+    device_ok =
+      Enum.all?(relevant_devices, fn {id, needed} ->
+        is_integer(remaining.devices[id]) and remaining.devices[id] >= needed and
+          Map.get(devices[id] || %{}, "pressure", "normal") == "normal"
+      end)
+
+    keep =
+      remaining.pressure == "normal" and is_integer(remaining.host) and
+        remaining.host >= largest_host and device_ok
+
+    %{
+      "state" => "resident_fit",
+      "protocol" => @resident_protocol,
+      "keep" => keep,
+      "reason" =>
+        if(keep,
+          do: "Resident engine fits alongside waiting work",
+          else:
+            "Resident engine does not fit alongside waiting work or memory pressure is not normal"
+        ),
+      "figures" => %{
+        "host_available" => host["available"],
+        "device_available" => Map.new(devices, fn {id, value} -> {id, value["available"]} end),
+        "host_available_after_active_growth" => after_active_growth.host,
+        "device_available_after_active_growth" => after_active_growth.devices,
+        "resident" => retained,
+        "additional_resident" => extra,
+        "host_available_after_resident" => remaining.host,
+        "device_available_after_resident" => remaining.devices,
+        "reserve_bytes" => reserve_bytes,
+        "device_reserve_bytes" => Map.new(devices, fn {id, value} -> {id, value["reserve"]} end),
+        "largest_waiting_host" => largest_host,
+        "largest_waiting_devices" => largest_devices,
+        "host_pressure" => remaining.pressure,
+        "device_pressure" =>
+          Map.new(devices, fn {id, value} -> {id, Map.get(value, "pressure", "normal")} end),
+        "waiting_jobs" => length(waiters)
+      }
+    }
+  end
 
   defp validate_requirement(requirement) when is_map(requirement) do
     host = requirement["host_peak"]
@@ -84,16 +371,18 @@ defmodule Riff.Runtime.Admission do
 
   defp admit(state, message) do
     snapshot = message["snapshot"] || %{}
-    usage = message["usage"] || %{}
-    budget = budget(state.active, snapshot, usage)
+    state = %{state | usage: message["usage"] || %{}}
+    budget = budget(state, snapshot)
 
     {next, _} =
       Enum.reduce(state.waiting, {%{state | waiting: [], reasons: %{}}, budget}, fn item,
                                                                                     {next,
                                                                                      remaining} ->
-        case reason(item.requirement, remaining) do
+        charge = charge(next, item.id, item.requirement)
+
+        case reason(charge, remaining) do
           nil ->
-            admit_item(next, remaining, item)
+            admit_item(next, remaining, item, charge)
 
           why ->
             if remaining.count == 0 and remaining.pressure == "normal" and
@@ -108,7 +397,12 @@ defmodule Riff.Runtime.Admission do
                   "uncertainty" => why
                 })
 
-              admit_item(next, remaining, %{item | requirement: solo})
+              admit_item(
+                next,
+                remaining,
+                %{item | requirement: solo},
+                Map.merge(charge, Map.take(solo, ["exclusive", "admission", "uncertainty"]))
+              )
             else
               {%{
                  next
@@ -122,9 +416,9 @@ defmodule Riff.Runtime.Admission do
     %{next | waiting: Enum.reverse(next.waiting)}
   end
 
-  defp admit_item(state, budget, item) do
+  defp admit_item(state, budget, item, charge) do
     next = %{state | active: Map.put(state.active, item.id, item.requirement)}
-    remaining = reserve(budget, item.requirement)
+    remaining = reserve(budget, charge)
 
     {next,
      %{
@@ -134,7 +428,8 @@ defmodule Riff.Runtime.Admission do
      }}
   end
 
-  defp budget(active, snapshot, usage) do
+  defp budget(state, snapshot) do
+    active = state.active
     host = snapshot["host"] || %{}
 
     base = %{
@@ -147,8 +442,20 @@ defmodule Riff.Runtime.Admission do
 
     # Charge active growth once, then spend the remaining budget in queue order.
     # Admission is linear in active + waiting work, not one scan per candidate.
+    base =
+      Enum.reduce(state.residents, base, fn {id, lease}, remaining ->
+        measured = state.usage[id] || lease.usage
+
+        reserve(remaining, %{
+          "host_peak" => max(0, lease.usage["host"] - nonnegative(measured["host"])),
+          "device" => lease.requirement["device"],
+          "device_peak" => max(0, lease.usage["device"] - nonnegative(measured["device"]))
+        })
+      end)
+
     Enum.reduce(active, base, fn {id, requirement}, remaining ->
-      measured = usage[id] || %{}
+      measured = working_usage(state, id)
+      requirement = charge(state, id, requirement)
 
       growth = %{
         "host_peak" => max(0, requirement["host_peak"] - nonnegative(measured["host"])),
@@ -216,7 +523,7 @@ defmodule Riff.Runtime.Admission do
   defp result(state, id) do
     cond do
       Map.has_key?(state.active, id) ->
-        %{"state" => "admitted", "id" => id, "requirement" => state.active[id]}
+        %{"state" => "admitted", "id" => id, "requirement" => charge(state, id, state.active[id])}
 
       Map.has_key?(state.reasons, id) ->
         %{"state" => "waiting", "id" => id, "reason" => state.reasons[id]}
