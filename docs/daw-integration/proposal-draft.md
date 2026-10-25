@@ -20,11 +20,14 @@ Leading picture from current evidence (subject to change):
   Lua (master-bus file export; luabindings.cc:1848-1854) — headless
   create+render is source-evidenced, runtime receipt pending. Scripting
   manual warns "prototyping stage".
-- **LMMS 1.3.0-alpha.2** — the only candidate whose MAN PAGE documents the
-  full headless chain today (`--import`, `render`, `rendertracks` stems,
-  XML `.mmp` projects); GPLv2; official macOS arm64 builds (alpha; one-way
-  project-file upgrades; lighter mixing/automation). Runtime receipt in
-  progress (GLM).
+- **LMMS 1.3.0-alpha.2** — headless `render`/`rendertracks` (stems) are
+  documented and use QCoreApplication; GPLv2; official macOS arm64 builds
+  (alpha; one-way project-file upgrades; lighter mixing/automation).
+  CORRECTION (DeepSeek, source-verified on main.cpp v1.2.2 and
+  v1.3.0-alpha.2): `--import` is a GUI path (no coreOnly; MidiImport uses
+  QProgressDialog) and does not save a project — the headless chain is
+  generate-.mmp-XML → render, and the .mmp generation gate is unproven
+  (GLM probing).
 - **Carla** — not a DAW; candidate instrument-hosting component
   (LADSPA/DSSI/LV2/VST2/VST3/AU + SF2/SFZ, OSC remote), GPLv2+.
 - Deferred: Zrythm (scripting disabled/deprecated upstream), Qtractor
@@ -36,6 +39,15 @@ render path now + Ardour for deep arrangement/mixing maturity), possibly
 with Carla hosting. The proposal will weigh runtime receipts, alpha-branch
 risk, and packaging cost.
 
+Decisive gate (both serious candidates share it): neither has a headless
+MIDI/score IMPORT path — Ardour's Lua bindings do not expose
+`Session::import_files` (the shipped example drives the GUI Editor), and
+LMMS `--import` is GUI. The comparison that decides the proposal is which
+project format can be GENERATED and validated safely headlessly: Ardour
+session XML (+template/static-structure path) vs LMMS `.mmp` XML
+(write→`dump` round-trip). Receipts so far prove headless RENDER on both
+sides (Ardour: non-silent WAV verified; LMMS: documented, GLM probing).
+
 ## 2. Comparison summary [condensed from daw-candidates.md at proposal time]
 
 Table over C1–C12 (comparison-framework.md) — to be generated from the
@@ -43,27 +55,28 @@ final candidate doc so the proposal and matrix cannot drift.
 
 ## 3. ABC semantics: what crosses the bridge [evidence-backed]
 
-Probe receipts (both reproducible in .probe-tmp):
+The authoritative fidelity matrix is `abc-midi-fidelity.md` (DeepSeek;
+10-case corpus across abcjs 6.7.0 and abc2midi 5.07, event-level receipts in
+`docs/evidence/abc-midi-fidelity-20261025.json`). Headline results:
 
-- abcjs 6.7.0 (Riff's vendored converter): voices→tracks; `%%MIDI program`
-  honored per voice BUT program events land on channel 0 regardless of
-  track channel; repeats expanded; `!p!`→velocity 50-60; chord symbols→
-  auto-accompaniment track; lyrics dropped; browser-only in Riff today.
-- abc2midi 5.07 (built from source, commit 6582eb8): key/meter/tempo metas
-  exact; voices→separate tracks+channels correctly; `%%MIDI program`
-  passed 0-indexed raw; dynamics velocity-mapped; staccato ~33% duration;
-  broken rhythm/triplets exact; repeats expanded (structure lost);
-  voice-length mismatch pads/truncates with warnings; parse errors abort
-  remaining note generation (validate-before-convert required).
-- Convention hazard: GM program numbering is 1-indexed in most docs; both
-  converters pass raw bytes — the bridge must define the convention.
-
-Consequence for Riff: a server-side pinned converter stage is required
-(today's conversion is browser-only); converted MIDI is a performance
-bridge — chord-symbol text, lyrics, and repeat structure need the ABC (or a
-MusicXML path) as the durable symbolic artifact; DAW-edited material
-re-entering YuE2 is text ABC under cot=melody|full (token-exact replay
-identity cannot survive a DAW round-trip — GLM §4).
+- Preserved by both: pitch/duration/rests as performance data, M:/K:/Q:
+  header metas, tuplets (minor rounding), voice→track+channel mapping.
+- Converted with documented approximation: dynamics→velocities
+  (45..110/127), ties merged, repeats expanded (structure lost), grace
+  notes (converters disagree on timing), staccato.
+- Dropped: slurs/tenuto/marcato (performance effect), voice names, track
+  names; lyrics dropped by abcjs, non-standard text events by abc2midi.
+- abcjs defects (material): program changes emitted on channel 0 for every
+  track; inline `[K:]`/`[Q:]` DOUBLE subsequent note durations; no inline
+  meta emitted. abcjs is the browser audition path, not a production bridge.
+- Convention hazards: GM program numbering (raw byte vs 1-indexed lists);
+  converter defaults differ (no `Q:` → abc2midi 120 BPM vs abcjs 180 BPM);
+  both synthesize unrequested chord accompaniment tracks by default
+  (abc2midi: `-NGUI` ignores chord indications — flag verified in the
+  5.07 binary).
+- Consequence: the bridge is a pinned server-side converter stage with a
+  receipt (ABC sha256, converter version/options, voice→instrument map);
+  ABC text stays authoritative; MIDI is a one-way performance realization.
 
 ## 4. Integration hypotheses under evaluation (not selected)
 
