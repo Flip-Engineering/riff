@@ -45,9 +45,21 @@ does not select a DAW; it constrains the joint selection proposal.
   audio), `bounce_replace.lua` (`track:bounce_range(...)` — in-session bounce
   with processing returning a region)
   (https://github.com/Ardour/ardour/tree/master/share/scripts).
-- Gap for Riff: **no documented headless offline export-to-file**. Bounce is
-  in-session; a file-export path from `luasession` is `[unverified]` and is
-  the single decisive experiment for Ardour's candidacy.
+- Headless file export: resolved at source level since first draft — master
+  binds `SimpleExport` into Lua (`run_export`, `set_folder`, `set_range`,
+  `set_preset`, `check_outputs`; `Session::simple_export` factory,
+  `libs/ardour/luabindings.cc` in master), and the Ubuntu package ships
+  `ardour8-export` ("export an ardour session from the commandline ...
+  using the master-bus outputs"). Peer runtime receipts (DeepSeek seat):
+  non-silent MIDI+gmsynth renders via both `ardour9-export` CLI and
+  in-process SimpleExport, sha256-recorded. My no-root receipt:
+  `utils/ardour8-new_empty_session` created a session headlessly, but
+  `ardour8-export` segfaulted with the Dummy backend in that extraction
+  (environment-negative receipt, not an upstream verdict).
+- Open gate: **headless MIDI import** — `Editor:do_import` is a GUI path;
+  a template/generated-session route is unproven. This, not export, is
+  Ardour's decisive comparison now (see DeepSeek's
+  `docs/daw-integration/headless-import-correction.md`).
 - MIDI/per-instrument: full SMF workflows, JACK MIDI, per-track instrument
   plugin hosting (LV2; VST/LADSPA per platform), mixing, automation, tempo
   maps; production-grade arrangement and editing (manual: Sessions & Tracks,
@@ -60,10 +72,31 @@ does not select a DAW; it constrains the joint selection proposal.
   https://github.com/LMMS/lmms/blob/master/LICENSE.txt).
 - Headless render: the shipped man page documents actions `dump` (XML of a
   compressed MMPZ project), `render`, **`rendertracks`** ("Render each track to
-  a different file" — native per-track stems), `upgrade`, plus `--import`
-  MIDI/Hydrogen; render options: wav/flac/ogg/mp3, samplerate 44100–192000,
-  32-bit float, loop mode, oversampling
-  (https://github.com/LMMS/lmms/blob/master/doc/lmms.1).
+  a different file" — native per-track stems), and `upgrade`; render options:
+  wav/flac/ogg/mp3, samplerate 44100–192000, 32-bit float, loop mode,
+  oversampling (https://github.com/LMMS/lmms/blob/master/doc/lmms.1).
+  **Correction (peer source-verified, DeepSeek):** `--import` is a GUI path
+  even with `-e` (it constructs the GUI `MainApplication`;
+  `MidiImport.cpp` uses `QProgressDialog`/`mainWindow`) and does not save a
+  project — my runtime probe hung exactly there under Xvfb. `render` /
+  `rendertracks` are headless (`Engine::init(true)` with no GUI,
+  `src/core/main.cpp` in the v1.3.0-alpha.2 tag).
+- Runtime receipt `[probe]` (this checkout, no root, nice -n 19/ionice -c3):
+  a hand-written 2-track `.mmp` (2× TripleOscillator, 11 notes, 4 bars,
+  108 BPM) rendered headlessly by the official `lmms-1.3.0-alpha.2-linux-x86_64.AppImage`
+  (sha256 `7580e832…` verified against the release page): mix
+  `out.wav` (pcm_s16le 44.1 kHz stereo, 6.66 s) in ~1 s wall with no X
+  display, plus `rendertracks` stems `1_Melody.wav` / `2_Bass.wav`
+  (volumedetect mean ≈ −3.2 dB). sha256s: mix `16b64791…`, melody
+  `f765c0ce…`, bass `36eb555e…`, source project `19a04c9e…`. Receipts under
+  `.probe-tmp/lmms/` (gitignored).
+- Schema-migration landmine for hand-written projects: v1.3.0-alpha.2's
+  `Track::loadTrack` (`src/core/Track.cpp`) treats clip/pattern elements as
+  children of `<track>` (siblings of `<instrumenttrack>`); nesting them
+  inside `<instrumenttrack>` (the 1.2 layout) parses without error but
+  yields zero clips and "project is empty, aborting!" — a silent-layout
+  failure mode that any `.mmp` generator/validator must handle per pinned
+  version.
 - Project format: XML (`.mmp` / compressed `.mmpz`), agent-writable and
   diffable; `dump`/`upgrade` give text-level access without the GUI.
 - Instruments/hosting: bundled synths (TripleOscillator, OpulenZ, Monstro,
@@ -112,10 +145,12 @@ does not select a DAW; it constrains the joint selection proposal.
   stable phase"), XML sessions, LADSPA/DSSI/VST2/VST3/LV2/CLAP hosting,
   automation, track export/mixdown, SMF 0/1, NSM support
   (https://qtractor.org/).
-- Hard constraint: **JACK and ALSA are mandatory runtime infrastructure** —
-  Linux-only. Eliminated for the macOS-arm64 desktop payload; conceivable
-  only as a Linux-side render service, which the current product does not
-  ship.
+- Platform-fit evidence: **JACK and ALSA are mandatory runtime
+  infrastructure** (Linux-only) — poor fit for the macOS-arm64 desktop
+  payload, but it remains a comparison possibility as a Linux-side render
+  service (the research host is Linux; the current product does not ship a
+  Linux render service, so this is a distribution-shape question for the
+  proposal, not an exclusion).
 
 ### 2.5 MuseScore 4 (adjunct, not the DAW)
 
@@ -125,8 +160,13 @@ does not select a DAW; it constrains the joint selection proposal.
   third-party ABC_ImpEx uses wim.vree's `abc2xml`/`xml2abc`), not a native
   importer (https://musescore.org/project/abc-import,
   https://blechtrottel.net/en/abc_impex.html).
-- CLI audio export: `[unverified]` here — handbook page URL not yet located;
-  needs a source receipt before any claim.
+- CLI: verified against the official handbook — `-o/--export-to` "switches
+  to 'converter mode' and avoids the graphical user interface"; output
+  extensions include wav/flac/ogg/mp3/midi/musicxml; JSON batch jobs via
+  `-j`; `--sound-profile` selects "MuseScore Basic" vs "Muse Sounds"
+  (https://handbook.musescore.org/appendix/command-line-usage). Caveat: the
+  page notes it was copied from the MuseScore 3 handbook — options should be
+  smoke-tested on the pinned MuseScore 4 build before proposal claims.
 
 ### 2.6 Carla 2.5.8 (hosting component, not the DAW)
 
@@ -140,8 +180,10 @@ does not select a DAW; it constrains the joint selection proposal.
 ### 2.7 Secondary candidates (surveyed, deprioritized)
 
 - Stargate (stargatedaw/stargate): GPL-3.0, Python, pattern-based DAW with
-  routing matrix and bundled plugins; PortAudio/PortMidi; headless story and
-  release cadence `[unverified]`.
+  routing matrix and bundled plugins; PortAudio/PortMidi; latest release
+  `release-24.02.2` (2024-02) per its releases feed — ~20 months stale as of
+  2026-10, which scores it low on project health; headless story
+  `[unverified]`.
 - BespokeSynth: GPL-3.0 modular live environment; VST/VST3/LV2 hosting,
   Python livecoding; live-patch oriented, no documented headless render; not
   an arranger DAW.
@@ -181,13 +223,31 @@ Observed mappings (event receipts in `probe.mftext`):
 
 Malformed input behavior: a syntax error (`D.2`) aborted note generation for
 the remainder of that pass with a parse error — conversion is not
-fault-tolerant; Riff's conversion stage must validate before converting.
+fault-tolerant; any conversion stage must validate before converting.
+
+Program-number convention: `doc/abcguide.txt:774` documents `%%MIDI program
+[c] n` with "**n (in the range 0-127)**" placed "in the track associated with
+the voice previously declared" — abc2midi passes the raw 0-127 value while
+General MIDI instrument *names* are 1-indexed (my `program=73` = GM name
+#74 Flute, `program=33` = GM #34 Acoustic Bass). Riff's bridge must pin one
+emission convention explicitly.
+
+Channel correctness cross-check (vs DeepSeek's abcjs probe): abc2midi put
+each voice's program change on its own note channel (chan=1/chan=2 above);
+the abcjs path landed program changes on channel 0 in every track regardless
+of the track's note channel. Channel behavior differs between the two
+converters and must be part of the fidelity matrix.
+
+Hypothesis (not selected architecture, per the coordinator-accepted
+comparison framework): IF a server-side DAW render operation is adopted, it
+needs a converter stage with its own provenance — abcjs runs in the browser
+only (`web/` is static; Riff has no Node server component), so a pinned
+server-side converter (abc2midi or equivalent) mapped onto the sources.json
+pinning pattern is the leading candidate for that hypothesized stage.
 
 Riff's existing converter is **client-side only**: abcjs
-`getMidiFile(..., {midiOutputType:"binary"})` in `web/score.js:283-285`. A
-server-side `daw.render` operation needs its own pinned converter stage
-(abc2midi or equivalent) with converter provenance in the receipt — this maps
-onto the sources.json pinning pattern (repo+commit+sha256).
+`getMidiFile(..., {midiOutputType:"binary"})` in `web/score.js:283-285`
+runs in the browser; Riff today has no server-side ABC→MIDI path.
 
 ## 4. Cross-checks against riff-architecture.md (conductor)
 
@@ -198,11 +258,10 @@ onto the sources.json pinning pattern (repo+commit+sha256).
   `operations.py:209-238` (`_stages`). §1 says "15 local patches";
   `sources.json` lists 16 patch entries — please recount.
 - §3 gap: the doc states MIDI export is client-side but not the consequence —
-  any server-side DAW operation must add a conversion stage with its own
-  provenance (see §3 above); and DAW-mutated material can only re-enter YuE2
-  as text ABC under `cot=melody|full` — token-exact `riff-score-v1` replay
-  identity cannot survive a DAW round-trip, so DAW arrangements need their own
-  lineage/reference kind.
+  under the hypothesized server-side DAW operation, DAW-mutated material can
+  only re-enter YuE2 as text ABC under `cot=melody|full` — token-exact
+  `riff-score-v1` replay identity cannot survive a DAW round-trip, so DAW
+  arrangements would need their own lineage/reference kind.
 - §7.4 split needed: one-shot CLI engines (LMMS render, abc2midi) fit the
   cold-process builder; persistent engines (Ardour `luasession`, Carla+OSC)
   need the resident job-protocol path (`riff.jobs.v1` / measured
@@ -214,28 +273,49 @@ onto the sources.json pinning pattern (repo+commit+sha256).
   receipt stages touches `RECEIPT_SCHEMA`/`SUBMISSION_SCHEMA` — the
   SURFACE_VERSION bump rule should be stated in the proposal.
 - Platform weighting (conductor's question): macOS-arm64 desktop payload
-  eliminates Qtractor (JACK+ALSA mandatory, Linux-only) as the bundled DAW.
+  makes Qtractor a poor fit as the bundled DAW (JACK+ALSA mandatory,
+  Linux-only), leaving a Linux render-service comparison open (§2.4).
   Ardour ships official macOS arm64 builds; LMMS 1.3.0-alpha.2 ships official
   macOS arm64 builds (macOS 11+/M1+) while stable 1.2.2 predates Apple
   Silicon; Zrythm/Carla/MuseScore have macOS builds. abcMIDI is dependency-free
   C (built here on Linux in ~9 s).
-- License weighting under the ffmpeg separate-binary precedent: Ardour
-  (GPLv2+), LMMS (GPLv2), Carla (GPLv2+) all fit separate-process bundling
-  with pinned sources; Zrythm adds AGPL §13 obligations on any modifications
-  plus trademark terms; none may be linked into `audiocpp_cli` or the studio.
+- License weighting under the ffmpeg separate-binary precedent, with the
+  actual texts: Ardour COPYING is "GPL v2.0 or later" whose "Plugin
+  Clarification" states only that dynamically-loaded third-party-API plugins
+  ("VST, AudioUnits, LV2, LADSPA and CLAP") create no derivative relationship
+  — it says nothing about embedding Ardour code elsewhere. LMMS LICENSE.txt
+  is GPL v2 text with no linking exception: GPL §2 makes a combined work "a
+  work based on the Program", and §2(b) requires licensing the whole under
+  GPL when conveyed. Zrythm's LicenseRef-ZrythmLicense.txt is AGPL-3.0 where
+  §13 states: "if you modify the Program, your modified version must
+  prominently offer all users interacting with it remotely through a computer
+  network ... an opportunity to receive the Corresponding Source of your
+  version". Reading: separate-process bundling fits all three (ordinary
+  conveyance + pinned sources per the ffmpeg pattern); linking copyleft DAW
+  code into the MIT-licensed app or `audiocpp_cli` would pull the combined
+  work under the copyleft, and any Zrythm patches carry §13 network-source
+  duties. This is engineering-grade reading of the quoted texts, not legal
+  advice; definitive interpretation is outside ensemble scope.
 
 ## 5. Open questions for the joint proposal
 
-1. Ardour headless file export: does any documented/supported path write
-   rendered audio files from `luasession` (export dialog automation, or
-   bounce-to-file via Lua)? Decisive experiment; needs an Ardour build or
-   official package on Linux to probe.
+1. ~~Ardour headless file export~~ RESOLVED: `SimpleExport` Lua binding
+   verified in source, `ardour8-export` CLI ships in the Ubuntu package, and
+   DeepSeek produced non-silent runtime renders via both paths (sha256
+   receipts). Ardour's remaining gate is **headless MIDI import**
+   (`Editor:do_import` is GUI; template/generated-session path unproven).
+   The decisive comparison is now which project format (.mmp XML vs Ardour
+   session/template) can be generated and validated safely — the LMMS side
+   has a passing receipt (§2.2); the Ardour side is open.
 2. LMMS on macOS headless: does `lmms -r`/`-rendertracks` run without a GUI
    session on macOS (Qt platform plugin)? Linux behavior is documented; macOS
    behavior `[unverified]`.
-3. abcjs-vs-abc2midi fidelity delta (DeepSeek's axis): the two converters do
-   not agree on dynamics/articulation/instrument mapping; whichever Riff pins
-   becomes the project's conversion truth.
+3. abcjs-vs-abc2midi fidelity delta: CONFIRMED REAL — different
+   channel-correctness for program changes (§3), chord-symbol
+   auto-accompaniment track in abcjs vs voice pad/truncate in abc2midi,
+   program-number convention documentation only on the abc2midi side
+   (§3). DeepSeek's full matrix is the deeper layer; whichever converter
+   Riff pins becomes the project's conversion truth.
 4. Stem manifest contract shape (N artifacts per job) and SURFACE_VERSION
    policy for receipt-shape additions.
 5. SoundFont/GM instrument availability on each platform for verified timbre
