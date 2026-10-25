@@ -9,6 +9,7 @@
     "test:exploration": "node tests/exploration.mjs",
     "test:reviews": "node tests/reviews.mjs",
     "test:suite": "node tests/suite.mjs",
+    "test:artwork-geometry": "node tests/artwork-geometry.mjs",
     "test:all-browser": "node tests/all-browser.mjs"
   },
   "devDependencies": {

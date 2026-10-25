@@ -55,6 +55,7 @@ jobs:
         env:
           RIFF_REQUIRE_SCORE_INTEGRATION: '1'
       - run: elixir runtime/test/admission_test.exs
+      - run: elixir runtime/test/resident_test.exs
       - run: elixir runtime/test/resources_test.exs
       - run: elixir desktop/test/build_test.exs
       - run: elixir tests/native_capabilities_test.exs

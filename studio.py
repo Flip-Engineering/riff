@@ -578,6 +578,9 @@ class Handler(BaseHTTPRequestHandler):
                     if self.server.maintenance.busy() or self.server.maintenance.task["status"] == "running":
                         raise ValueError("Finish the current work before switching engines.")
                     result = platform_support.configure(payload)
+                    changed = getattr(self.server.generator, "engine_settings_changed", None)
+                    if changed:
+                        changed()
                 self.json_response(200, result)
             elif path in ("/api/system/check", "/api/system/update") and method == "POST" and self.server.maintenance:
                 self.json_response(202, self.server.maintenance.start(path.rsplit("/", 1)[1], payload))

@@ -1,0 +1,35 @@
+{
+  "about": "SHA-256 of the canonical, rounded RiffArtwork.scene() result per seed and condition. Regenerate with `node tests/artwork-geometry.mjs --update`.",
+  "precision": "scalars 6 decimals; vertices and projected coordinates 3; stress and face chromatic 4; face order and shade exact",
+  "conditions": {
+    "rest": "t=0 s, silence",
+    "moving": "t=3.7 s, one fixed 8-band frame",
+    "history": "t=12.25 s, one frame plus a three-frame waveform history"
+  },
+  "digests": {
+    "\"15961\" rest": "7f3d15ec3a935e6d931d512035cbe92e796e11d498f3d15732606fbbd7402ba9",
+    "\"15961\" moving": "425b95858a5701ade33d2615e5851059016dec73e6973efd6f46ab344163ef69",
+    "\"15961\" history": "e0ae9f89275fb91bbb6ae6d26dd52cdef213ca6f9fa98e654ccd43322e7d0402",
+    "\"15962\" rest": "48f68b01d5f661ae8e3503e8ac612fb18d1739fdb5ff25a64f55e0b70345cacf",
+    "\"15962\" moving": "3cc9fed4d825a65869bc401ff1919e9bda7bdb659a1845ec22de61b6f812d8a9",
+    "\"15962\" history": "0b0e20d06e4514fd5db0cdf2eb806b73248197e02f1fa4ff68fecc31e994b443",
+    "\"0\" rest": "29ee93a20a580f7a63b930110207c56c89ce12fb6750141a197b6b3cf3654a1e",
+    "\"0\" moving": "aeb4aa54b4a49ef03117253409d134e52beabf155ee784ab728717a9921b32b6",
+    "\"0\" history": "08e273c82f2dadf15ffe70d6e2c146a8d76266ee6a04e586bae3d3de399e7e35",
+    "\"1\" rest": "71b005decfe5f4951893c0b2b7e0c69a5711cca0cb69dab43c0ae76fb4a45860",
+    "\"1\" moving": "76586540450888bc9f525b0abe8ce9b22388577d8732691c17b0d16b2dac56c4",
+    "\"1\" history": "4a90c90999cc26379cf688133e44b2de39b2c202a635bf0496ae8ebbd339b23b",
+    "\"9223372036854775807\" rest": "458402f53209d51a0466d35f355544d197ca53e1b98dfaab18e2b4d07ac1523d",
+    "\"9223372036854775807\" moving": "77d767e9015dc5d1822389f6e2e71b075067b6b2e1bc216dc38f5eebc361b96c",
+    "\"9223372036854775807\" history": "f36c868ed0b6018ca40d802f345246b7bdadefc66078e1a786834053c2c511fb",
+    "\"\" rest": "c35a0522d472e8b38b2759e2099ee296c82ac0e325c0c5fca3c1f96cbbc02cab",
+    "\"\" moving": "002b110958644215ed36cccc20b72a9407dedbec8913fae79dfffc924ed8aa93",
+    "\"\" history": "f3dde80d6eba9fc32cdf675a6556479656fd381fb144c5f73781eac0ceca17c8",
+    "\"Night Orchard\" rest": "72dcda190f49fcefbe6f47f83712bf16980befa47ab20104af2c7c6bc4024126",
+    "\"Night Orchard\" moving": "fb53b22cfe8d0bc8ac1e4bd27ac83e6929901324a0b477ff1e14062bef464c30",
+    "\"Night Orchard\" history": "c103109f99075e1cf81cbf747b3626607dfeceff06b31581c172047fbfbd14c6",
+    "\"Ça va — 音楽\" rest": "c020d3ac2be9c805a90a8bd6b65d95469dab57da4feaf6b5965b9b08c8550caa",
+    "\"Ça va — 音楽\" moving": "5983cd6bf60821d9923b201ffba26ab1127a68faf0787f6cc5c927d0d9540e40",
+    "\"Ça va — 音楽\" history": "2bc44ee60b2ebcf808639fe74dceb3be5f43aa2f3fb2d512b34c0176b18505c0"
+  }
+}

@@ -6,6 +6,8 @@
   const engineFields = { backend: "engine-backend", threads: "engine-threads", device: "engine-device",
     binary: "engine-binary", model_root: "engine-model-root", model_file: "engine-model-file", vae_file: "engine-vae-file" };
 
+  const engineChecks = { warm_engine: "engine-warm", warm_engine_release_when_empty: "engine-release-empty" };
+
   function settingsError(message = "") {
     $("#system-error").textContent = message;
     $("#system-error").hidden = !message;
@@ -79,10 +81,12 @@
     $("#setup-description").hidden = system.desktop && system.engine.ready;
     if (!settingsFilled) {
       for (const [key, id] of Object.entries(engineFields)) $("#" + id).value = system.engine[key];
+      for (const [key, id] of Object.entries(engineChecks)) $("#" + id).checked = !!system.engine[key];
       $("#automatic-checks").checked = system.preferences.automatic_checks;
       $("#automatic-downloads").checked = system.preferences.automatic_downloads;
       settingsFilled = true;
     }
+    $("#engine-memory-reserve").textContent = `Memory reserve: ${system.engine.memory_reserve_mb ?? 0} MiB. Set RIFF_MEMORY_RESERVE_MB before starting Riff to change it.`;
     $("#setup-requirements").replaceChildren();
     for (const item of system.prerequisites) {
       const line = document.createElement("p");
@@ -108,6 +112,7 @@
     event.preventDefault();
     settingsError();
     const payload = Object.fromEntries(Object.entries(engineFields).map(([key, id]) => [key, ["device", "threads"].includes(key) ? Number($("#" + id).value) : $("#" + id).value]));
+    for (const [key, id] of Object.entries(engineChecks)) payload[key] = $("#" + id).checked;
     try { await api("/api/system/engine", "POST", payload); await refresh(); notify("Engine settings saved"); }
     catch (error) { settingsError(error.message); }
   });
