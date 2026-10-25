@@ -314,10 +314,15 @@ def main():
         manifest = json.loads((ROOT / "sources.json").read_text())
         receipt["source_sha"] = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
         receipt["script_sha256"] = digest(Path(__file__))
-        receipt["engine"] = {"binary_sha256": digest(binary), "key": fingerprint() + "-" + args.backend,
-                             "runtime_commit": manifest["runtime_commit"], "patches": manifest["local_patches"]}
         build_receipt = json.loads(args.build_receipt.read_text())
-        if build_receipt.get("backend") != args.backend or build_receipt.get("build_exit_status") != 0 or build_receipt.get("native_fingerprint") != fingerprint():
+        sha_backend = build_receipt.get("sha256_backend")
+        if sha_backend not in ("portable", "commoncrypto", "openssl-evp"):
+            raise ValueError("Build receipt has no supported SHA-256 backend")
+        native_key = fingerprint(sha_backend=sha_backend)
+        receipt["engine"] = {"binary_sha256": digest(binary), "key": native_key + "-" + args.backend,
+                             "sha256_backend": sha_backend,
+                             "runtime_commit": manifest["runtime_commit"], "patches": manifest["local_patches"]}
+        if build_receipt.get("backend") != args.backend or build_receipt.get("build_exit_status") != 0 or build_receipt.get("native_fingerprint") != native_key:
             raise ValueError("Build receipt does not match the requested pinned native engine/backend")
         receipt["engine"]["build_receipt"] = build_receipt
         receipt["engine"]["build_receipt_sha256"] = digest(args.build_receipt)

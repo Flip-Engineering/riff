@@ -181,12 +181,57 @@ before a take must be detected before planning; changes during a stage must fail
 that stage's output verification. Preserve an already validated NAR checkpoint
 when a later VAE stage fails.
 
+## Optional system SHA-256 implementation
+
+The coordinator selected platform crypto discovered at build time, with portable
+SHA-256 when it is unavailable. The sixteenth pinned patch,
+[`yue2-weight-system-sha.patch`](../patches/yue2-weight-system-sha.patch), uses:
+
+- macOS: the existing CommonCrypto path.
+- Linux: `find_package(OpenSSL QUIET COMPONENTS Crypto)` and EVP when headers and
+  dynamic libcrypto are found. Missing Crypto or a static-only library selects
+  portable SHA; nothing is downloaded, bundled or statically linked.
+- Other platforms: portable SHA. Riff's engine workflows support Linux/macOS;
+  [native Windows is unsupported](install.md), so this change does not add CNG.
+
+`python setup_engine.py --backend cpu --portable-sha` explicitly disables system
+SHA discovery; direct CMake builds can set `RIFF_CHECKPOINT_SYSTEM_SHA=OFF`.
+The normal setup command explicitly re-enables discovery on subsequent builds.
+No new package is required: installing a platform's OpenSSL development package
+is optional. A dynamically linked engine uses that target system's libcrypto;
+this change supplies no library payload or portable binary distribution promise.
+
+`implementation.yue2.sha256` in native CLI discovery records identifies
+`openssl-evp`, `commoncrypto` or `portable`. The CMake cache also records
+`RIFF_CHECKPOINT_SHA_BACKEND`; the queued build receipt records `sha256_backend`.
+The **engine fingerprint and build directory include the discovered choice**, and
+configured compiler-cache input identity includes it too. The homelab queue's
+artifact key uses the same pinned CMake module to discover the choice and binds
+libcrypto/header hashes when selected. This keeps a portable artifact from being
+restored for a crypto-enabled build, or vice versa.
+
+EVP initialization, update or finalization errors fail hashing; they cannot yield
+an accepted partial digest. Existing file-read, identity and session retirement
+guards remain in place. The source check runs the same 80 format/cache cases with
+the selected backend and forced portable SHA, comparing complete digest and
+checkpoint bytes and cross-checking file digests with OTP. Fixtures include empty
+files, 63/64/65-byte boundaries, read-block boundaries and a 1 MiB + 1-byte file.
+A fresh CMake helper build with Crypto discovery disabled verifies portable
+selection and identical output; macOS CI forces portable alongside CommonCrypto.
+These are targeted component checks, not a second native engine build.
+
+Validation in progress: the fresh portable first-take baseline pins in
+18,803.990 ms with the prior queue-built CPU engine. Its WAV matches the earlier
+baseline and shared model identities remain unchanged. The new CPU engine is
+waiting in the shared compile queue; the after timing, backend equivalence checks
+and 69 pipeline checks are not yet qualified for this patch.
+
 ## First-use SHA-256 acceleration options
 
 Part of [#60](https://github.com/Flip-Engineering/riff/issues/60), after the
 session cache merged in [#64](https://github.com/Flip-Engineering/riff/pull/64).
-This is a design recommendation; no native dependency or implementation changes
-are included.
+The options below preserve the design comparison that informed the coordinator
+decision above; system discovery and fallback refine the original recommendation.
 
 On the same EPYC host, `openssl dgst -sha256` (OpenSSL 3.0.13), reading the
 2,665,632,320-byte main GGUF through stdin with a warm page cache, took
@@ -296,5 +341,5 @@ maintain than vendored intrinsics. Accept it only with an explicit native
 dependency, license/notices and clean-install packaging plan; do not rely on a
 developer machine's library. Internal reuse has no current speed evidence, and
 vendoring avoids a library at the cost of Riff owning dispatch and architecture
-maintenance. The coordinator's decision on that dependency comes before native
-code changes.
+maintenance. The coordinator accepted system-library discovery with portable fallback, rather
+than a required or bundled dependency, as implemented above.
