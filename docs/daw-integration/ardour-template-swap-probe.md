@@ -27,43 +27,57 @@ agent-authored content, then rendered headless. No selection is made.
 
 ## Receipt
 
+Build under test: official **9.8.241 DEMO NIGHTLY** binary
+(`Ardour_x86_64-9.8.241-demo`), not the 9.8 release source tag — source
+claims in this file and in `ardour-headless-probe.md` cite tag `9.8`; the
+runtime receipts come from the demo build and must not be quoted as release
+behavior without that distinction.
+
 `swapped.wav`: 48 kHz stereo 16-bit, 11.656 s, peak -4.43 dBFS
-(NONZERO — content present). Coarse per-0.5s dominant-frequency scan:
+(NONZERO — content present). The export log contains repeated
+**`DummyMidiBuffer: it's too late for this event` warnings** (dummy backend
+MIDI timing); the render still completed, but these warnings are retained
+here as a correctness caveat, not explained away.
+
+Coarse per-0.5s dominant-frequency scan (a numerical content check, NOT a
+listening assessment):
 
 - Multiple distinct note onsets (the fixture source was one long note — so
-  the swapped content, not the fixture, rendered).
-- Both registers present: ~131 Hz / ~195 Hz (bass line, C3/G3 region) and
-  ~525 Hz / ~665 Hz / ~780 Hz / ~1050 Hz (flute line, C5–C6 region).
+  the swapped content, not the fixture, rendered). [inference from content
+  difference, not a controlled comparison]
+- Energy present in both a low band (~131 Hz / ~195 Hz) and a higher band
+  (~525–1050 Hz). This is SUGGESTIVE that both voices contributed to the
+  master mix; it is NOT isolated proof that both intended voices or their
+  intended instruments rendered correctly — a single mixed master cannot
+  separate them. Establishing that needs a controlled receipt (e.g.
+  mute/solo renders or per-track stems) — retained as a qualification item.
 - Note activity ends ≈7 s, consistent with 12 beats at the session tempo,
-  not with the fixture's original timing.
+  not with the fixture's original timing. [inference]
 
 ## What this proves and what it does not
 
 PROVEN: arbitrary agent-authored multi-voice MIDI, produced by the pinned
-abc2midi converter, can be injected into an Ardour session by file swap and
-rendered to audible audio headlessly with per-channel GM programs honored by
-one gmsynth instance. The template-swap construction is a viable project-
-construction fallback for the Ardour import gate.
+abc2midi converter, was injected into a template session by file swap and a
+nonzero master render was produced headlessly by the 9.8.241 demo build.
+Content scan is consistent with the swapped material playing (multiple
+onsets, low+high band energy). Per-channel GM program handling by the
+single gmsynth instance is PLAUSIBLE from the mix but NOT isolated —
+unproven until a controlled per-voice receipt exists.
 
-NOT PROVEN / next gates:
-- N-track construction: this probe used ONE MIDI track reading a multi-track
-  SMF (both voices through one gmsynth). True per-instrument tracks (N MIDI
-  tracks, each its own plugin, each its own stem) need a template with N
-  tracks each referencing its own single-voice SMF — same pattern, unprobed.
-- Stem export: `ardour9-export` is master-bus mixdown; per-track stems via
-  Lua `SimpleExport` are master-bus too; per-route stem export evidence is
-  still missing.
-- Octave/convention check: observed flute dominant ≈ C4/C5 region — exact
-  octave assignment of ABC `c` through abc2midi→SMF→Ardour→gmsynth needs a
-  note-level comparison (the fidelity matrix's pitch rows), done from the
-  summary JSONs rather than this audio-level scan.
-- Fresh-session generation (no fixture XML at all) and Lua `MidiModel`
-  note authoring remain alternative construction paths, unprobed.
-- Demo build caveat (DeepSeek's note): CLI tools ran normally; production
-  claims should re-run on a pinned source build.
-- Region length metadata (`b44758@b42374` beats) exceeded the swapped
-  source content; the export range covered the content, but a production
-  adapter must write consistent region lengths rather than inherit them.
+NOT PROVEN / qualification items for the proposal (not authorization to
+implement before review):
+- N-track construction (N MIDI tracks, each its own plugin and stem).
+- Controlled voice isolation (mute/solo or stems) proving each intended
+  voice/instrument renders.
+- Stem export: `ardour9-export` and Lua `SimpleExport` are master-bus;
+  per-route stem export evidence is missing.
+- Generalized session GENERATOR (no fixture XML inheritance), session
+  REOPEN round-trip of generated sessions, and EXPLICIT per-track program
+  assignment in generated sessions.
+- Octave/convention check: exact octave assignment of ABC `c` through
+  abc2midi→SMF→Ardour→gmsynth needs a note-level comparison.
+- Demo-vs-release: receipts are from the demo nightly; release-tag behavior
+  and a pinned source build remain qualification work.
 
 Commands and artifacts: `.probe-tmp/kimi/` (perinst.abc, perinst.mid,
 swap-session/, export.log). Related: `ardour-headless-probe.md`,
