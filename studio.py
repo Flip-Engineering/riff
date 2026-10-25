@@ -38,7 +38,7 @@ JOB_ROUTE = re.compile(r"/api/jobs/([a-f0-9]{32})(?:/(cancel|retry|move))?")
 PRESET_ROUTE = re.compile(r"/api/presets/([a-z0-9-]+)")
 TRACK_REVIEWS_ROUTE = re.compile(r"/api/tracks/([a-f0-9]{32})/reviews")
 REVIEW_ROUTE = re.compile(r"/api/reviews/([a-f0-9]{32})(?:/(cancel))?")
-LORA_ROUTE = re.compile(r"/api/loras/([a-f0-9]{64})(?:/(updates))?")
+LORA_ROUTE = re.compile(r"/api/loras/([a-f0-9]{64})(?:/(updates|clean))?")
 LORA_TASK_ROUTE = re.compile(r"/api/loras/tasks/([a-f0-9]{32})(?:/(cancel))?")
 
 
@@ -228,6 +228,8 @@ class Handler(BaseHTTPRequestHandler):
             elif (match := LORA_ROUTE.fullmatch(path)):
                 if match[2] == "updates":
                     self.json_response(200, self.server.store.loras.check_updates(match[1]))
+                elif match[2]:
+                    raise KeyError("Action not found.")
                 else:
                     self.json_response(200, {**self.server.store.loras.get(match[1]),
                                              "references": self.server.store.lora_references(match[1])})
@@ -469,6 +471,9 @@ class Handler(BaseHTTPRequestHandler):
                     with self.server.generator.lock:
                         result = self.server.store.loras.delete(match[1], confirm=payload.get("confirm") is True)
                 self.json_response(200, result or {"status": "removed"})
+            elif (match := LORA_ROUTE.fullmatch(path)) and match[2] == "clean" and method == "POST":
+                with self.server.generator.lock:
+                    self.json_response(200, self.server.store.loras.clean(match[1]))
             elif path in ("/api/generations", "/api/plans") and method == "POST":
                 with self.server.maintenance.lock if self.server.maintenance else nullcontext():
                     if self.server.restart_requested:
