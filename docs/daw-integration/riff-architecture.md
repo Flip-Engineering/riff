@@ -11,7 +11,7 @@ select a DAW.
 - Python studio: HTTP API + queue + artifact recording (`studio.py`,
   `studio_core.py`, `operations.py`, `capabilities.py`).
 - Native engine: YuE2-3B GGML inference via audio.cpp, pinned commit
-  `fbe3eedbf6c504e45189e2cdcf1b257740a28863` plus 15 local patches
+  `fbe3eedbf6c504e45189e2cdcf1b257740a28863` plus 16 local patches
   (`sources.json`, `patches/`). One-shot CLI per take, or opt-in resident
   "warm engine" job protocol `riff.jobs.v1` (HANDOFF.md).
 - Elixir runtime (`runtime/lib`): admission/memory policy and
