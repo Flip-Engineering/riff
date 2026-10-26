@@ -6,4 +6,6 @@ Producer reviews can include reference recordings alongside the generated take i
 
 Review forms show estimated audio and request sizes. Provider limits and errors are reported by the selected service. Reference recordings are sent to that service when a review is submitted.
 
+Managed engine preparation uses a configured compile queue and retains build receipts and staged artifacts. If queue policy requires it, an unavailable queue stops preparation instead of starting a direct build.
+
 Updates keep the library, recordings, saved material and settings in the persistent workspace. Verified model downloads are reused; source installations may rebuild a changed engine. Music, writing, reviews and exports must finish or be cancelled before activation.
