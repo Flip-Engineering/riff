@@ -13,6 +13,12 @@ import urllib.request
 from review_recipe import FIELDS, MP3_BITRATE, generation_context, recommended_generation, response_schema, symbolic_context
 
 
+class ProviderResponseError(ValueError):
+    def __init__(self, message, response, sent):
+        super().__init__(message)
+        self.response, self.sent = response, sent
+
+
 def encode_mp3(source, folder, name, subject="the recording"):
     encoded = Path(folder) / name
     try:
@@ -103,6 +109,12 @@ def listen(settings):
         "\n\nSYMBOLIC REPRESENTATION\n" + json.dumps(symbolic_context(source), ensure_ascii=False, indent=2)
         + (reference_prompt(references) if references else "")
     )
+    if settings.get("primary_kind") == "edited_master":
+        prompt += ("\n\nPRIMARY EDITED MASTER\nThe first audio is the artist's edited master under review, "
+                   "not an original generated take or a comparison clip. Review this actual audio. "
+                   "The artist supplied the following source recipe and edit context; treat these as context, "
+                   "not measurements of what is audible.\n" + json.dumps(
+                       {"source_recipe": source, "edit_context": settings.get("edit_context", {})}, ensure_ascii=False))
     if not shutil.which("ffmpeg"):
         raise ValueError("Install FFmpeg with brew install ffmpeg to prepare recordings for review.")
     parts, sent = [{"type": "text", "text": prompt}], []
@@ -112,7 +124,7 @@ def listen(settings):
         sent.append({"source": owner, **encoded.pop("sent")})
         return {"type": "input_audio", "input_audio": encoded}
     with tempfile.TemporaryDirectory(prefix="riff-listen-") as folder:
-        parts.append(audio(settings["audio"], folder, "recording.mp3", "generated_take"))
+        parts.append(audio(settings["audio"], folder, "recording.mp3", settings.get("primary_kind", "generated_take")))
         for number, item in enumerate(references, 1):
             parts.append({"type": "text", "text": f"Reference audio {number}: id {item['id']}, labelled {item['label']!r}."})
             parts.append(audio(item["path"], folder, f"reference-{number}.mp3", item["id"], f"the reference {item['label']!r}"))
@@ -129,13 +141,34 @@ def listen(settings):
                                               "Content-Type": "application/json", "X-Title": "Riff producer review"})
     try:
         with urllib.request.urlopen(request, timeout=300) as response:
-            result = json.loads(response.read())
+            body = response.read()
+            try:
+                result = json.loads(body)
+            except ValueError:
+                if settings.get("primary_kind") == "edited_master":
+                    raise ProviderResponseError("The provider returned an unreadable response.",
+                                                {"body": body.decode("utf-8", errors="replace")}, sent) from None
+                raise
     except urllib.error.HTTPError as error:
+        body = error.read()
         try:
-            message = json.loads(error.read()).get("error", {}).get("message", "")
+            message = json.loads(body).get("error", {}).get("message", "")
         except (ValueError, AttributeError):
             message = ""
-        raise ValueError(f"OpenRouter returned HTTP {error.code}. {message}") from None
+        message = f"OpenRouter returned HTTP {error.code}. {message}"
+        if settings.get("primary_kind") == "edited_master":
+            raise ProviderResponseError(message, {"http_status": error.code,
+                                        "body": body.decode("utf-8", errors="replace")}, sent) from None
+        raise ValueError(message) from None
+    try:
+        return interpret_response(result, settings, source, references, sent)
+    except (ValueError, KeyError, TypeError, IndexError, AttributeError) as error:
+        if settings.get("primary_kind") == "edited_master":
+            raise ProviderResponseError(str(error), result, sent) from None
+        raise
+
+
+def interpret_response(result, settings, source, references, sent):
     if result.get("error"):
         raise ValueError(result["error"].get("message", "OpenRouter could not finish this review."))
     choice = result["choices"][0]
@@ -157,6 +190,9 @@ def listen(settings):
     if references:
         review["observations"] = parsed.get("observations")
         review["sent_audio"] = sent
+    if settings.get("primary_kind") == "edited_master":
+        review["sent_audio"] = sent
+        review["provider_response"] = result
     return review
 
 
@@ -166,4 +202,6 @@ if __name__ == "__main__":
         result = listen(settings)
     except Exception as error:
         result = {"error": str(error).replace(settings["api_key"], "[redacted]")}
+        if isinstance(error, ProviderResponseError):
+            result.update(provider_response=error.response, sent_audio=error.sent)
     Path(sys.argv[1]).write_text(json.dumps(result).replace(settings["api_key"], "[redacted]") + "\n")

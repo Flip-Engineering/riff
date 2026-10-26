@@ -6,6 +6,85 @@ involved. `GET /api/capabilities` advertises the surface under `agent_surface`:
 its version, compatibility requirements, and for every operation its method,
 path, input schema and output schema.
 
+## Listening to an edited master
+
+An edited master is primary audio, separate from a generated library recording or
+a comparison reference. An artist or agent can submit it through the already
+running Studio owner's review service, without reading credentials or changing
+OS accounts. Enable reviews and save a key through that Studio's normal settings.
+The maintained helper uses the same request safety, review queue and cancellation
+boundary. It never imports a track, rewrites its recipe or starts music generation.
+
+Prepare an artist-owned JSON manifest:
+
+```json
+{
+  "master": "/artist/work/edited-master.wav",
+  "master_sha256": "<SHA-256 of the exact master file>",
+  "master_bytes": 123456,
+  "duration": 12.5,
+  "source_recipe": {"title": "My song", "style": "Artist's direction", "lyrics": "Artist's words", "seed": "42"},
+  "edit_context": {"notes": "Artist's edit notes, source details and timeline"},
+  "model": "<artist-selected audio-capable OpenRouter model>",
+  "focus": "Artist's listening question",
+  "keep_lyrics": true
+}
+```
+
+Optional `source_track_id` associates a real library track without selecting its
+original audio. Primary-master reviews have an empty `track_id` and stay separate
+from that track's review history, whose playback cues use the original recording.
+The optional source association is retained as `source_track_id`.
+`source_recipe` and `edit_context` remain artist-authored JSON;
+the primary-master prompt includes both. The helper's local `master` path is read
+only on the artist's machine and is never sent as a server path.
+
+```sh
+# Local preparation only; no upload, key access or provider contact.
+python3 scripts/review_master.py --request request.json --request-id artist-edit-001 --output receipt.json
+# Explicitly upload and queue, optionally waiting for the saved result.
+python3 scripts/review_master.py --request request.json --request-id artist-edit-001 --output receipt.json --submit --wait
+```
+
+Add `--studio http://127.0.0.1:7878` to select the existing Studio origin. The helper
+verifies local bytes/hash, then uploads exact bytes with `POST /api/review/masters?sha256=...`
+and `Content-Type: application/octet-stream`. The service probes and preserves the
+master under an opaque content identity, returning `sha256`, `bytes`, `duration`
+and `format`. Timing must match the artist's manifest within 1 ms. No new audio
+size, duration or artistic limits are imposed; the existing JSON context budget
+and supported audio-container checks apply. Clip checks can be stopped through
+the existing `POST /api/review/references/cancel` operation, which stops all upload probes.
+
+`POST /api/reviews` accepts `request_id`, `master: {sha256, bytes, duration}`,
+`source_recipe`, `edit_context`, `model`, `focus`, `keep_lyrics`, and optional
+`source_track_id`. Mutations require `X-Riff-Request: 1`; JSON requests use
+`Content-Type: application/json`. No server filesystem paths or commands are
+accepted. Reuse the **same artist request ID and identical inputs** after a lost
+response. Concurrent requests and retries return the original saved review,
+including failed, cancelled or interrupted requests. Changed inputs with the same
+ID are rejected. A new ID authorizes another attempt and can incur another charge;
+the client and queue never automatically retry an uncertain paid request.
+
+Read `GET /api/reviews/{id}` or cancel with
+`POST /api/reviews/{id}/cancel` and an empty JSON object. Queue acceptance is not
+proof of listening. A completed result retains the exact original master receipt,
+source/edit context, selected model and options, transcoded `sent_audio` receipt
+with source `edited_master`, and `result` including the complete redacted provider
+response, response ID, model and usage. Unsupported, partial, failed and cancelled
+responses must be assessed as such; cancellation cannot undo provider contact or
+guarantee no charge. Audio is transcoded to MP3 for transport, with sent byte count
+and SHA-256 recorded separately from the original master. Notes and symbolic
+context are not transcription or proof of measured audio properties.
+
+Credentials stay in the Studio owner's existing keychain worker. On Linux,
+Secret Service derives missing session values only from the current effective
+account, verifying ownership of HOME, the private runtime directory and filesystem
+bus socket. Explicit owned nonstandard sessions remain supported. Missing or
+wrong-owner session paths fail before provider contact; launch Studio in its own
+unlocked desktop/keyring session. Never substitute another user's HOME, copy keys,
+or switch OS identity to send a review. Real artist-selected listening validation
+remains a separate step after delivery.
+
 ## Requests
 
 - Base path: `/api/v1/operations`. The version is in the path and in
