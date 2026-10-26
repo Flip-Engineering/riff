@@ -1,0 +1,37 @@
+name: Require a provisioned self-hosted Apple runner
+description: Fail before Apple validation when the operator-owned route is missing.
+inputs:
+  runner-label:
+    description: Actual custom label verified by the operator in the runner inventory
+    required: false
+runs:
+  using: composite
+  steps:
+    - name: Verify the Apple execution route
+      shell: bash
+      env:
+        APPLE_RUNNER_LABEL: ${{ inputs.runner-label }}
+        APPLE_RUNNER_ENVIRONMENT: ${{ runner.environment }}
+      run: |
+        set -euo pipefail
+        fail() {
+          echo "::error::$1"
+          {
+            echo "### Apple validation blocked (#31)"
+            echo "$1"
+            echo "No Apple build, test, desktop acceptance or Metal inference qualification ran in this job."
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit 1
+        }
+        test -n "$APPLE_RUNNER_LABEL" || fail 'Set RIFF_APPLE_RUNNER_LABEL only after the operator supplies a registered remote Apple runner, its exact custom label and workflow access. See issue #31.'
+        test "$APPLE_RUNNER_ENVIRONMENT" = self-hosted || fail 'Apple validation requires a self-hosted runner; hosted execution is excluded.'
+        test "$(uname -s)" = Darwin && test "$(uname -m)" = arm64 || fail 'The selected self-hosted Apple route must execute on Darwin arm64.'
+        test -n "${RUNNER_NAME:-}" || fail 'The selected Apple runner must report its registered name.'
+        macos_version=$(sw_vers -productVersion)
+        {
+          echo "TMPDIR=$RUNNER_TEMP"
+          echo "MIX_HOME=$RUNNER_TEMP/mix"
+          echo "HEX_HOME=$RUNNER_TEMP/hex"
+          echo "ImageOS=macos${macos_version%%.*}"
+        } >> "$GITHUB_ENV"
+        echo "Self-hosted Apple route: $RUNNER_NAME; required labels: self-hosted, macOS, ARM64, $APPLE_RUNNER_LABEL. Platform assertions follow; this preflight does not qualify Metal inference."

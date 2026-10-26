@@ -136,7 +136,8 @@ jobs:
         include:
           - runner: '["self-hosted","Linux","X64","riff-linux"]'
             backend: cpu
-          - runner: '["macos-14"]'
+          # Missing Apple infrastructure runs only the route diagnostic on riff-linux.
+          - runner: ${{ vars.RIFF_APPLE_RUNNER_LABEL != '' && format('["self-hosted","macOS","ARM64",{0}]', toJSON(vars.RIFF_APPLE_RUNNER_LABEL)) || '["self-hosted","Linux","X64","riff-linux"]' }}
             backend: metal
     runs-on: ${{ fromJSON(matrix.runner) }}
     steps:
@@ -149,6 +150,11 @@ jobs:
             echo "HEX_HOME=$RUNNER_TEMP/hex"
           } >> "$GITHUB_ENV"
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Require the operator-owned Apple runner (#31)
+        if: matrix.backend == 'metal'
+        uses: ./.github/actions/require-apple-runner
+        with:
+          runner-label: ${{ vars.RIFF_APPLE_RUNNER_LABEL }}
       - name: Identify the self-hosted Ubuntu image
         if: runner.os == 'Linux'
         run: |

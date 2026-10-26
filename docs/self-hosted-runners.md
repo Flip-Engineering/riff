@@ -1,9 +1,13 @@
 # Self-hosted runners
 
-Issue #31 moved Riff validation and delivery to self-hosted runners. Linux jobs
-run on the homelab. Apple Silicon jobs run on GitHub-hosted macOS runners,
-because no self-hosted macOS runner exists or is planned. CUDA builds and
-inference run as homelab farm jobs, not in CI.
+[Issue #31](https://github.com/Flip-Engineering/riff/issues/31) tracks migration
+of validation and delivery to self-hosted runners. Linux jobs run on the homelab.
+The October 25 operator instruction requires self-hosted Apple validation too,
+superseding the October 23 hosted-macOS exception. No operator-verified remote
+Apple runner identity, custom label or group/workflow access has been supplied
+for this migration. Current Apple qualification is therefore **blocked**, not
+replaced by a hosted run. The operator's local Mac remains excluded. CUDA builds
+and inference run as homelab farm jobs, not in CI.
 
 ## Workflow routing
 
@@ -23,12 +27,14 @@ The five runners take jobs at the same time on one host, so anything outside a r
 | --- | --- | --- |
 | `ci.yml` control, application, browser, native Linux CPU | `self-hosted`, `Linux`, `X64`, `riff-linux` | push to `main`, same-repository pull requests, `workflow_call`, `workflow_dispatch` (a dispatch runs every `ci.yml` job) |
 | `homelab-linux-validation.yml` | `self-hosted`, `Linux`, `X64`, `riff-linux` | manual exact-source dispatch |
-| `ci.yml` native Metal | GitHub-hosted `macos-14` (Apple Silicon) | same triggers as the Linux `ci.yml` jobs |
-| `apple-silicon-validation.yml` | GitHub-hosted `macos-15` (Apple Silicon) | manual exact-source dispatch |
-| `desktop.yml` preview | GitHub-hosted `macos-15` (Apple Silicon) | `main`/`v*` tag/manual desktop workflow |
+| `ci.yml` native Metal | `self-hosted`, `macOS`, `ARM64`, operator-verified custom label | same triggers as Linux; route blocked until provisioned |
+| `apple-silicon-validation.yml` | same Apple selector; macOS 15+ assertions retained | manual exact-source dispatch after route review |
+| `desktop.yml` preview | same Apple selector; macOS 15+ assertions retained | manual desktop dispatch on `main` or a reviewed `v*` tag |
+| `metal-lora-inference.yml` | same Apple selector; device eligibility checked separately | manual exact-source dispatch after route and model-run approval |
 | `desktop.yml` publish | `self-hosted`, `Linux`, `X64`, `riff-linux` | tag or manual publish |
 | `pages.yml` deploy | `self-hosted`, `Linux`, `X64`, `riff-linux` | Pages workflow |
-| `release.yml` validate/release | `self-hosted`, `Linux`, `X64`, `riff-linux` | release workflow |
+| `release.yml` validate | reusable `ci.yml`: Linux selector plus the Apple selector above | release workflow; missing Apple route blocks validation |
+| `release.yml` release | `self-hosted`, `Linux`, `X64`, `riff-linux` | after validation succeeds |
 
 
 The native Linux CPU job retains the existing solver, CPU-tensor LoRA,
@@ -37,9 +43,9 @@ evidence upload. The Apple Silicon workflow runs the same CPU-tensor LoRA check
 plus the Metal attention check; only the attention check exercises Metal.
 Routing the standard jobs to self-hosted Linux does not remove Linux CPU coverage.
 
-The Linux workflows verify provisioned packages and tools rather than installing
-them with `apt`. The hosted macOS jobs install FFmpeg with Homebrew when the
-image lacks it.
+The workflows verify host packages rather than installing them with `apt` or
+Homebrew. Apple jobs require provisioned FFmpeg/ffprobe where their existing
+checks use them; toolchain setup actions and pinned build tools remain intact.
 
 ## Native build custody
 
@@ -58,9 +64,14 @@ The queue artifact is the complete `engines` tree plus
 `native-cache-receipts/`, so a cache hit installs the same build and receipt
 that a fresh execution produces.
 
-The Apple Silicon Metal builds run directly on the hosted macOS runner because
-the shared queue is Linux host infrastructure, not a macOS toolchain. Linux and
-Apple Silicon qualification remain distinct.
+The existing Apple build commands are retained in this source proposal, but
+are not authorized to run until the operator approves the remote Apple route
+and its native build custody. The Linux queue is not an Apple toolchain and
+cannot qualify Metal or the desktop package. The maintained Apple compile
+queue's platform-compatible entry point and custody must be supplied, integrated
+and reviewed before enabling the selector. That integration remains unfinished
+until the actual host interface is known. No direct-build fallback from a missing
+queue is authorized by this migration.
 
 ## Source trust
 
@@ -76,14 +87,16 @@ workflow allowlist restricted to reviewed workflow paths.
 
 ## Platform decisions
 
-Decided by the root on 2026-10-23:
+Current platform state (October 25, 2026):
 
-- **Apple Silicon**: no self-hosted macOS runner exists and none will be added.
-  The operator's Mac is not infrastructure. The `ci.yml` Metal job runs on
-  GitHub-hosted `macos-14`; the desktop preview and the manual Apple Silicon
-  qualification run on GitHub-hosted `macos-15`, because the desktop package
-  targets macOS 15 or later. A hosted macOS run is the supported Apple Silicon
-  qualification.
+- **Apple Silicon**: self-hosted execution is required. Source routing is ready
+  for an operator-confirmed remote runner; no actual route has been verified by
+  this source audit. The former hosted `macos-14`/`macos-15` declarations are
+  removed. Historical hosted passes, including the PR #45/#82 checks, remain
+  historical results and are excluded from current self-hosted qualification.
+  Run 40199464372 on c074c8a also remains evidence of an unsupported paravirtual
+  device, not Metal inference success. Physical Metal inference (#24) remains
+  unqualified. Linux CPU fixtures do not qualify it.
 - **CUDA**: no CI runner has direct GPU access. Homelab GPUs are reached only
   through the farm queue and inference infrastructure, so CUDA builds and
   inference (including #24) run as farm jobs. The former `ci.yml` CUDA compile
@@ -99,3 +112,82 @@ Decided by the root on 2026-10-23:
 
 Linux CPU and Apple Silicon Metal results remain distinct. A Linux pass is not
 evidence for the macOS desktop package or Metal engine.
+
+
+## Apple route handoff required from the operator
+
+The four Apple jobs select an actual custom label through the repository
+variable `RIFF_APPLE_RUNNER_LABEL`. This variable names a selector, not a runner
+name; runner names are not automatically custom labels. The built-in required
+labels are `self-hosted`, `macOS` and `ARM64`. No custom label is invented or
+configured by this change. Keep the variable unset until the following facts
+are supplied and reviewed under #31:
+
+1. The registered remote runner's exact name/ID, current online status, actual
+   macOS/arm64 host and complete labels; ownership must exclude the operator's
+   local Mac. Supply the real custom label to use in `RIFF_APPLE_RUNNER_LABEL`.
+2. The runner group, repository access for public `Flip-Engineering/riff`, and
+   workflow allowlist entries for `ci.yml`, `apple-silicon-validation.yml`,
+   `metal-lora-inference.yml` and `desktop.yml` at their reviewed refs. Retain
+   outside-collaborator approval and workflow-diff review before self-hosted PR
+   execution. Registering a runner or changing these permissions is root-owned.
+3. A runner-owned workspace/temp volume with measured free space, separate job
+   directories, and the maintained native-build queue/custody approved for that
+   Apple host. Supply its actual command/state paths and supported interface if
+   queue integration is needed; do not point Metal builds at the Linux queue.
+4. Actual macOS version (15+ for desktop and full Apple validation), Xcode and
+   Metal compiler/SDK, Git, C/C++ compiler, Python, CMake, pkg-config and shell
+   utilities. Provision FFmpeg/ffprobe for media/browser/package checks. Existing
+   actions still select Python 3.14, Node 22, OTP 28.0.2 and Elixir 1.18.4;
+   desktop also selects Rust 1.89.0 and checksum-pinned CMake 4.4.3. Verify these
+   versions on the real host rather than assuming a hosted-image toolchain.
+5. Actual Metal device facts. The no-model probe must report simdgroup reduction
+   before inference is eligible; successful compilation, CPU-tensor tests or an
+   attention skip are not physical Metal inference qualification.
+
+When the variable is empty, the Apple matrix entry/job is routed to the already
+configured `riff-linux` pool **only to report a hard failure before Apple
+validation**. The shared preflight explains the missing route in the job summary;
+no Apple build, test or package acceptance runs. This prevents a silent skip,
+a hosted fallback or a job queued for a fabricated runner. Linux's independent
+CPU lane still runs its existing assertions. Once a real custom label is set,
+all four jobs require the complete self-hosted Apple label set. The preflight
+then verifies self-hosted execution and actual Darwin/arm64 identity, sets
+job-local `TMPDIR`/Mix/Hex paths and derives `ImageOS` for BEAM setup from the
+actual macOS version. Job receipts record the runner name and requested labels;
+the requested labels alone are not an inventory or physical-device proof.
+
+After source review and route provisioning, root must authorize exact-source
+runs and retain their runner/toolchain/device receipts and all existing test and
+desktop acceptance results. A reviewed source proposal or an unset/missing route
+is not completed supported-platform qualification. This change does not dispatch
+jobs, provision infrastructure or alter release `v0.6.31`.
+
+## Publishing the workflow migration
+
+Publishing this change requires an authorized GitHub App installation token with
+repository permissions `contents: write` and `workflows: write`. Opening its PR
+also requires `pull_requests: write`; `metadata: read` accompanies repository
+access. GitHub documents [Git access to workflow files](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/choosing-permissions-for-a-github-app#choosing-permissions-for-git-access)
+and [installation token permissions](https://docs.github.com/en/rest/apps/apps#create-an-installation-access-token-for-an-app).
+
+Verify three separate layers before retrying publication: the App registration
+requests Workflows read/write, the repository owner's installation has approved
+that permission, and the credential helper actually requests it in the token's
+`permissions` object. A helper that explicitly requests only Contents and Pull
+requests still issues a token without Workflows even after the App grant changes.
+The workflow's `permissions:` block controls its job token; editing that block
+does not fix a Git push authorization failure.
+
+Root owns approval of the publication route and any App/helper permission change.
+Use the existing model identity and repository-bound helper after root supplies
+the reviewed helper revision and approved installation. Preserve the authored
+migration commits and perform an ordinary nonforce branch push, then open a
+focused draft PR for #31. Do not retry with another identity, token, API write
+path or broader permission after a refusal. Source publication can remove hosted
+routing before an Apple runner is provisioned: keep `RIFF_APPLE_RUNNER_LABEL`
+unset so Apple validation fails explicitly on the existing self-hosted Linux
+pool. Enabling the Apple selector still requires the runner and compile-custody
+handoff above. A new release tag must reference the reviewed migration before
+its reusable validation can satisfy the self-hosted policy; existing published
+tags remain immutable.
