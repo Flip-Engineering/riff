@@ -129,16 +129,31 @@ class InstallerTests(unittest.TestCase):
                            "patch_tempo_range.py", "midi_summary.py"):
                 self.assertTrue((root / "scripts" / "daw" / script).is_file(), script)
             code = (
-                "import sys\n"
+                "import sys, json, threading, http.client, tempfile\n"
+                "from pathlib import Path\n"
                 f"sys.path.insert(0, {str(root)!r})\n"
                 "import ardour_session, arrangement_artifacts, daw_operations, daw_runner, daw_runtime\n"
                 "from studio import StudioServer\n"
-                "print('imported from archive')\n"
+                "from studio_core import Store, Generator\n"
+                "tmp = Path(tempfile.mkdtemp())\n"
+                "store = Store(tmp / 'data', tmp / 'outputs')\n"
+                "generator = Generator(store, lambda recipe, output: None)\n"
+                "server = StudioServer(('127.0.0.1', 0), store, generator)\n"
+                "threading.Thread(target=server.serve_forever, daemon=True).start()\n"
+                "connection = http.client.HTTPConnection(*server.server_address)\n"
+                "connection.request('GET', '/api/capabilities')\n"
+                "response = connection.getresponse()\n"
+                "body = json.loads(response.read())\n"
+                "server.shutdown(); server.server_close(); generator.close()\n"
+                "assert response.status == 200, response.status\n"
+                "assert 'daw.compose' in body['agent_surface']['operations']\n"
+                "assert 'daw.render' in body['agent_surface']['operations']\n"
+                "print('imported and served from archive')\n"
             )
             result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True,
                                     cwd=root)
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertIn("imported from archive", result.stdout)
+            self.assertIn("imported and served from archive", result.stdout)
 
     def test_packaging_refuses_an_untracked_file_before_writing_an_archive(self):
         with tempfile.TemporaryDirectory() as directory:
