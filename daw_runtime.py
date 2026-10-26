@@ -13,9 +13,11 @@ The approved pin is Ardour 9.8 — tag object
 commit.  ``kind`` must be ``source-build`` or ``reviewed-full``; a demo build
 is never a production runtime.
 """
+import errno
 import hashlib
 import json
 import os
+import stat
 from pathlib import Path
 
 
@@ -39,12 +41,16 @@ def record_path(store):
     return Path(store.data_root) / RECORD
 
 
-def _sha256(path):
+def _sha256_file(content):
     digest = hashlib.sha256()
-    with open(path, "rb") as content:
-        for chunk in iter(lambda: content.read(1 << 20), b""):
-            digest.update(chunk)
+    for chunk in iter(lambda: content.read(1 << 20), b""):
+        digest.update(chunk)
     return digest.hexdigest()
+
+
+def _sha256(path):
+    with open(path, "rb") as content:
+        return _sha256_file(content)
 
 
 def _refuse(reason):
@@ -55,11 +61,21 @@ def _hashed_file(prefix, name, expected, executable=False):
     if not isinstance(expected, str) or not len(expected) == 64:
         _refuse(f"The pinned Ardour runtime record is malformed: no sha256 recorded for {name}.")
     path = Path(prefix) / name
-    if not path.is_file() or path.is_symlink():
+    try:
+        # O_NOFOLLOW makes the symlink refusal and the hashed bytes refer to
+        # the same directory entry: a link swapped in after the check cannot
+        # redirect the hash (the gate is atomic, not check-then-use).
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except OSError as error:
+        if error.errno == errno.ELOOP:
+            _refuse(f"The pinned Ardour runtime file {name} is a symlink.")
         _refuse(f"The pinned Ardour runtime is incomplete: {name} is missing.")
-    if _sha256(path) != expected:
-        _refuse(f"The pinned Ardour runtime changed since provisioning: {name} no longer "
-                "matches its recorded hash.")
+    with os.fdopen(fd, "rb") as content:
+        if not stat.S_ISREG(os.fstat(content.fileno()).st_mode):
+            _refuse(f"The pinned Ardour runtime file {name} is not a regular file.")
+        if _sha256_file(content) != expected:
+            _refuse(f"The pinned Ardour runtime changed since provisioning: {name} no longer "
+                    "matches its recorded hash.")
     if executable and not os.access(path, os.X_OK):
         _refuse(f"The pinned Ardour runtime is incomplete: {name} is not executable.")
     return path
@@ -75,6 +91,8 @@ def probe(store):
     path = record_path(store)
     if not path.exists():
         return None
+    if path.is_symlink():
+        _refuse("The pinned Ardour runtime record is a symlink.")
     try:
         record = json.loads(path.read_text())
     except (ValueError, UnicodeDecodeError):
