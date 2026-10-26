@@ -137,7 +137,7 @@
   function restoreSubmission(form) {
     const key = form.dataset.draft;
     const button = form.querySelector("button[type=submit]");
-    if (button) button.disabled = pending.has(key);
+    if (button && form.matches("[data-develop]")) button.disabled = pending.has(key);
     const error = form.querySelector(".form-error");
     if (error) {
       error.textContent = formErrors.get(key) || "";
