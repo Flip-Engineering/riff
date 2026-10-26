@@ -17,8 +17,8 @@ are used as reported, not independently re-verified).
 | --- | --- | --- |
 | Q1 identity | **PASS** | `ardour-9.8-qualification.json` gates.Q1_identity ok (3 wrapper sha256 matches, version exit 0); knowledge 9047f327 |
 | Q2 clean session | **PASS with note** | gates.Q2_clean_session ok; intermittent upstream SIGABRT at teardown recorded (artifact complete); 75efbde9 attributes it upstream |
-| Q3 fixture build | **PASS** (conductor record 2026-10-26) | `q3-q4-named-gates-20261026.json`: 3 sources/tracks, programs 73/33/0, hashes recorded | (was: OPEN as a named gate) | no Q3 entry exists in the preserved receipt; the Q5/Q6 event and stem evidence presupposes the Q3 fixture, so the capability is demonstrated transitively, but Q3's own "source+session hashes recorded" result is not recorded |
-| Q4 chain | **PASS** (conductor record 2026-10-26) | `q3-q4-named-gates-20261026.json`: snapshots hashed, save ok=true, duration exact | (was: OPEN as a named gate; chain demonstrated) | the Q4 upgrade→instrument→tempo→reopen→export sequence ran inside Q5/Q6 evidence and in both e2e runs (compose stages session/instrument done; render stages reused/done/done), but Q4's own criteria line (every snapshot exists; `save ok=true`; duration ±1 sample) has no recorded gate result |
+| Q3 fixture build | **PASS** (conductor record 2026-10-26) | `q3-q4-named-gates-20261026.json`: 3 sources with hashes, 3 tracks, SMF programs 73/33/0, note counts 12/30/37 |
+| Q4 chain | **PASS** (conductor record 2026-10-26) | `q3-q4-named-gates-20261026.json`: all snapshots hashed, `save ok=true` in stage logs, mix duration exact at 1,016,000 frames |
 | Q5 events | **PASS** | knowledge 9047f327 (Flute 12 / Bass 30 / Piano 37 exact; tempo/meter ticks 0/7680/12960; end b59520) |
 | Q6 stems | **PASS** | knowledge 9047f327 (sum peak 17877 = mix peak; diff RMS ≤ 1.0) |
 | Q7 program control | **PASS** (conductor run 2026-10-26) | `q7-program-control-20261026.json`: identical 12 Flute events, program 73→0, stem peak/RMS/centroid shift, other stems byte-identical |
