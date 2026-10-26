@@ -27,6 +27,19 @@ defmodule Riff.CachedNativeBuild do
     app = Path.expand("..", __DIR__)
     workspace = Path.expand(System.get_env("RIFF_HOME", app))
     python = System.find_executable("python3") || raise("Python required")
+
+    if options[:backend] == "cuda" do
+      {text, status} =
+        System.cmd(python, [Path.join(app, "scripts/cuda_host_compiler.py"), "--json"],
+          stderr_to_stdout: true
+        )
+
+      unless status == 0, do: raise("CUDA host compiler verification failed:\n" <> text)
+      selected = :json.decode(String.trim(text))
+      System.put_env("CUDAHOSTCXX", selected["path"])
+      System.put_env("CUDACXX", selected["nvcc"])
+    end
+
     manifest = Cache.json(Path.join(app, "sources.json"))
 
     sha_identity =

@@ -16,7 +16,7 @@ defmodule Riff.NativeCacheTest do
     File.mkdir_p!(root)
 
     for name <-
-          ~w(setup_engine.py paths.py platform_support.py scripts/checkpoint_sha_identity.py scripts/native_cache.exs scripts/build_cached_native.exs scripts/compiler_cache_tool.json .github/workflows/ci.yml) do
+          ~w(setup_engine.py paths.py platform_support.py scripts/checkpoint_sha_identity.py scripts/cuda_host_compiler.py scripts/native_cache.exs scripts/build_cached_native.exs scripts/compiler_cache_tool.json .github/workflows/ci.yml) do
       File.mkdir_p!(Path.dirname(Path.join(root, name)))
       File.cp!(Path.join(@repo, name), Path.join(root, name))
     end
@@ -350,16 +350,41 @@ defmodule Riff.NativeCacheTest do
     end
   end
 
+  @tag :cuda_host
   test "CUDA host identity comes from its literal generated description", %{root: root} do
     directory = Path.join(root, "CMakeFiles/3.28.3")
     File.mkdir_p!(directory)
     path = Path.join(directory, "CMakeCUDACompiler.cmake")
-    compiler = System.find_executable("c++")
+    compiler = Path.join(root, "g++-12")
+    File.write!(compiler, "verified compiler fixture bytes")
+    File.chmod!(compiler, 0o755)
     line = "set(CMAKE_CUDA_HOST_COMPILER \"#{compiler}\")\n"
-    File.write!(path, "set(CMAKE_CUDA_COMPILER_ID \"NVIDIA\")\n" <> line)
+    # Exact owner-observed CMake 3.28.3 shapes; localize only the explicit
+    # compiler path to an owned fixture, preserving the generated structure.
+    fixture = Path.join(__DIR__, "fixtures/cuda-host")
+    File.write!(path, File.read!(Path.join(fixture, "empty-3.28.3.cmake")))
+
+    assert_raise RuntimeError, ~r/literal configured CUDA host compiler/, fn ->
+      Cache.cuda_host!(root)
+    end
+
+    explicit =
+      File.read!(Path.join(fixture, "explicit-3.28.3.cmake"))
+      |> String.replace("/usr/bin/g++-12", compiler)
+
+    File.write!(path, explicit)
     record = Cache.cuda_host!(root)
     assert record["sha256"] == Cache.hash_file(compiler)
+    assert record["path"] == compiler
+    assert Cache.cuda_host!(root, compiler) == record
+
+    assert_raise RuntimeError, ~r/differs from selected CUDAHOSTCXX/, fn ->
+      Cache.cuda_host!(root, compiler <> "-different")
+    end
+
     assert record["configuration_source"] == "CMakeFiles/3.28.3/CMakeCUDACompiler.cmake"
+    File.write!(compiler, "changed actual compiler bytes")
+    refute Cache.cuda_host!(root)["sha256"] == record["sha256"]
 
     for text <- [
           "",

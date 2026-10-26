@@ -118,6 +118,36 @@ integration and inherit the queue policy; setting it on an older release does
 not retrofit that release. Prebuilt desktop updates do not use this source-build
 queue, and unconfigured portable source setups retain their direct build behavior.
 
+### CUDA host compiler selection
+
+CUDA setup and the maintained queue wrapper verify the CUDA host compiler before
+configuration or queue admission. `CUDAHOSTCXX` selects an explicit executable;
+a compatible choice keeps its literal path, while an incompatible choice fails
+with instructions to select a compiler supported by that toolkit. For example,
+set `CUDAHOSTCXX=/path/to/supported-g++` for that setup command. `CXX` remains the
+ordinary C++ compiler and is only a preferred candidate when no CUDA-specific
+choice was made. With no explicit host choice, setup tries available C++, GCC
+and Clang executables, including versioned executables on PATH.
+
+Verification uses the selected `CUDACXX` (or `nvcc` on PATH) to preprocess a tiny
+CUDA file including `cuda_runtime.h`, so the actual toolkit's host/version guards
+decide compatibility. There is no fixed GCC ceiling or GPU-name heuristic in
+Riff. This preflight produces no object/device code and needs no GPU or models;
+it does not replace CMake's configuration checks or native build qualification.
+Host-check bypass flags and competing host overrides in compiler flags are
+rejected. See NVIDIA's [documented preprocessing phase](https://docs.nvidia.com/cuda/archive/12.0.0/cuda-compiler-driver-nvcc/index.html#supported-phases).
+
+Setup passes the verified literal compiler to CMake as
+`CMAKE_CUDA_HOST_COMPILER` and carries `CUDAHOSTCXX`/`CUDACXX` into the queued
+child environment. [CMake uses this host selection when CUDA is first configured](https://cmake.org/cmake/help/v3.28/envvar/CUDAHOSTCXX.html).
+An existing CUDA build with another or unspecified host compiler is preserved;
+use a fresh workspace or queued staging directory instead of changing its
+compiler in place. Receipts still require a nonempty literal compiler path,
+its actual bytes, and agreement with the selected host. A generated
+`CMAKE_CUDA_HOST_LINK_LAUNCHER` or `CUDAHOSTCXX` environment-variable name cannot
+stand in for an empty compiler identity. Selection helper bytes and the resolved
+NVCC/host identity are bound into the maintained queue inputs and receipts.
+
 ### Warm engine (resident weights)
 
 By default every take starts a new `audiocpp_cli`, which uploads the YuE2 AR,

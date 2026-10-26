@@ -58,12 +58,12 @@ def prerequisites(backend):
         missing.append({"name": "C++ compiler", "command": "xcode-select --install" if platform.system() == "Darwin" else "sudo apt install build-essential"})
     if backend == "metal" and not (platform.system() == "Darwin" and platform.machine() == "arm64"):
         missing.append({"name": "Apple Silicon for Metal", "command": "Choose NVIDIA CUDA or CPU on this system."})
-    if backend == "cuda" and not shutil.which("nvcc"):
+    if backend == "cuda" and not shutil.which(os.environ.get("CUDACXX", "nvcc")):
         missing.append({"name": "NVIDIA CUDA Toolkit", "command": "Install the NVIDIA CUDA Toolkit, then add its bin directory to PATH."})
     return missing
 
 
-def cmake_command(source, build, backend, cuda_arch=None, portable_sha=False):
+def cmake_command(source, build, backend, cuda_arch=None, portable_sha=False, cuda_toolchain=None):
     command = ["-S", str(source), "-B", str(build), "-DCMAKE_BUILD_TYPE=Release",
                "-DAUDIOCPP_MODEL_SET=custom", "-DAUDIOCPP_MODELS=yue2", "-DAUDIOCPP_DEPLOYMENT_BUILD=ON",
                "-DENGINE_ENABLE_METAL=" + ("ON" if backend == "metal" else "OFF"),
@@ -73,6 +73,9 @@ def cmake_command(source, build, backend, cuda_arch=None, portable_sha=False):
                "-DRIFF_CHECKPOINT_SYSTEM_SHA=" + ("OFF" if portable_sha else "ON")]
     if backend == "cuda":
         command.append("-DCMAKE_CUDA_ARCHITECTURES=" + (cuda_arch or "native"))
+        if cuda_toolchain:
+            command += ["-DCMAKE_CUDA_HOST_COMPILER=" + cuda_toolchain["path"],
+                        "-DCMAKE_CUDA_COMPILER=" + cuda_toolchain["nvcc"]]
     return command
 
 
@@ -123,7 +126,7 @@ def queue_required():
     return required == "1" or any(key in os.environ for key in ("RIFF_COMPILE_QUEUE", "RIFF_COMPILE_QUEUE_STATE"))
 
 
-def prepare_queued(source, backend, run, jobs, cuda_arch, portable_sha):
+def prepare_queued(source, backend, run, jobs, cuda_arch, portable_sha, cuda_toolchain=None):
     """Keep queue artifacts and their absolute build paths outside active engines.
 
     The maintained wrapper owns a fresh cwd and replaces its engines directory.
@@ -135,7 +138,7 @@ def prepare_queued(source, backend, run, jobs, cuda_arch, portable_sha):
     stage = Path(tempfile.mkdtemp(prefix=backend + "-", dir=parent))
     inputs = ["sources.json", "setup_engine.py", "paths.py", "platform_support.py",
               "scripts/run_native_build_queued.sh", "scripts/build_cached_native.exs", "scripts/native_cache.exs",
-              "scripts/checkpoint_sha_identity.py", "scripts/compiler_cache_tool.json", ".github/workflows/ci.yml"]
+              "scripts/checkpoint_sha_identity.py", "scripts/cuda_host_compiler.py", "scripts/compiler_cache_tool.json", ".github/workflows/ci.yml"]
     inputs += [str(path.relative_to(source)) for path in sorted((source / "patches").glob("*.patch"))]
     digest, records = hashlib.sha256(), []
     for name in sorted(inputs):
@@ -149,10 +152,12 @@ def prepare_queued(source, backend, run, jobs, cuda_arch, portable_sha):
         records.append({"path": name, "sha256": hashlib.sha256(data).hexdigest()})
     source_id = "sha256:" + digest.hexdigest()
     (stage / "request.json").write_text(json.dumps({"source": str(source.resolve()), "source_id": source_id,
-                                                  "backend": backend, "inputs": records}, indent=2) + "\n")
+                                                  "backend": backend, "inputs": records, "cuda_toolchain": cuda_toolchain}, indent=2) + "\n")
     environment = dict(os.environ, RIFF_HOME=str(stage), RIFF_NATIVE_BUILD_SOURCE_ID=source_id,
                        RIFF_NATIVE_BUILD_OUTPUT=str(stage / ".native-build-queue"))
     environment.pop("RIFF_NATIVE_BUILD_KEY_ONLY", None)
+    if cuda_toolchain:
+        environment.update(CUDAHOSTCXX=cuda_toolchain["path"], CUDACXX=cuda_toolchain["nvcc"])
     options = [backend, "--compile-only", "--jobs", str(jobs or 2)]
     if cuda_arch:
         options += ["--cuda-arch", cuda_arch]
@@ -176,7 +181,7 @@ def prepare_queued(source, backend, run, jobs, cuda_arch, portable_sha):
         raise ValueError("CMake is required to validate the queued native build.")
     configuration = {"build_directory": str(build), "source_directory": str(build.parent / "audio.cpp"),
                      "cmake": cmake,
-                     "configuration": [cmake, *cmake_command(build.parent / "audio.cpp", build, backend, cuda_arch, portable_sha)]}
+                     "configuration": [cmake, *cmake_command(build.parent / "audio.cpp", build, backend, cuda_arch, portable_sha, cuda_toolchain)]}
     run(["elixir", str(ROOT / "scripts/validate_native_build.exs"), str(stage), backend, json.dumps(configuration)],
         cwd=stage, env=environment)
     if receipt.get("sha256_backend") is not None:
@@ -211,8 +216,16 @@ def prepare(backend, run=None, source=ROOT, download_models=True, jobs=None, cud
         def run(command, cwd=None, env=None):
             print(" ".join(map(str, command)), flush=True)
             subprocess.run(command, cwd=cwd, env=env, check=True)
+    cuda_toolchain = None
+    if backend == "cuda":
+        from scripts.cuda_host_compiler import select
+        cuda_toolchain = select()
+        original_run = run
+        cuda_environment = dict(os.environ, CUDAHOSTCXX=cuda_toolchain["path"], CUDACXX=cuda_toolchain["nvcc"])
+        def run(command, cwd=None, env=None):
+            return original_run(command, cwd=cwd, env=cuda_environment if env is None else env)
     if not configure_only and queue_required():
-        executable = prepare_queued(source, backend, run, jobs, cuda_arch, portable_sha)
+        executable = prepare_queued(source, backend, run, jobs, cuda_arch, portable_sha, cuda_toolchain)
     else:
         cmake = shutil.which("cmake") or cmake_executable(run, manifest["cmake"])
         sha_backend, sha_identity = None, None
@@ -224,6 +237,13 @@ def prepare(backend, run=None, source=ROOT, download_models=True, jobs=None, cud
                 print("System crypto is unavailable or disabled; using portable SHA-256.", flush=True)
         build_root = WORKSPACE / "engines" / (fingerprint(source, sha_backend, sha_identity) + "-" + backend)
         checkout, build = build_root / "audio.cpp", build_root / "build"
+        if cuda_toolchain and (build / "CMakeCache.txt").exists():
+            from scripts.checkpoint_sha_identity import cache_entries
+            existing = cache_entries(build)
+            if (existing.get("CMAKE_CUDA_HOST_COMPILER") != cuda_toolchain["path"] or
+                    existing.get("CMAKE_CUDA_COMPILER") != cuda_toolchain["nvcc"]):
+                raise ValueError("The existing CUDA build uses another or unspecified host compiler. "
+                                 "Keep it and use a fresh RIFF_HOME or queued staging directory.")
         build_root.mkdir(parents=True, exist_ok=True)
         if not (checkout / ".git").exists():
             run(["git", "init", str(checkout)])
@@ -235,7 +255,7 @@ def prepare(backend, run=None, source=ROOT, download_models=True, jobs=None, cud
             run(["git", "-C", str(checkout), "fetch", "--depth", "1", "origin", manifest["runtime_commit"]])
             run(["git", "-C", str(checkout), "checkout", "--detach", "FETCH_HEAD"])
         apply_pinned_patches(checkout, source, manifest, run)
-        configuration = [cmake, *cmake_command(checkout, build, backend, cuda_arch, portable_sha)]
+        configuration = [cmake, *cmake_command(checkout, build, backend, cuda_arch, portable_sha, cuda_toolchain)]
         run(configuration)
         if configure_only:
             return {"backend": backend, "source_directory": str(checkout), "build_directory": str(build),

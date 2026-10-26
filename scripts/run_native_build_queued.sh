@@ -48,6 +48,15 @@ command -v "$compiler" >/dev/null 2>&1 || {
 }
 compiler_version=$("$compiler" --version | head -n 1)
 
+# Resolve and verify the CUDA host before admission; queued children inherit the
+# literal path. Explicit incompatible choices fail instead of being substituted.
+if [ "$backend" = cuda ]; then
+  cuda_identity=$(python3 scripts/cuda_host_compiler.py --json)
+  CUDAHOSTCXX=$(printf '%s' "$cuda_identity" | python3 -c 'import json,sys; print(json.load(sys.stdin)["path"])')
+  CUDACXX=$(printf '%s' "$cuda_identity" | python3 -c 'import json,sys; print(json.load(sys.stdin)["nvcc"])')
+  export CUDAHOSTCXX CUDACXX
+fi
+
 # Bind the actual build identity before taking queue custody. The manifest
 # contains the relative hashes of the build scripts, drivers, policy, engine
 # pins/patches and the resolved toolchain versions. The queue hashes this
@@ -56,7 +65,7 @@ manifest=$(mktemp "$cwd/.native-build-inputs.XXXXXX")
 trap 'rm -f "$manifest"' EXIT HUP INT TERM
 (
   cd "$cwd" || exit 1
-  for file in scripts/build_cached_native.exs scripts/native_cache.exs scripts/checkpoint_sha_identity.py setup_engine.py paths.py platform_support.py scripts/compiler_cache_tool.json .github/workflows/ci.yml sources.json; do
+  for file in scripts/build_cached_native.exs scripts/native_cache.exs scripts/checkpoint_sha_identity.py scripts/cuda_host_compiler.py setup_engine.py paths.py platform_support.py scripts/compiler_cache_tool.json .github/workflows/ci.yml sources.json; do
     [ -f "$file" ] || {
       echo "missing native build input: $file" >&2
       exit 1
@@ -73,6 +82,9 @@ trap 'rm -f "$manifest"' EXIT HUP INT TERM
       printf 'toolchain-%s=%s\n' "$tool" "$("$tool" --version | head -n 1)"
     fi
   done
+  if [ "$backend" = cuda ]; then
+    printf 'cuda-toolchain=%s\n' "$cuda_identity"
+  fi
   python3 scripts/checkpoint_sha_identity.py "$@"
 ) > "$manifest" || {
   echo "could not write the native build input manifest" >&2
