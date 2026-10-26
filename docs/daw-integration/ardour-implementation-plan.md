@@ -95,31 +95,17 @@ non-goals/uncertainty list. The summary below is subordinate to it.
 
 ### 3.1 Composition input (agent-facing)
 
-```jsonc
-{
-  "abc": "X:1\n...",                    // original ABC, stored verbatim
-  "voice_map": {                        // voices -> tracks/instruments
-    "Flute": {"track": "Flute", "channel": 0, "program": 73},
-    "Bass":  {"track": "Bass",  "channel": 0, "program": 33},
-    "PianoRH": {"track": "Piano", "channel": 0, "program": 0},
-    "PianoLH": {"track": "Piano", "channel": 1, "program": 0}
-  },
-  "timing": {                           // explicit manifest; see probes/fixtures/arrangement-timing.json
-    "tpq": 480, "events": [ {"tick": 7680, "tempo": 72}, {"tick": 11520, "meter": [3,4]} ],
-    "end_tick": 14880
-  },
-  "instruments": {                      // per-track plugin selection
-    "default": {"plugin": "http://gareus.org/oss/lv2/gmsynth", "bank": "GeneralUser_LV2.sf2"}
-  },
-  "title": "..."
-}
-```
+The canonical input object is `riff.ardour.session_input.v1`, defined in the
+adapter contract §1 — one schema, no second sketch. The agent supplies the
+original ABC (stored verbatim), the voice→track/instrument map, the explicit
+timing manifest, the instrument selection, and the title.
 
-- ABC tempo/meter/key markings are checked AGAINST the manifest; a mismatch
-  is a recorded warning or an explicit error, never a silent rewrite.
-- No creative field is required; `timing` is the only structural requirement
-  beyond `abc`+`voice_map`, and a default flat tempo/meter manifest can be
-  derived only when the caller asks for it explicitly.
+Implementation status of the correction slice (`ardour_session.py`): the
+adapter currently accepts the multi-voice-file convenience form (`abc.mode =
+"multi_voice_file"`, split at `V:` declarations exactly as the validated
+probe). The canonical `voice_parts` validator, the ABC↔manifest agreement
+check, and arbitrary ABC grammar support are NOT yet implemented; they are
+Slice B work. No claim is made here beyond the implemented form.
 
 ### 3.2 Realization record (per voice, per render)
 
@@ -187,12 +173,15 @@ root, with a concrete recommendation:
 
 ## 7. Bounded slices
 
-1. **Slice A (this PR): contract + adapter core.** This document; the
-   session-construction adapter extracted as a reviewed module
-   (`probes/ardour/build_session.py` logic, generalized: arbitrary voice map,
-   timing manifest, instrument map; no fixture-only assumptions), with
-   focused unit checks against the retained fixtures. No server wiring.
-   Reversible.
+1. **Slice A (this PR): contract + adapter core.** This document and the
+   adapter contract; the session-construction adapter extracted as a reviewed
+   module (`ardour_session.py`, generalized from
+   `probes/ardour/build_session.py`: manifest-derived SMF meta events,
+   tempo-integrated extent placeholder, explicit-track honoring, safe-name
+   validation, note bounds/range enforcement, admission-before-writes with
+   scratch-staged conversion, existing-output refusal, 3001-only template
+   qualification), with focused unit checks against the retained fixtures.
+   No server wiring. Reversible.
 2. **Slice B: operation registration.** `score.render` on the shared queue
    with the new job kind, admission class, receipts, artifact recording, and
    a stub-host/fake-runner test path. Requires Slice A plus the ensemble's

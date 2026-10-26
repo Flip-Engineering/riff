@@ -62,6 +62,8 @@ FAKE_NOTES = {
     "Flute": [(0, 480, 72, 96, 0)],
     "Bass": [(0, 480, 40, 96, 0)],
     "Piano": [(0, 480, 60, 96, 0), (0, 480, 64, 96, 1)],
+    # Flute's explicit-track alias in the named-map tests.
+    "Woodwind": [(0, 480, 72, 96, 0)],
 }
 
 
@@ -242,6 +244,109 @@ class SessionBuild(unittest.TestCase):
             with self.assertRaises(adapter.ContractError):
                 adapter.build_session(template, abc, VOICE_MAP, TIMING,
                                       td / "out", "arrangement-v1", fake_convert)
+            # Root's Slice A review reproduction: the refusal must precede any
+            # write; no split ABC or MIDI files may exist.
+            self.assertFalse((td / "out").exists(), "refusal must precede any output")
+
+    def test_unsupported_template_version_refused_before_writes(self):
+        with tempfile.TemporaryDirectory() as td:
+            td = Path(td)
+            template = td / "template.ardour"
+            template.write_text(TEMPLATE.replace('version="3001"', 'version="7004"'))
+            abc = td / "input.abc"
+            abc.write_text(ABC_TEXT)
+            with self.assertRaises(adapter.ContractError):
+                adapter.build_session(template, abc, VOICE_MAP, TIMING,
+                                      td / "out", "arrangement-v1", fake_convert)
+            self.assertFalse((td / "out").exists())
+
+    def test_second_track_failure_publishes_nothing(self):
+        calls = []
+
+        def failing_convert(split_abc, out_mid):
+            track = Path(split_abc).stem
+            calls.append(track)
+            if track == "Bass":
+                raise adapter.ContractError("converter failed on Bass")
+            return FAKE_NOTES[track]
+
+        with tempfile.TemporaryDirectory() as td:
+            td = Path(td)
+            template = td / "template.ardour"
+            template.write_text(TEMPLATE)
+            abc = td / "input.abc"
+            abc.write_text(ABC_TEXT)
+            with self.assertRaises(adapter.ContractError):
+                adapter.build_session(template, abc, VOICE_MAP, TIMING,
+                                      td / "out", "arrangement-v1", failing_convert)
+            self.assertEqual(calls[0], "Flute")
+            self.assertFalse((td / "out").exists(),
+                             "a later-track failure must not publish a partial session")
+
+    def test_existing_output_is_preserved_and_refused(self):
+        with tempfile.TemporaryDirectory() as td:
+            first = self.build(td)
+            before = first.read_bytes()
+            with self.assertRaises(adapter.ContractError):
+                self.build(td)
+            self.assertEqual(first.read_bytes(), before)
+
+    def test_explicit_track_names_honored_and_conflicts_refused(self):
+        named = json.loads(json.dumps(VOICE_MAP))
+        named["voices"]["Flute"]["track"] = "Woodwind"
+        groups = {g["track"]: g for g in adapter.group_tracks(named)}
+        self.assertIn("Woodwind", groups)
+        self.assertNotIn("Flute", groups)
+        with tempfile.TemporaryDirectory() as td:
+            session_file = self.build(td, voice_map=named)
+            root = ET.parse(session_file).getroot()
+            self.assertIn("Woodwind", [r.get("name") for r in root.find("Routes")])
+        conflict = json.loads(json.dumps(VOICE_MAP))
+        conflict["voices"]["PianoRH"]["track"] = "Keys"
+        conflict["voices"]["PianoLH"]["track"] = "Piano"
+        with self.assertRaises(adapter.ContractError):
+            adapter.group_tracks(conflict)
+
+    def test_traversal_and_dot_names_refused(self):
+        for bad_name in ("../escape", "..", ".", "a/b", "a\\b"):
+            bad = json.loads(json.dumps(VOICE_MAP))
+            bad["voices"][bad_name] = bad["voices"].pop("Flute")
+            with self.assertRaises(adapter.ContractError, msg=bad_name):
+                adapter.group_tracks(bad)
+        with tempfile.TemporaryDirectory() as td:
+            with self.assertRaises(adapter.ContractError):
+                self._build_named(td, "..")
+
+    def _build_named(self, td, session_name):
+        td = Path(td)
+        template = td / "template.ardour"
+        template.write_text(TEMPLATE)
+        abc = td / "input.abc"
+        abc.write_text(ABC_TEXT)
+        return adapter.build_session(template, abc, VOICE_MAP, TIMING,
+                                     td / "out", session_name, fake_convert)
+
+    def test_note_bounds_and_midi_ranges_enforced(self):
+        group = {"track": "Flute", "voices": ["Flute"], "programs": [73]}
+        cases = [
+            (-1, 480, 72, 96, 0),      # negative start
+            (0, 0, 72, 96, 0),         # zero duration
+            (0, 480.5, 72, 96, 0),     # non-integral duration
+            (0, 480, 128, 96, 0),      # pitch > 127
+            (0, 480, 72, 0, 0),        # velocity 0
+            (0, 480, 72, 96, 16),      # channel > 15
+            (14880, 480, 72, 96, 0),   # ends past the declared end
+        ]
+        for note in cases:
+            with self.subTest(note=note), tempfile.TemporaryDirectory() as td:
+                out = Path(td) / "f.mid"
+                with self.assertRaises(adapter.ContractError):
+                    adapter.build_track_smf(out, group, [note], TIMING)
+                self.assertFalse(out.exists())
+
+    def test_vlq_rejects_negative_input(self):
+        with self.assertRaises(adapter.ContractError):
+            adapter.vlq(-1)
 
 
 if __name__ == "__main__":
