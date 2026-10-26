@@ -146,7 +146,10 @@ compiler in place. Receipts still require a nonempty literal compiler path,
 its actual bytes, and agreement with the selected host. A generated
 `CMAKE_CUDA_HOST_LINK_LAUNCHER` or `CUDAHOSTCXX` environment-variable name cannot
 stand in for an empty compiler identity. Selection helper bytes and the resolved
-NVCC/host identity are bound into the maintained queue inputs and receipts.
+NVCC/host identity are bound into the maintained queue inputs and receipts. The
+selection is frozen before the queue key is formed; inner setup and receipt
+validation reject host/NVCC replacements even at the same path. CPU and Metal
+setup do not invoke NVCC selection or preprocessing.
 
 ### Warm engine (resident weights)
 

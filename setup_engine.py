@@ -157,7 +157,8 @@ def prepare_queued(source, backend, run, jobs, cuda_arch, portable_sha, cuda_too
                        RIFF_NATIVE_BUILD_OUTPUT=str(stage / ".native-build-queue"))
     environment.pop("RIFF_NATIVE_BUILD_KEY_ONLY", None)
     if cuda_toolchain:
-        environment.update(CUDAHOSTCXX=cuda_toolchain["path"], CUDACXX=cuda_toolchain["nvcc"])
+        environment.update(CUDAHOSTCXX=cuda_toolchain["path"], CUDACXX=cuda_toolchain["nvcc"],
+                           RIFF_CUDA_TOOLCHAIN_IDENTITY=json.dumps(cuda_toolchain, sort_keys=True))
     options = [backend, "--compile-only", "--jobs", str(jobs or 2)]
     if cuda_arch:
         options += ["--cuda-arch", cuda_arch]
@@ -221,7 +222,8 @@ def prepare(backend, run=None, source=ROOT, download_models=True, jobs=None, cud
         from scripts.cuda_host_compiler import select
         cuda_toolchain = select()
         original_run = run
-        cuda_environment = dict(os.environ, CUDAHOSTCXX=cuda_toolchain["path"], CUDACXX=cuda_toolchain["nvcc"])
+        cuda_environment = dict(os.environ, CUDAHOSTCXX=cuda_toolchain["path"], CUDACXX=cuda_toolchain["nvcc"],
+                                RIFF_CUDA_TOOLCHAIN_IDENTITY=json.dumps(cuda_toolchain, sort_keys=True))
         def run(command, cwd=None, env=None):
             return original_run(command, cwd=cwd, env=cuda_environment if env is None else env)
     if not configure_only and queue_required():

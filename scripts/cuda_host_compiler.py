@@ -84,9 +84,13 @@ def select(environment=None):
             raise ValueError('The CUDA host compiler changed during verification: ' + host)
         host_version = subprocess.run([host, '--version'], env=environment, capture_output=True,
                                       text=True, check=True, timeout=15).stdout.strip()
-        return {'path': host, 'sha256': after, 'version': host_version,
+        identity = {'path': host, 'sha256': after, 'version': host_version,
                 'nvcc': nvcc, 'nvcc_sha256': hashlib.sha256(Path(nvcc).read_bytes()).hexdigest(),
                 'nvcc_version': version, 'verification': 'nvcc-preprocess-cuda-runtime'}
+        frozen = environment.get('RIFF_CUDA_TOOLCHAIN_IDENTITY')
+        if frozen is not None and json.loads(frozen) != identity:
+            raise ValueError('The CUDA host/NVCC identity changed after selection; use a fresh queue admission.')
+        return identity
     choice = 'Explicit CUDAHOSTCXX is incompatible' if explicit else 'No supported CUDA host compiler was found'
     raise ValueError(choice + ' for ' + toolkit.group(0) +
                      '. Set CUDAHOSTCXX to a compiler supported by this toolkit (or unset it for discovery).\n' +

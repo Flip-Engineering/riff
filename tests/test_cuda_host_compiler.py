@@ -1,5 +1,7 @@
 """CUDA host selection under fake NVCC/toolchains; no CUDA/native compilation."""
+import contextlib
 import hashlib
+import io
 import json
 import os
 import shutil
@@ -7,6 +9,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import tarfile
 import unittest
 from unittest.mock import Mock, patch
 
@@ -164,6 +167,89 @@ if major > int(os.environ['FIXTURE_MAX_HOST']):
         self.assertIn('Explicit CUDAHOSTCXX is incompatible', result.stderr)
         self.assertNotIn('queue admission was forbidden', result.stderr)
         self.assertEqual(list(self.root.glob('.native-build-inputs.*')), [])
+
+    def test_frozen_queue_identity_rejects_changed_host_or_nvcc_before_inner_build(self):
+        scripts = self.root / 'scripts'
+        scripts.mkdir()
+        shutil.copyfile(setup_engine.ROOT / 'scripts/cuda_host_compiler.py', scripts / 'cuda_host_compiler.py')
+        for name in ('build_cached_native.exs', 'native_cache.exs', 'compiler_cache_tool.json'):
+            (scripts / name).write_text('bound fixture input')
+        (scripts / 'checkpoint_sha_identity.py').write_text('print("{}")\n')
+        for name in ('setup_engine.py', 'paths.py', 'platform_support.py', 'sources.json'):
+            (self.root / name).write_text('bound fixture input')
+        (self.root / '.github/workflows').mkdir(parents=True)
+        (self.root / '.github/workflows/ci.yml').write_text('bound fixture policy')
+        elixir = self.root / 'elixir'
+        elixir.write_text('#!' + sys.executable + '\nimport subprocess,sys\n'
+            'sys.exit(subprocess.run([sys.executable,"scripts/cuda_host_compiler.py","--json"]).returncode)\n')
+        elixir.chmod(0o755)
+        queue = self.root / 'queue'
+        queue.write_text('#!' + sys.executable + '\n' + """
+import os,subprocess,sys
+from pathlib import Path
+args=sys.argv[1:]
+assert args[:2] == ['--','run']
+path=Path(os.environ[os.environ['FIXTURE_MUTATE_BINARY']])
+path.write_text(path.read_text() + '# binary changed after admission\\n')
+sys.exit(subprocess.run(args[args.index('--',2)+1:]).returncode)
+""")
+        queue.chmod(0o755)
+        for variable, path in [('CUDAHOSTCXX', self.gcc12), ('CUDACXX', self.nvcc)]:
+            original = path.read_bytes()
+            environment = dict(os.environ, **self.environment)
+            environment.pop('RIFF_CUDA_TOOLCHAIN_IDENTITY', None)
+            environment.update(PATH=str(self.root) + os.pathsep + os.environ['PATH'], CUDACXX=str(self.nvcc),
+                CUDAHOSTCXX=str(self.gcc12), RIFF_COMPILE_QUEUE=str(queue), RIFF_COMPILE_QUEUE_STATE=str(self.root),
+                RIFF_NATIVE_BUILD_SOURCE_ID='fixture', FIXTURE_MUTATE_BINARY=variable)
+            try:
+                result = subprocess.run(['/bin/sh', str(setup_engine.ROOT / 'scripts/run_native_build_queued.sh'),
+                    'cuda', '--compile-only'], cwd=self.root, env=environment, capture_output=True, text=True)
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertIn('identity changed after selection', result.stderr)
+                self.assertFalse((self.root / 'engines').exists())
+            finally:
+                path.write_bytes(original)
+
+    def test_explicit_cudacxx_admission_and_cpu_metal_do_not_select_nvcc(self):
+        no_nvcc_path = self.root / 'path-without-nvcc'
+        no_nvcc_path.mkdir()
+        with patch.dict(os.environ, {'CUDACXX': str(self.nvcc), 'PATH': str(no_nvcc_path)}):
+            self.assertNotIn('NVIDIA CUDA Toolkit', [item['name'] for item in setup_engine.prerequisites('cuda')])
+        source = self.root / 'source'
+        source.mkdir()
+        (source / 'sources.json').write_text('{"runtime_commit":"fixture","runtime_repo":"fixture","local_patches":{}}')
+        with patch.object(cuda, 'select', side_effect=AssertionError('CPU/Metal must not select NVCC')), \
+                patch.object(setup_engine, 'WORKSPACE', self.root / 'workspace'), \
+                patch.object(setup_engine, 'prerequisites', return_value=[]), \
+                patch.object(setup_engine, 'apply_pinned_patches'), \
+                patch.object(setup_engine.subprocess, 'run', return_value=Mock(returncode=0, stdout='fixture')):
+            for backend in ('cpu', 'metal'):
+                value = setup_engine.prepare(backend, source=source, run=Mock(), configure_only=True)
+                self.assertEqual(value['backend'], backend)
+
+    def test_packaged_source_contains_and_imports_selector_in_isolation(self):
+        from scripts import package_release
+        from install import extract_archive
+        files = package_release.public_files()
+        package = self.root / 'package'
+        package.mkdir()
+        for path in files:
+            target = package / path.relative_to(package_release.ROOT)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(path, target)
+        subprocess.run(['git', 'init', '--quiet', str(package)], check=True)
+        subprocess.run(['git', '-C', str(package), 'add', '.'], check=True)
+        with patch.object(package_release, 'ROOT', package), \
+                patch.dict(os.environ, {'SOURCE_DATE_EPOCH': '1793000000'}), contextlib.redirect_stdout(io.StringIO()):
+            archive = package_release.build()
+        unpacked = self.root / 'unpacked'
+        extract_archive(archive, unpacked)
+        self.assertEqual((unpacked / 'scripts/cuda_host_compiler.py').read_bytes(),
+                         (setup_engine.ROOT / 'scripts/cuda_host_compiler.py').read_bytes())
+        child = "import sys,subprocess; sys.path.insert(0,sys.argv[1]); subprocess.run=lambda *a,**k: (_ for _ in ()).throw(RuntimeError('unexpected tool probe')); import setup_engine; from scripts.cuda_host_compiler import select"
+        result = subprocess.run([sys.executable, '-I', '-c', child, str(unpacked)],
+                                cwd=self.root, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_invalid_explicit_selection_fails_before_queue_or_staging(self):
         source = self.root / 'source'

@@ -3,7 +3,7 @@ defmodule Riff.NativeCache do
   @schema "riff.native-cache.v1"
   @drivers ~w(setup_engine.py paths.py platform_support.py scripts/checkpoint_sha_identity.py scripts/cuda_host_compiler.py)
   @policy ~w(scripts/native_cache.exs scripts/build_cached_native.exs scripts/compiler_cache_tool.json .github/workflows/ci.yml)
-  @flags ~w(CC CXX CUDACXX CUDAHOSTCXX CFLAGS CXXFLAGS CPPFLAGS CUDAFLAGS NVCC_PREPEND_FLAGS NVCC_APPEND_FLAGS LDFLAGS SDKROOT MACOSX_DEPLOYMENT_TARGET CMAKE_GENERATOR CMAKE_TOOLCHAIN_FILE CMAKE_OSX_ARCHITECTURES)
+  @flags ~w(CC CXX CUDACXX CUDAHOSTCXX RIFF_CUDA_TOOLCHAIN_IDENTITY CFLAGS CXXFLAGS CPPFLAGS CUDAFLAGS NVCC_PREPEND_FLAGS NVCC_APPEND_FLAGS LDFLAGS SDKROOT MACOSX_DEPLOYMENT_TARGET CMAKE_GENERATOR CMAKE_TOOLCHAIN_FILE CMAKE_OSX_ARCHITECTURES)
 
   def json(path), do: path |> File.read!() |> :json.decode()
   def write_json(path, data), do: File.write!(path, [:json.encode(json_value(data)), "\n"])
@@ -221,6 +221,7 @@ defmodule Riff.NativeCache do
       if :os.type() == {:unix, :darwin}, do: macos_sdk!(entries["CMAKE_OSX_SYSROOT"]), else: %{}
 
     host = if backend == "cuda", do: cuda_host!(build, environment["CUDAHOSTCXX"])
+    if backend == "cuda", do: verify_cuda_selection!(host, tools, environment)
 
     namespace =
       %{
@@ -270,6 +271,25 @@ defmodule Riff.NativeCache do
       source_sha256: source.sha256,
       entries: entries
     }
+  end
+
+  def verify_cuda_selection!(host, tools, environment) do
+    case environment["RIFF_CUDA_TOOLCHAIN_IDENTITY"] do
+      nil ->
+        :ok
+
+      frozen ->
+        selected = :json.decode(frozen)
+        cuda = Enum.find(tools, &(&1["language"] == "CUDA"))
+
+        unless cuda != nil and selected["path"] == host["path"] and
+                 selected["sha256"] == host["sha256"] and
+                 selected["nvcc"] == cuda["compiler"]["path"] and
+                 selected["nvcc_sha256"] == cuda["executable"]["sha256"],
+               do: raise("CUDA host/NVCC bytes differ from the frozen queue selection")
+
+        :ok
+    end
   end
 
   def cuda_host!(build, selected \\ nil) do

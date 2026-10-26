@@ -383,6 +383,36 @@ defmodule Riff.NativeCacheTest do
     end
 
     assert record["configuration_source"] == "CMakeFiles/3.28.3/CMakeCUDACompiler.cmake"
+    nvcc = Path.join(root, "nvcc")
+    File.write!(nvcc, "verified NVCC fixture bytes")
+
+    selected = %{
+      "path" => compiler,
+      "sha256" => record["sha256"],
+      "nvcc" => nvcc,
+      "nvcc_sha256" => Cache.hash_file(nvcc)
+    }
+
+    tools = [
+      %{
+        "language" => "CUDA",
+        "compiler" => %{"path" => nvcc},
+        "executable" => %{"sha256" => Cache.hash_file(nvcc)}
+      }
+    ]
+
+    environment = %{"RIFF_CUDA_TOOLCHAIN_IDENTITY" => IO.iodata_to_binary(:json.encode(selected))}
+    assert Cache.verify_cuda_selection!(record, tools, environment) == :ok
+    changed = put_in(hd(tools), ["executable", "sha256"], "changed")
+
+    assert_raise RuntimeError, ~r/frozen queue selection/, fn ->
+      Cache.verify_cuda_selection!(record, [changed], environment)
+    end
+
+    assert_raise RuntimeError, ~r/frozen queue selection/, fn ->
+      Cache.verify_cuda_selection!(Map.put(record, "sha256", "changed"), tools, environment)
+    end
+
     File.write!(compiler, "changed actual compiler bytes")
     refute Cache.cuda_host!(root)["sha256"] == record["sha256"]
 

@@ -38,6 +38,7 @@ defmodule Riff.CachedNativeBuild do
       selected = :json.decode(String.trim(text))
       System.put_env("CUDAHOSTCXX", selected["path"])
       System.put_env("CUDACXX", selected["nvcc"])
+      System.put_env("RIFF_CUDA_TOOLCHAIN_IDENTITY", String.trim(text))
     end
 
     manifest = Cache.json(Path.join(app, "sources.json"))
