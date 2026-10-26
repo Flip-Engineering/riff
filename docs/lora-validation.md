@@ -163,7 +163,7 @@ plan. No new Riff LoRA was trained in this work. Public metadata or a valid
 header cannot prove a producer's exact base weights, the suitability of a
 companion model, or perceptual quality.
 
-## Repeatable CPU and hosted Metal inference qualification
+## Repeatable CPU and Metal inference qualification
 
 `scripts/check_lora_inference.py` runs four cold native sessions against an
 installed engine and the exact model/VAE/sidecars in `sources.json`: baseline,
@@ -221,10 +221,14 @@ these rounded allocation-event samples are not continuous device-memory tracing.
 Unavailable device observations are null rather than zero. Shared-host load,
 page cache, initialization and sampling remain part of these cold observations.
 
-### Manual hosted Metal run
+### Manual self-hosted Metal run (route pending)
 
-`.github/workflows/metal-lora-inference.yml` is `workflow_dispatch` only and uses
-`runs-on: macos-14`, the [hosted Apple Silicon runner](https://docs.github.com/en/actions/reference/runners/github-hosted-runners).
+`.github/workflows/metal-lora-inference.yml` is `workflow_dispatch` only and
+requires the operator-confirmed self-hosted Apple route described in
+[self-hosted runners](self-hosted-runners.md#apple-route-handoff-required-from-the-operator).
+The former hosted `macos-14` route is excluded from current qualification. An
+unset `RIFF_APPLE_RUNNER_LABEL` produces a route-blocker failure on `riff-linux`
+before any Apple checks; it never substitutes Linux or hosted model inference.
 It verifies an exact 40-character source SHA and actual Darwin/arm64 identity,
 builds through the same cached Metal build driver as Apple Silicon validation,
 runs the native LoRA checks, then probes the device without model weights.
@@ -238,7 +242,8 @@ CI never downloads these model weights. An eligible manual job downloads about
 2.93 GB of base/VAE/sidecars and the separate 117.5 MB adapter; its purpose is
 qualification only.
 
-After review and after the workflow exists on the default branch, the root can
+After source review, operator-owned runner/queue provisioning and separate
+model-run approval, and after the workflow exists on the default branch, root can
 run the following with the reviewed full commit substituted. GitHub
 [requires the dispatch workflow on the default branch](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#onworkflow_dispatch).
 The PR supplies the exact dispatch command for its head.
@@ -250,9 +255,9 @@ gh workflow run metal-lora-inference.yml --repo Flip-Engineering/riff --ref main
 
 The job uploads build and inference receipts, hardware/toolchain identity and
 logs on success or failure, excluding model weights, imported adapters and generated
-audio. No hosted Metal inference result is claimed until that dispatched job's
-receipt is reviewed. CUDA execution is a separate farm qualification and is not
-part of this workflow.
+audio. No self-hosted Metal inference result is claimed until the actual
+runner/device and dispatched inference receipt are reviewed. CUDA execution is a
+separate farm qualification and is not part of this workflow.
 
 ### BF16 and graph-level reference parity: not done
 

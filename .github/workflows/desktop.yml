@@ -20,7 +20,8 @@ jobs:
     if: >-
       github.repository == 'Flip-Engineering/riff' &&
       (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
-    runs-on: macos-15
+    # Without a confirmed Apple label, riff-linux reports the blocker and stops.
+    runs-on: ${{ fromJSON(vars.RIFF_APPLE_RUNNER_LABEL != '' && format('["self-hosted","macOS","ARM64",{0}]', toJSON(vars.RIFF_APPLE_RUNNER_LABEL)) || '["self-hosted","Linux","X64","riff-linux"]') }}
     timeout-minutes: 120
     outputs:
       version: ${{ steps.source.outputs.version }}
@@ -31,6 +32,7 @@ jobs:
         shell: bash
     env:
       RIFF_PUBLISH_REQUESTED: ${{ inputs.publish }}
+      RIFF_APPLE_RUNNER_LABEL: ${{ vars.RIFF_APPLE_RUNNER_LABEL }}
       RUSTUP_TOOLCHAIN: '1.89.0'
       MACOSX_DEPLOYMENT_TARGET: '15.0'
       PYTHONDONTWRITEBYTECODE: '1'
@@ -42,6 +44,11 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
+
+      - name: Require the operator-owned Apple runner (#31)
+        uses: ./.github/actions/require-apple-runner
+        with:
+          runner-label: ${{ vars.RIFF_APPLE_RUNNER_LABEL }}
 
       - name: Bind the source and version
         id: source
@@ -106,9 +113,8 @@ jobs:
           rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal
           command -v pkg-config
           xcrun --find metal
-          if ! command -v ffmpeg || ! command -v ffprobe; then
-            brew install ffmpeg
-          fi
+          command -v ffmpeg
+          command -v ffprobe
           ffmpeg -v error -f lavfi -i 'anullsrc=r=48000:cl=mono' -t 0.01 -f f32le -y "$RIFF_PREVIEW_ROOT/test-media.f32"
           python3 -m venv "$RIFF_PREVIEW_ROOT/tools"
           elixir -r desktop/support.exs -e '
@@ -137,7 +143,10 @@ jobs:
               {"test_ffmpeg", "ffmpeg", ["-version"]}, {"test_ffprobe", "ffprobe", ["-version"]}
             ], into: %{}, do: {name, String.trim(B.run!(command, arguments))}
             B.json_write(Path.join(System.fetch_env!("RIFF_PREVIEW_ROOT"), "artifacts/receipts/toolchain.json"), %{
-              versions: versions, runner_image: System.get_env("ImageVersion"),
+              versions: versions, runner_name: System.fetch_env!("RUNNER_NAME"),
+              runner_environment: System.fetch_env!("RUNNER_ENVIRONMENT"),
+              required_runner_labels: ["self-hosted", "macOS", "ARM64", System.fetch_env!("RIFF_APPLE_RUNNER_LABEL")],
+              runner_image: System.get_env("ImageVersion"),
               runner_image_os: System.get_env("ImageOS"),
               architecture: :erlang.system_info(:system_architecture) |> List.to_string()
             })
@@ -279,7 +288,7 @@ jobs:
           retention-days: 14
 
       - name: Retain build diagnostics
-        if: always()
+        if: always() && env.RIFF_PREVIEW_ROOT != ''
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: desktop-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
