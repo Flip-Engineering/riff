@@ -1,9 +1,50 @@
 """Credentials in macOS Keychain or a Linux Secret Service, never in the repo."""
 from contextlib import contextmanager
 import ctypes as C
+import os
+from pathlib import Path
 import platform
 import shutil
+import stat
 import subprocess
+from urllib.parse import unquote
+
+
+def secret_service_environment():
+    """Derive only this process account's session; never borrow another user's keyring."""
+    import pwd  # Linux only; keep macOS/Windows module import portable.
+    env = dict(os.environ)
+    uid = os.geteuid()
+
+    def owned(path, kind, private=False):
+        try:
+            info = Path(path).stat()
+        except OSError:
+            raise ValueError("Run Riff in this account's unlocked desktop/keyring session; its session path is unavailable.") from None
+        if info.st_uid != uid or not kind(info.st_mode) or (private and info.st_mode & 0o077):
+            raise ValueError("The keyring session path must belong to Riff's actual process account. Run Riff in that account's desktop session.")
+
+    env["HOME"] = env.get("HOME") or pwd.getpwuid(uid).pw_dir
+    owned(env["HOME"], stat.S_ISDIR)
+    runtime = env.get("XDG_RUNTIME_DIR")
+    bus = env.get("DBUS_SESSION_BUS_ADDRESS")
+    if runtime or not bus:
+        runtime = runtime or f"/run/user/{uid}"
+        owned(runtime, stat.S_ISDIR, private=True)
+        env["XDG_RUNTIME_DIR"] = runtime
+    if not bus:
+        socket = str(Path(runtime) / "bus")
+        owned(socket, stat.S_ISSOCK)
+        env["DBUS_SESSION_BUS_ADDRESS"] = "unix:path=" + socket
+    else:
+        # Explicit nonstandard buses remain explicit. Verify filesystem Unix sockets
+        # when present; abstract/session-managed addresses have no filesystem owner.
+        for address in bus.split(";"):
+            if address.startswith("unix:"):
+                options = dict(part.split("=", 1) for part in address[5:].split(",") if "=" in part)
+                if "path" in options:
+                    owned(unquote(options["path"]), stat.S_ISSOCK)
+    return env
 
 
 class MacKeychain:
@@ -125,7 +166,8 @@ class SecretService:
             command += ["--label=Riff OpenRouter"]
         command += ["service", self.service, "account", self.account]
         try:
-            result = subprocess.run(command, input=key, text=True, capture_output=True, timeout=30)
+            result = subprocess.run(command, input=key, text=True, capture_output=True, timeout=30,
+                                    env=secret_service_environment())
         except subprocess.TimeoutExpired:
             raise ValueError("Unlock your desktop keyring and try again.") from None
         if result.returncode and (action != "lookup" or result.stderr.strip()):

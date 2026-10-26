@@ -420,6 +420,9 @@ class Handler(BaseHTTPRequestHandler):
         if unquote(urlsplit(self.path).path) == "/api/review/references" and self.server.reviews:
             self.receive_reference()
             return
+        if unquote(urlsplit(self.path).path) == "/api/review/masters" and self.server.reviews:
+            self.receive_reference(primary=True)
+            return
         match = VIDEO_ROUTE.fullmatch(unquote(urlsplit(self.path).path))
         if match and match[2] == "frames":
             self.receive_video_frame(match[1])
@@ -463,12 +466,13 @@ class Handler(BaseHTTPRequestHandler):
         except (ValueError, OSError) as exc:
             self.json_response(400, {"error": str(exc)})
 
-    def receive_reference(self):
+    def receive_reference(self, primary=False):
         """Stream a browser-selected clip into the review attachments; never accept host paths."""
         if not self.safe_request(mutation=True, content_type="application/octet-stream"):
             return
         try:
-            name = parse_qs(urlsplit(self.path).query).get("name", [""])[0]
+            query = parse_qs(urlsplit(self.path).query)
+            name = query.get("name", [""])[0]
             size = int(self.headers.get("Content-Length", "0"))
             if size <= 0:
                 raise ValueError("The clip is empty.")
@@ -483,7 +487,8 @@ class Handler(BaseHTTPRequestHandler):
                             raise ValueError("The clip upload was interrupted.")
                         target.write(block)
                         remaining -= len(block)
-                self.json_response(201, self.server.reviews.add_reference(path, metadata, name))
+                self.json_response(201, self.server.reviews.add_master(path, query.get("sha256", [""])[0]) if primary
+                                   else self.server.reviews.add_reference(path, metadata, name))
         except (BrokenPipeError, ConnectionResetError):
             pass
         except (ValueError, OSError) as exc:
@@ -649,6 +654,12 @@ class Handler(BaseHTTPRequestHandler):
                 self.json_response(200, self.server.reviews.configure(payload))
             elif path == "/api/review/key" and method == "DELETE" and self.server.reviews:
                 self.json_response(200, self.server.reviews.remove_key())
+            elif path == "/api/reviews" and method == "POST" and self.server.reviews:
+                with self.server.maintenance.lock if self.server.maintenance else nullcontext():
+                    if self.server.restart_requested:
+                        raise ValueError("Riff is restarting. Submit this review when the studio opens.")
+                    review = self.server.reviews.submit_master(payload)
+                self.json_response(201, review)
             elif (match := TRACK_REVIEWS_ROUTE.fullmatch(path)) and method == "POST" and self.server.reviews:
                 with self.server.maintenance.lock if self.server.maintenance else nullcontext():
                     if self.server.restart_requested:
