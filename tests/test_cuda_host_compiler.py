@@ -17,6 +17,13 @@ import setup_engine
 from scripts import cuda_host_compiler as cuda
 
 
+def interpreter_loader_environment():
+    # The fake tools use sys.executable, which may need provisioned shared libraries.
+    # Keep compiler/toolkit hints isolated from the surrounding build environment.
+    return {name: os.environ[name] for name in
+            ('LD_LIBRARY_PATH', 'DYLD_LIBRARY_PATH', 'DYLD_FALLBACK_LIBRARY_PATH') if name in os.environ}
+
+
 class CudaHostSelectionTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
@@ -41,13 +48,15 @@ host = sys.argv[3]
 assert Path(sys.argv[4]).read_text() == '#include <cuda_runtime.h>\\n'
 major = int(subprocess.check_output([host, '-dumpversion'], text=True).strip())
 with Path(os.environ['FIXTURE_PROBE_LOG']).open('a') as log:
-    log.write(json.dumps({'host': host, 'phase': sys.argv[1]}) + '\\n')
+    loader = {name: os.environ[name] for name in
+              ('LD_LIBRARY_PATH', 'DYLD_LIBRARY_PATH', 'DYLD_FALLBACK_LIBRARY_PATH') if name in os.environ}
+    log.write(json.dumps({'host': host, 'phase': sys.argv[1], 'loader': loader}) + '\\n')
 if major > int(os.environ['FIXTURE_MAX_HOST']):
     print('host_config.h: error: unsupported GNU version for this toolkit', file=sys.stderr)
     sys.exit(1)
 ''')
         self.nvcc.chmod(0o755)
-        self.environment = {'PATH': str(self.root), 'TMPDIR': str(self.root),
+        self.environment = {**interpreter_loader_environment(), 'PATH': str(self.root), 'TMPDIR': str(self.root),
             'FIXTURE_CUDA_VERSION': '12.0', 'FIXTURE_MAX_HOST': '12', 'FIXTURE_PROBE_LOG': str(self.log)}
 
     def compiler(self, name, major):
@@ -61,6 +70,9 @@ if major > int(os.environ['FIXTURE_MAX_HOST']):
         return cuda.select({**self.environment, **environment})
 
     def test_default_unsupported_gcc13_discovers_supported_versioned_gcc12(self):
+        with patch.dict(os.environ, {'LD_LIBRARY_PATH': 'fixture-loader',
+                                    'CUDAHOSTCXX': '/unrelated/compiler', 'CUDACXX': '/unrelated/nvcc'}, clear=True):
+            self.assertEqual(interpreter_loader_environment(), {'LD_LIBRARY_PATH': 'fixture-loader'})
         selected = self.select()
         self.assertEqual(selected['path'], str(self.gcc12))
         self.assertEqual(selected['sha256'], hashlib.sha256(self.gcc12.read_bytes()).hexdigest())
@@ -69,6 +81,7 @@ if major > int(os.environ['FIXTURE_MAX_HOST']):
         attempts = [json.loads(line) for line in self.log.read_text().splitlines()]
         self.assertEqual(attempts[0]['host'], str(self.root / 'c++'))
         self.assertTrue(all(attempt['phase'] == '--preprocess' for attempt in attempts))
+        self.assertTrue(all(attempt['loader'] == interpreter_loader_environment() for attempt in attempts))
 
     def test_compatibility_follows_actual_toolkit_verdict_not_fixed_gcc_ceiling(self):
         selected = self.select(FIXTURE_CUDA_VERSION='12.4', FIXTURE_MAX_HOST='13')
