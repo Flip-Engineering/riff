@@ -21,8 +21,8 @@ are used as reported, not independently re-verified).
 | Q4 chain | **OPEN as a named gate; chain demonstrated** | the Q4 upgrade→instrument→tempo→reopen→export sequence ran inside Q5/Q6 evidence and in both e2e runs (compose stages session/instrument done; render stages reused/done/done), but Q4's own criteria line (every snapshot exists; `save ok=true`; duration ±1 sample) has no recorded gate result |
 | Q5 events | **PASS** | knowledge 9047f327 (Flute 12 / Bass 30 / Piano 37 exact; tempo/meter ticks 0/7680/12960; end b59520) |
 | Q6 stems | **PASS** | knowledge 9047f327 (sum peak 17877 = mix peak; diff RMS ≤ 1.0) |
-| Q7 program control | **OPEN — no run recorded** | no receipt, no knowledge record of a 73→0 program swap |
-| Q8 edit | **OPEN — no run recorded** | no v2 same-topology replacement receipt (v2 fixture exists; the workflow was exercised on LMMS, not Ardour) |
+| Q7 program control | **PASS** (conductor run 2026-10-26) | `q7-program-control-20261026.json`: identical 12 Flute events, program 73→0, stem peak/RMS/centroid shift, other stems byte-identical |
+| Q8 edit | **PASS** (conductor run 2026-10-26) | `q8-edit-20261026.json`: v2 re-render, same topology/duration/counts, all stem hashes + mix hash change |
 | Q9 determinism | **PASS** | knowledge ba371930 (bit-identical re-run) |
 | Q10 negative | **PASS** | gates.Q10_negative ok |
 
@@ -104,3 +104,19 @@ stores.
 
 Decision owners: root (route/kind, legal), ensemble (Q7/Q8 runs when
 authorized, ABC subset contract wording).
+
+## 5. Addendum — Q7/Q8 conductor runs (2026-10-26, backlog conductor)
+
+GLM continuation 2 was quota-blocked before running (OMP weekly/monthly
+exhaustion to 2026-10-31), Kimi seats share the exhausted weekly pool, Codex
+seats fail workspace-routing 401 in this context, and the DAW DeepSeek seat
+failed to start; the conductor therefore executed Q7/Q8 directly through the
+`daw.compose`/`daw.render` operation surface on the preserved pinned runtime
+(no rebuild, no GUI, no music-session contact). Receipts:
+`docs/evidence/ardour-qualification-20261026/q7-program-control-20261026.json`
+and `q8-edit-20261026.json`. The fresh v1 baseline reproduced the preserved
+mix/stem hashes exactly (determinism anchor). Baseline required 4 attempts
+(3 known upstream teardown SIGABRTs after `save ok=true`); Q7/Q8 passed on
+first attempts. Remaining open items are unchanged: Q3/Q4 named-gate
+records, production provisioning route/kind decision, SF2 legal review,
+ABC subset contract, stem wording.
