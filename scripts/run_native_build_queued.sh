@@ -101,6 +101,9 @@ queue_command() {
       destination=$1
       backend=$2
       shift 2
+      # Custody is already held here. The setup driver must not enqueue this
+      # same build again when it inherits the managed-install queue policy.
+      unset RIFF_COMPILE_QUEUE RIFF_COMPILE_QUEUE_STATE RIFF_REQUIRE_COMPILE_QUEUE
       elixir scripts/build_cached_native.exs --backend "$backend" "$@"
       mkdir -p "$destination"
       rm -rf "$destination/engines" "$destination/native-cache-receipts"

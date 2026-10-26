@@ -86,6 +86,38 @@ with `--cuda-arch`, for example `--cuda-arch '75;86;89'`; it otherwise detects t
 build host's GPU. Existing custom engines, GGUF models and device IDs can be used
 through the advanced engine settings.
 
+On a Linux host requiring shared compile custody, start the studio (or the setup
+command) with `RIFF_REQUIRE_COMPILE_QUEUE=1`. The maintained queue wrapper uses
+the provisioned queue described in [self-hosted runners](self-hosted-runners.md#native-build-custody).
+`RIFF_COMPILE_QUEUE` and `RIFF_COMPILE_QUEUE_STATE` select another queue executable
+and state directory. Setting either also requires queue custody; a missing queue,
+failed build or invalid receipt fails preparation without a direct build retry.
+The host must supply Elixir/OTP with `:json`, CMake, the backend toolchain, `nice`
+and `ionice`, and grant the install owner access to the shared queue.
+
+Queued setup and managed source updates use a fresh persistent directory under
+`workspace/native-builds/` (or `RIFF_NATIVE_BUILD_ROOT`, set to an owned staging
+directory). Put this directory and the caller's `TMPDIR` on the host's build
+volume. The wrapper runs with niceness 19, idle I/O priority, and two compile jobs
+by default; `setup_engine.py --jobs N` overrides the job count. Its isolated
+`RIFF_HOME` keeps the wrapper's replacement of local build output away from the
+live workspace's engines. Source inputs receive a content-derived queue identity,
+including for release archives without Git metadata. Preparation validates the
+source/backend/toolchain and system-crypto receipts and retains `request.json`,
+`native-cache-receipts/` and `prepared.json` with the binary digest.
+
+Keep the entire native build directory: the prepared/selected binary and CMake
+metadata refer to its persistent paths. Failed and interrupted stages are also
+retained for their owner to inspect; setup does not prune old engines or releases.
+`--compile-only` skips model downloads, device probes and engine selection.
+`--build-only` skips downloads but still probes and selects the engine. Managed
+source updates prepare without selecting the new engine, publish pending state
+only after successful validation, and activate through Studio's existing idle
+reservation when restarting. Existing installations must run code containing this
+integration and inherit the queue policy; setting it on an older release does
+not retrofit that release. Prebuilt desktop updates do not use this source-build
+queue, and unconfigured portable source setups retain their direct build behavior.
+
 ### Warm engine (resident weights)
 
 By default every take starts a new `audiocpp_cli`, which uploads the YuE2 AR,
