@@ -1,0 +1,62 @@
+{
+ "schema": "riff.daw.q3q4-named-gates.v1",
+ "date": "2026-10-26",
+ "gates": [
+  "Q3 fixture build",
+  "Q4 chain"
+ ],
+ "method": "Recorded strictly from the retained artifacts of the conductor's fresh v1 operation-surface run (store-v1d, the same baseline anchoring Q7/Q8; mix sha256 4175c184a15cc678d7656cad52797641641a3609e653e4fbe7dcf9f060c2babe reproducing preserved receipts). No inferred criteria: every field below was measured from files/logs of that run.",
+ "Q3": {
+  "result": "PASS",
+  "sources": {
+   "Flute.abc": "e174e9a5b0015d0dc47e48ae7552690113688efa48ba420866daf0a855f7612a",
+   "Bass.abc": "04621de3ff9c14013e55780d286ac07d0cdb9adcd5a1291e736cdce550979c5d",
+   "Piano.abc": "0128ae23edfe08f8aa97058dad315a516154a969b2a91bafab590a82ea3bf118"
+  },
+  "tracks": 3,
+  "track_names": [
+   "Flute",
+   "Bass",
+   "Piano"
+  ],
+  "programs_from_smf": {
+   "Flute": 73,
+   "Bass": 33,
+   "Piano": [
+    0,
+    0
+   ]
+  },
+  "session_sha256": "760f0ed62698ada78175198ede8298b5f08b839008775b18979c487ae8be70a1",
+  "note_counts": {
+   "Flute": 12,
+   "Bass": 30,
+   "Piano": 37
+  }
+ },
+ "Q4": {
+  "result": "PASS",
+  "chain": "upgrade -> instrument -> tempo/range -> reopen/save -> mix export, all stages done in the compose/render receipts of run-v1.json",
+  "snapshots": {
+   "upgraded.ardour": "fff38565c4190e654e7686a1dd8b8e44968acddb812ea3b8588dc91c2a9c11c7",
+   "instrumented.ardour": "7f977603897f5e2cd3567552acf42c794a7fc3576e2c53ec75db9ea1eb79d336",
+   "tempoed.ardour": "b3a3172211cb9b2e278791f2272679bbfff0b0a3d3b589b9fa7b1699c2edd6ca",
+   "final.ardour": "8eb504c905e406c53e3932baf5ff6614763d4353ac4c091355a43134be2efd33"
+  },
+  "save_ok_true_in_logs": [
+   "upgrade.out",
+   "instrument.out",
+   "reopen.out"
+  ],
+  "mix": {
+   "sha256": "4175c184a15cc678d7656cad52797641641a3609e653e4fbe7dcf9f060c2babe",
+   "frames": 1016000,
+   "rate": 48000,
+   "seconds": 21.166666666666668,
+   "duration_acceptance": "21.166667 s +/- 1 sample: exact (within 0 samples of 1016000 frames)",
+   "peak_linear": 17877,
+   "nonzero": true
+  }
+ },
+ "limits": "Q3/Q4 were not separate battery invocations; they are named-gate records derived from one real operation-surface run whose artifacts satisfy each stated criterion. The battery script itself (qualify_ardour_runtime.py) still only emits Q1/Q2/Q10 - a unified battery run remains a tooling gap, not an evidence gap."
+}
