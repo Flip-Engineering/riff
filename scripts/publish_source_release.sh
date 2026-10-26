@@ -32,6 +32,27 @@ notes="$RUNNER_TEMP/riff-source-release-notes.md"
 # Explicit asset names prevent accidental publication of an unrelated payload.
 # --verify-tag requires the reviewed version tag; an existing release fails
 # instead of replacing its assets or moving the immutable tag.
+# Check the actual remote immediately before publication too: --verify-tag only
+# establishes existence, and the event checkout can outlive a moved remote tag.
+remote_tags=$(git ls-remote --exit-code origin "$GITHUB_REF" "$GITHUB_REF^{}")
+remote_commit=$(printf '%s\n' "$remote_tags" | python3 -c '
+import re, sys
+ref = sys.argv[1]
+refs = {}
+for line in sys.stdin:
+    fields = line.rstrip("\n").split("\t")
+    if (len(fields) != 2 or not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", fields[0])
+            or fields[1] not in (ref, ref + "^{}") or fields[1] in refs):
+        raise SystemExit("Cannot authenticate the remote version tag")
+    refs[fields[1]] = fields[0]
+if ref not in refs:
+    raise SystemExit("The remote version tag is missing")
+print(refs.get(ref + "^{}", refs[ref]))
+' "$GITHUB_REF")
+test "$remote_commit" = "$GITHUB_SHA" || {
+  echo 'The remote version tag no longer selects the validated source; refusing publication.' >&2
+  exit 1
+}
 gh release create "$GITHUB_REF_NAME" "dist/$archive" dist/install.py dist/SHA256SUMS \
   --repo "$GITHUB_REPOSITORY" --verify-tag --notes-file "$notes" \
   --title "Riff $GITHUB_REF_NAME (Linux-qualified source)"

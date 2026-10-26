@@ -207,7 +207,10 @@ After root reviews and merges this publication policy, root may create a NEW
 `vX.Y.Z` tag matching VERSION on the reviewed source. The tag's release workflow
 must pass the Linux checks before packaging, isolated install checks and source
 publication. `scripts/publish_source_release.sh` checks the exact tag/checkout,
-actual self-hosted Linux x86-64 publisher and asset digests, then creates the
+actual self-hosted Linux x86-64 publisher and asset digests. Immediately before
+publication it also looks up the actual remote version tag, peels annotated
+tags and requires the validated source SHA; lookup errors or a moved/missing
+tag fail closed. It then creates the
 release with explicit source-only qualification notes, source SHA and run link.
 It does not replace an existing release or move a tag. Run it through the
 maintained workflow, not as a manual substitute for validation.

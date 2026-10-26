@@ -14,7 +14,8 @@ class SourceReleaseTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
-        self.root = Path(self.temporary.name)
+        self.root = Path(self.temporary.name) / "source"
+        self.root.mkdir()
         (self.root / ".github").mkdir()
         (self.root / ".github/release-notes.md").write_text("Artist-facing changes.\n")
         (self.root / "VERSION").write_text("0.6.32\n")
@@ -31,6 +32,10 @@ class SourceReleaseTests(unittest.TestCase):
         self.git("commit", "-qm", "fixture")
         self.git("tag", "-am", "fixture tag", "v0.6.32")
         self.source = self.git("rev-parse", "HEAD").strip()
+        self.remote = Path(self.temporary.name) / "remote.git"
+        self.git("init", "--bare", "-q", str(self.remote))
+        self.git("remote", "add", "origin", str(self.remote))
+        self.git("push", "-q", "origin", "refs/tags/v0.6.32")
         tools = self.root / "tools"
         tools.mkdir()
         (tools / "uname").write_text("#!/bin/sh\ncase $1 in\n-s) echo \"${FIXTURE_OS:-Linux}\";;\n-m) echo \"${FIXTURE_ARCH:-x86_64}\";;\n*) exit 1;;\nesac\n")
@@ -102,6 +107,34 @@ sys.exit(int(os.environ.get('FIXTURE_GH_EXIT', '0')))
     def test_changed_assets_fail_digest_checks_before_publication(self):
         (self.root / "dist/install.py").write_text("substituted installer")
         self.assertNotEqual(self.execute().returncode, 0)
+        self.assertFalse(self.publication.exists())
+
+    def test_lightweight_remote_tag_selecting_the_same_source_is_accepted(self):
+        self.git("push", "-q", "--force", "origin", self.source + ":refs/tags/v0.6.32")
+        result = self.execute()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(self.publication.exists())
+
+    def test_moved_remote_tag_is_rejected_even_when_local_tag_and_event_sha_agree(self):
+        self.git("commit", "--allow-empty", "-qm", "new remote source")
+        moved = self.git("rev-parse", "HEAD").strip()
+        self.git("tag", "-am", "replacement annotated tag", "remote-replacement")
+        self.git("checkout", "-q", "--detach", self.source)
+        self.assertEqual(self.git("rev-parse", "refs/tags/v0.6.32^{commit}").strip(), self.source)
+        for replacement in [moved, "refs/tags/remote-replacement"]:
+            with self.subTest(replacement=replacement):
+                self.git("push", "-q", "--force", "origin", replacement + ":refs/tags/v0.6.32")
+                result = self.execute()
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("remote version tag no longer selects", result.stderr)
+                self.assertFalse(self.publication.exists())
+
+    def test_remote_lookup_failure_and_missing_remote_tag_propagate(self):
+        self.git("push", "-q", "origin", ":refs/tags/v0.6.32")
+        self.assertEqual(self.execute().returncode, 2)  # ls-remote --exit-code: no match
+        self.assertFalse(self.publication.exists())
+        self.git("remote", "set-url", "origin", str(self.remote / "missing"))
+        self.assertEqual(self.execute().returncode, 128)
         self.assertFalse(self.publication.exists())
 
     def test_publication_transport_failure_is_not_hidden_or_retried(self):
