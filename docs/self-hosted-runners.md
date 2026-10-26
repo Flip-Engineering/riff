@@ -33,8 +33,8 @@ The five runners take jobs at the same time on one host, so anything outside a r
 | `metal-lora-inference.yml` | same Apple selector; device eligibility checked separately | manual exact-source dispatch after route and model-run approval |
 | `desktop.yml` publish | `self-hosted`, `Linux`, `X64`, `riff-linux` | tag or manual publish |
 | `pages.yml` deploy | `self-hosted`, `Linux`, `X64`, `riff-linux` | Pages workflow |
-| `release.yml` validate | reusable `ci.yml`: Linux selector plus the Apple selector above | release workflow; missing Apple route blocks validation |
-| `release.yml` release | `self-hosted`, `Linux`, `X64`, `riff-linux` | after validation succeeds |
+| `release.yml` validate | reusable `ci.yml`, explicit `linux-source-only: true` | all five Linux functional checks; no Apple qualification claim |
+| `release.yml` release | `self-hosted`, `Linux`, `X64`, `riff-linux` | publishes source assets only after Linux qualification succeeds |
 
 
 The native Linux CPU job retains the existing solver, CPU-tensor LoRA,
@@ -191,3 +191,33 @@ pool. Enabling the Apple selector still requires the runner and compile-custody
 handoff above. A new release tag must reference the reviewed migration before
 its reusable validation can satisfy the self-hosted policy; existing published
 tags remain immutable.
+
+## Linux-qualified source publication
+
+`release.yml` publishes the portable source archive, installer and checksums;
+it does not publish a desktop runtime or a prebuilt CUDA/Metal engine. Its
+explicit reusable-workflow input selects all five existing Linux checks:
+control, Python 3.9/3.14 application, browser and queued CPU native validation.
+All their assertions and native receipts remain required. Standard `ci.yml`
+push, pull-request and manual runs keep both CPU and Metal lanes by default;
+an unavailable Apple route still fails its diagnostic. Native check names retain
+the runner-label string and backend used by the previous matrix.
+
+After root reviews and merges this publication policy, root may create a NEW
+`vX.Y.Z` tag matching VERSION on the reviewed source. The tag's release workflow
+must pass the Linux checks before packaging, isolated install checks and source
+publication. `scripts/publish_source_release.sh` checks the exact tag/checkout,
+actual self-hosted Linux x86-64 publisher and asset digests, then creates the
+release with explicit source-only qualification notes, source SHA and run link.
+It does not replace an existing release or move a tag. Run it through the
+maintained workflow, not as a manual substitute for validation.
+
+Apple/Metal, desktop acceptance and real CUDA device/inference qualification
+remain separate. A Linux source release does not satisfy them or close #31/#24.
+The desktop workflow still requires its platform build/acceptance and a
+successful `release.yml` source release before attaching compatible payloads;
+source installation never substitutes for a missing desktop payload.
+
+A private candidate archive retains its original source/hash even if its PR is
+merged later. A subsequent tag builds and validates its own exact source; do
+not relabel the earlier candidate with the merge or publication-policy SHA.

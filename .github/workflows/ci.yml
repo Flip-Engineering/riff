@@ -4,6 +4,11 @@ on:
     branches: [main]
   pull_request:
   workflow_call:
+    inputs:
+      linux-source-only:
+        description: Qualify source archives on Linux without claiming Apple or desktop support
+        type: boolean
+        default: false
   workflow_dispatch:
 permissions:
   contents: read
@@ -127,19 +132,20 @@ jobs:
           name: browser-results
           path: test-results/
   native:
+    # Preserve the existing check names while selecting the backend matrix.
+    name: ${{ format('native ({0}, {1})', matrix.backend == 'cpu' && '["self-hosted","Linux","X64","riff-linux"]' || (vars.RIFF_APPLE_RUNNER_LABEL != '' && format('["self-hosted","macOS","ARM64",{0}]', toJSON(vars.RIFF_APPLE_RUNNER_LABEL)) || '["self-hosted","Linux","X64","riff-linux"]'), matrix.backend) }}
     if: >-
       github.event_name != 'pull_request' ||
       github.event.pull_request.head.repo.full_name == github.repository
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - runner: '["self-hosted","Linux","X64","riff-linux"]'
-            backend: cpu
-          # Missing Apple infrastructure runs only the route diagnostic on riff-linux.
-          - runner: ${{ vars.RIFF_APPLE_RUNNER_LABEL != '' && format('["self-hosted","macOS","ARM64",{0}]', toJSON(vars.RIFF_APPLE_RUNNER_LABEL)) || '["self-hosted","Linux","X64","riff-linux"]' }}
-            backend: metal
-    runs-on: ${{ fromJSON(matrix.runner) }}
+        # Ordinary push/PR/manual validation retains both backends. Only an
+        # explicit reusable-workflow caller can select Linux source qualification.
+        backend: ${{ fromJSON(inputs.linux-source-only && '["cpu"]' || '["cpu","metal"]') }}
+    # Missing Apple infrastructure still runs its diagnostic on riff-linux in
+    # ordinary validation; source-only qualification never selects that lane.
+    runs-on: ${{ fromJSON(matrix.backend == 'cpu' && '["self-hosted","Linux","X64","riff-linux"]' || (vars.RIFF_APPLE_RUNNER_LABEL != '' && format('["self-hosted","macOS","ARM64",{0}]', toJSON(vars.RIFF_APPLE_RUNNER_LABEL)) || '["self-hosted","Linux","X64","riff-linux"]')) }}
     steps:
       - name: Keep temporary files, Mix and Hex inside this job
         if: runner.os == 'Linux'

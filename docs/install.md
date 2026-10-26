@@ -176,6 +176,13 @@ archive paths, and runs an import preflight before activation. The trust boundar
 is the official GitHub repository and HTTPS; this is not an independent signing
 system.
 
+Source releases are qualified by the maintained self-hosted Linux checks and
+identify that scope in their release notes. A source archive does not establish
+Apple Silicon/Metal, CUDA device inference or desktop-package acceptance.
+Desktop payloads require separate platform qualification and publication; their
+absence keeps the current desktop installation rather than offering a source
+build as its update.
+
 New code goes into a separate release folder. Desktop updates carry prebuilt
 platform runtimes and engines, verify every file, and use the bundled Elixir
 installer to prepare changed model sets. A missing compatible desktop asset
