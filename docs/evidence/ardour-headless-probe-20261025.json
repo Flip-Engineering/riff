@@ -1,0 +1,145 @@
+{
+  "schema": "riff.daw.ardour-headless-probe.v1",
+  "created_utc": "2026-10-25T22:25:19.550534+00:00",
+  "issue": "https://github.com/Flip-Engineering/riff/issues/78",
+  "author": "riff-daw-deepseek-20261025",
+  "repo_head": "161f79117643539552a2f999c47d37afffe91836",
+  "ardour": {
+    "release_tag": "9.8",
+    "release_tag_commit": "059c95883d8158b03f632056ba36e5c7de91ef28",
+    "release_date": "2026-08-23",
+    "tested_package": {
+      "name": "Ardour 9.8.241 demo (official nightly)",
+      "url": "https://nightly.ardour.org/d/A_Linux_x86_64_FREE/Ardour-9.8.241-demo-x86_64.run",
+      "bytes": 80068722,
+      "sha1": "0007d1664fe92c0d982c8c5e5bfea1b07dc1a98d",
+      "session_program_version": "Ardour 9.8-241-gfd4ef0523b"
+    },
+    "tools": {
+      "ardour9-export": "ardour-utils version 9.8.241; exports session-range master-bus to WAV",
+      "ardour9-lua": "ardour-lua version 9.8.241; headless libardour Lua session",
+      "ardour9-new_session": "ardour-utils version 9.8.241; creates session, optional static template",
+      "ardour9-new_empty_session": "creates empty session"
+    },
+    "bundled_sound_generation": [
+      "lib/LV2/gmsynth.lv2 (General MIDI Synth, GPL; GeneralUser_LV2.sf2 ~31MB)",
+      "lib/LV2/a-fluidsynth.lv2",
+      "a-* LV2 effects"
+    ],
+    "source_links": {
+      "export_cc": "https://github.com/Ardour/ardour/blob/9.8/session_utils/export.cc",
+      "luasession": "https://github.com/Ardour/ardour/blob/9.8/luasession/luasession.cc",
+      "lua_bindings": "https://github.com/Ardour/ardour/blob/9.8/libs/ardour/luabindings.cc",
+      "simple_export": "https://github.com/Ardour/ardour/blob/9.8/libs/ardour/simple_export.cc",
+      "new_session": "https://github.com/Ardour/ardour/blob/9.8/session_utils/new_session.cc",
+      "copying": "https://github.com/Ardour/ardour/blob/9.8/COPYING",
+      "lua_manual": "https://manual.ardour.org/lua-scripting/",
+      "whatsnew": "https://ardour.org/whatsnew.html"
+    }
+  },
+  "experiments": {
+    "empty_create_and_export": {
+      "create_command": "ardour9-new_session -s 48000 SESSION_DIR Test3",
+      "export_command": "ardour9-export -o SESSION_DIR/export/probe.wav SESSION_DIR Test3",
+      "output": "2.000 s 48 kHz 16-bit stereo silent WAV, 384044 bytes, followed by \"FATAL: exception not rethrown\" during teardown",
+      "conclusion": "CLI create/export runs headless; empty session teardown is not clean and is not the representative receipt"
+    },
+    "content_render": {
+      "session_source": "libs/ardour/test/profiling/sessions/1region/1region.ardour (source-tree test fixture, session version 3001)",
+      "midi_source": "interchange/1region/midifiles/MIDI 1-1.mid (52 bytes, one note G#4)",
+      "lua_steps": [
+        "load_session(SESSION_DIR, \"1region\")",
+        "ARDOUR.LuaAPI.new_plugin(s,\"http://gareus.org/oss/lv2/gmsynth\",ARDOUR.PluginType.LV2,\"\")",
+        "track:add_processor_by_index(plugin,0,nil,true)",
+        "s:save_state(\"gmsynthprobe\")",
+        "close_session(); quit()"
+      ],
+      "save_state_result": "0; gmsynthprobe.ardour 28015 bytes",
+      "export_command": "ardour9-export -o SESSION_DIR/export/cli-gmsynth.wav SESSION_DIR gmsynthprobe",
+      "export_log": "* Writing ...; * Exporting Audio 0.0%; * Done.",
+      "output": {
+        "codec": "pcm_s16le",
+        "sample_rate": 48000,
+        "channels": 2,
+        "bits_per_sample": 16,
+        "duration_s": 11.655729,
+        "bytes": 2237944,
+        "peak_dbfs": -22.249757,
+        "rms_dbfs": -40.366711,
+        "sha256": "9775dab665bda0c70e1c637ae311efd7f391ccaee79c02d0d475d98b2affd3e4"
+      },
+      "in_process_simple_export": {
+        "sample_rate": 44100,
+        "channels": 2,
+        "bits_per_sample": 16,
+        "duration_s": 11.655624,
+        "bytes": 2056096,
+        "peak_dbfs": 0.000265,
+        "rms_dbfs": -18.149351,
+        "sha256": "aa63e4c4aa75ae480463cbcc37b19ae405f8fb72fad18cf245ffab2870cad69a",
+        "note": "default CD preset selects 44.1 kHz; CLI exporter used session rate 48 kHz"
+      },
+      "conclusion": "non-silent master export from a MIDI region + gmsynth instrument with no Editor GUI"
+    },
+    "missing_gate": {
+      "claim": "Headless construction/import of arbitrary MIDI is not exposed by the Lua API used here.",
+      "evidence": [
+        "luabindings.cc binds Session:new_midi_track, Session:new_audio_track, Route:add_processor_by_index, MidiModel diff commands and SimpleExport, but no Session::import_files",
+        "share/scripts/s_import_files.lua uses Editor:do_import; Editor is GUI-only",
+        "manual warns most complex functionality is provided by the Editor UI"
+      ],
+      "not_tested": [
+        "static template with empty MIDI region + MidiModel note edits",
+        "generated .ardour session XML",
+        "per-track stems",
+        "MIDI program changes through gmsynth",
+        "macOS arm64"
+      ]
+    },
+    "four_note_render": {
+      "requested_by": "riff-daw-conductor-kimi-20261025 peer receipt review",
+      "abc": "X:1\\nT:Ardour four-note gmsynth probe\\nM:4/4\\nL:1/4\\nQ:1/4=120\\nK:C\\nC D E F |",
+      "midi": "four.mid via abc2midi 5.07; 4 notes C4/D4/E4/F4 at ticks 1/481/961/1441; sha256 fa719487914a15dae4e27c66724d54cc1bf898579299209dfaea8a015e1ae336",
+      "session": "1region template with replacement interchange/1region/midifiles/MIDI 1-1.mid",
+      "lua": "load_session; add gmsynth; save_state(\"fourprobe\")",
+      "export_command": "ardour9-export -o four-session/export/four-gmsynth.wav four-session fourprobe",
+      "export_log_extra": [
+        "DummyMidiBuffer: it's too late for this event 226 > 176.",
+        "DummyMidiBuffer: it's too late for this event 674 > 624.",
+        "DummyMidiBuffer: it's too late for this event 98 > 48."
+      ],
+      "output": {
+        "codec": "pcm_s16le",
+        "sample_rate": 48000,
+        "channels": 2,
+        "bits_per_sample": 16,
+        "duration_s": 11.655729,
+        "bytes": 2237944,
+        "peak_dbfs": -13.130774,
+        "rms_dbfs": -32.25203,
+        "samples": 559475,
+        "signal_until_s": 2.315,
+        "sha256": "2b24541ae07e5a5a4fbdf089abd3ad85d6443e4d5e9953ac40f124c8e32b9165"
+      },
+      "conclusion": "nonzero four-note gmsynth render through the CLI exporter; closes the earlier pure-silence gap but not arbitrary headless MIDI import",
+      "limits": [
+        "DummyMidiBuffer late-event warnings; source build/real backend needed for sample-accurate scheduling",
+        "MIDI content placed by replacing a session source file, not imported through a headless Riff operation"
+      ]
+    }
+  },
+  "limits": [
+    "demo nightly, not official release binary; CLI tools are in 9.8 source",
+    "test session is an old fixture with legacy tempo warnings, not a production template",
+    "gmsynth/SF2 asset license not audited for redistribution",
+    "no macOS/Arm64 run",
+    "master mixdown only; stems not tested",
+    "no musical-quality claim from one long test note",
+    "four-note follow-up has DummyMidiBuffer late-event warnings; source-build/real-backend timing validation remains"
+  ],
+  "related": [
+    "docs/daw-integration/ardour-headless-probe.md",
+    "docs/daw-integration/daw-candidates.md",
+    "docs/daw-integration/abc-semantics.md"
+  ]
+}

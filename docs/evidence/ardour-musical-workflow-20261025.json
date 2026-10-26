@@ -1,0 +1,431 @@
+{
+  "schema": "riff.daw.ardour-musical-workflow.v1",
+  "created_utc": "2026-10-25T23:33:45.354503+00:00",
+  "issue": "https://github.com/Flip-Engineering/riff/issues/78",
+  "author": "riff-daw-deepseek-20261025",
+  "repo_head_at_record": "3fb5313fbf52b78f7296e8c6870a7a8f680d9037",
+  "purpose": "bounded four-voice/three-track Ardour generated-session save/reopen/render/stem/edit probe on the shared fixture; explicit timing adapter, not a general ABC importer",
+  "environment": {
+    "ardour": "official nightly demo Linux x86_64, ardour-utils/ardour-lua version 9.8.241",
+    "bundle_path": ".probe-tmp/deepseek/ardour-bin/ardour-root/Ardour_x86_64-9.8.241-demo",
+    "package_url": "https://nightly.ardour.org/d/A_Linux_x86_64_FREE/Ardour-9.8.241-demo-x86_64.run",
+    "package_sha1": "0007d1664fe92c0d982c8c5e5bfea1b07dc1a98d",
+    "session_format": "initial template 3001; saved/reopened 7004",
+    "host": "Linux x86_64; nice -n 19 + ionice -c3; sequential",
+    "sample_rate": 48000,
+    "jack_no_start_server": true
+  },
+  "fixtures": {
+    "abc_v1": {
+      "path": "probes/fixtures/arrangement-v1.abc",
+      "sha256": "68e0bafb677e1ec9d42070566a09853c4dca6e6d563b74daee526fcfee80e5e0"
+    },
+    "abc_v2": {
+      "path": "probes/fixtures/arrangement-v2.abc",
+      "sha256": "38b8fe4e1de7604c034195ba2f41389e9ab872f493ee63e23d5ff03c6103b3ef"
+    },
+    "voice_map": {
+      "path": "probes/fixtures/voice-map.json",
+      "sha256": "04d7914b80ecb2a7d42399550a5b22cff36f044aea492ce238aa604537ef890b"
+    },
+    "timing": {
+      "path": "probes/fixtures/arrangement-timing.json",
+      "sha256": "2ffe1f3ff8a2c9869f8cab501989a2af2ecd76c899ad9fb654b445d98db8bd14"
+    }
+  },
+  "timing_contract": {
+    "voicing": "Flute(73) + Bass(33) + PianoRH(0)+PianoLH(0) on one Piano track = 4 voices / 3 tracks",
+    "quarter_note_ticks": 480,
+    "base": "M:4/4 Q:1/4=100",
+    "bar5": {
+      "bbt": "5|1|0",
+      "quarters": 16,
+      "tick": 7680,
+      "bpm": 72
+    },
+    "bar7": {
+      "bbt": "7|1|0",
+      "quarters": 24,
+      "tick": 11520,
+      "divisions_per_bar": 3
+    },
+    "bar8": {
+      "bbt": "8|1|0",
+      "quarters": 27,
+      "tick": 12960,
+      "bpm": 100,
+      "divisions_per_bar": 4
+    },
+    "end": {
+      "quarters": 31,
+      "tick": 14880,
+      "sample": 1016000,
+      "seconds": 21.1666666667
+    },
+    "note": "timing is explicit adapter input, not inferred from arbitrary ABC"
+  },
+  "generated_sources_clean": {
+    "v1": {
+      "Flute": {
+        "sha256": "0f8a86f26b5bc194b79a21a02fe37690d41b3646a523fcc48fd944e16e5c953e",
+        "notes": 12,
+        "program": 73
+      },
+      "Bass": {
+        "sha256": "1c62cd1a602bc24427820f58c5b826084f90dea3e792099d48dce66f53ce1dee",
+        "notes": 30,
+        "program": 33
+      },
+      "Piano": {
+        "sha256": "f2c534bd15e96a50a6085d42abf34fd19382b83d0c6a49ea344a47f7d47d0f26",
+        "notes": 37,
+        "programs": [
+          0,
+          0
+        ],
+        "channels": [
+          0,
+          1
+        ],
+        "note": "PianoRH+PianoLH merged into one source"
+      }
+    },
+    "v2": {
+      "Flute": {
+        "sha256": "c8b3cc0fe961169f9625fd870a193b5068fed547728aefc016d72ca8f9b6690a",
+        "notes": 12,
+        "program": 73
+      },
+      "Bass": {
+        "sha256": "e6cde5100e7a9fd42f8e5abb8887d1abcc45685bd2332879999e353889580177",
+        "notes": 30,
+        "program": 33
+      },
+      "Piano": {
+        "sha256": "d3d57015c9e19920f4bb2b13349b395782d223203ebef8949b6bef7b1613753a",
+        "notes": 37,
+        "programs": [
+          0,
+          0
+        ],
+        "channels": [
+          0,
+          1
+        ]
+      }
+    }
+  },
+  "session_v1": {
+    "file": ".probe-tmp/deepseek/ardour-workflow/v1/v1-final.ardour",
+    "sha256": "126addd376aa4a41feac1800a34f8125f567fd8f55775475ea91ce2bc448db70",
+    "routes": [
+      "Flute",
+      "Bass",
+      "Piano"
+    ],
+    "gmsynth_per_route": {
+      "Flute": 1,
+      "Bass": 1,
+      "Piano": 1
+    },
+    "sources": [
+      "Flute.mid",
+      "Bass.mid",
+      "Piano.mid"
+    ],
+    "playlists": [
+      "Flute.1",
+      "Bass.1",
+      "Piano.1"
+    ],
+    "tempos": [
+      {
+        "bbt": "1|1|0",
+        "quarters": "0:0",
+        "sclock": 0,
+        "npm": 100
+      },
+      {
+        "bbt": "5|1|0",
+        "quarters": "16:0",
+        "sclock": 2709504000,
+        "npm": 72
+      },
+      {
+        "bbt": "8|1|0",
+        "quarters": "27:0",
+        "sclock": 5296704000,
+        "npm": 100
+      }
+    ],
+    "meters": [
+      {
+        "bbt": "1|1|0",
+        "quarters": "0:0",
+        "sclock": 0,
+        "divisions_per_bar": 4
+      },
+      {
+        "bbt": "7|1|0",
+        "quarters": "24:0",
+        "sclock": 4591104000,
+        "divisions_per_bar": 3
+      },
+      {
+        "bbt": "8|1|0",
+        "quarters": "27:0",
+        "sclock": 5296704000,
+        "divisions_per_bar": 4
+      }
+    ],
+    "session_range": [
+      "b0",
+      "b59520"
+    ],
+    "reopen_receipt": {
+      "tracks": [
+        "Flute",
+        "Bass",
+        "Piano"
+      ],
+      "tracks_count": 3,
+      "save_ok": true,
+      "sequence": "upgrade-only load/save (3001->7004) -> instrument -> patch tempo/range -> reopen/save final",
+      "upgrade_before_instrument": true
+    }
+  },
+  "timeline_verification": {
+    "script": "probes/ardour/verify_timeline.py",
+    "v1": {
+      "pass": true,
+      "Flute": {
+        "abc2midi_notes": 12,
+        "generated_notes": 12,
+        "exact_after_plus_one_tick": true,
+        "program": 73,
+        "survives_session_save": true
+      },
+      "Bass": {
+        "abc2midi_notes": 30,
+        "generated_notes": 30,
+        "exact_after_plus_one_tick": true,
+        "program": 33,
+        "survives_session_save": true
+      },
+      "Piano": {
+        "abc2midi_notes": 37,
+        "generated_notes": 37,
+        "exact_after_plus_one_tick": true,
+        "programs": [
+          0,
+          0
+        ],
+        "channels": [
+          0,
+          1
+        ],
+        "survives_session_save": true
+      }
+    },
+    "v2": {
+      "pass": true,
+      "Flute": {
+        "abc2midi_notes": 12,
+        "generated_notes": 12,
+        "exact_after_plus_one_tick": true,
+        "program": 73,
+        "survives_session_save": true
+      },
+      "Bass": {
+        "abc2midi_notes": 30,
+        "generated_notes": 30,
+        "exact_after_plus_one_tick": true,
+        "program": 33,
+        "survives_session_save": true
+      },
+      "Piano": {
+        "abc2midi_notes": 37,
+        "generated_notes": 37,
+        "exact_after_plus_one_tick": true,
+        "programs": [
+          0,
+          0
+        ],
+        "channels": [
+          0,
+          1
+        ],
+        "survives_session_save": true
+      }
+    },
+    "normalization": "abc2midi first source event tick 1 -> adapter tick 0; comparison adds one tick back"
+  },
+  "renders_v1": {
+    "format": "WAV pcm_s16le 48000 Hz stereo",
+    "duration_s": 21.166667,
+    "bytes": 4064044,
+    "mix": {
+      "file": "v1-final.wav",
+      "peak_dbfs": -5.262841,
+      "rms_dbfs": -18.931317,
+      "sha256": "4175c184a15cc678d7656cad52797641641a3609e653e4fbe7dcf9f060c2babe"
+    },
+    "stems": [
+      {
+        "file": "v1-stem-1.wav",
+        "track": "Flute",
+        "peak_dbfs": -9.617769,
+        "rms_dbfs": -19.977136,
+        "sha256": "ff36b4f8397a77cc0983042ee2d1c464b1f348ea12e09d1afcbdc69f2a56cc18"
+      },
+      {
+        "file": "v1-stem-2.wav",
+        "track": "Bass",
+        "peak_dbfs": -19.802653,
+        "rms_dbfs": -34.170883,
+        "sha256": "407b548d2e253384ebad3c23eb862b0dbf811d88e204f403b0b34aa3d9d41245"
+      },
+      {
+        "file": "v1-stem-3.wav",
+        "track": "Piano",
+        "peak_dbfs": -11.056612,
+        "rms_dbfs": -26.872109,
+        "sha256": "c5be98a95386299db3b58fde967ac9e68b4db6184c80ce6f80aceda4bfd85b57"
+      }
+    ],
+    "stem_reconstruction": {
+      "method": "sample add of three solo renders vs mix",
+      "mix_peak_linear": 17877,
+      "stem_sum_peak_linear": 17877,
+      "difference_peak_linear": 1,
+      "difference_rms_linear": 0.5543293280505803,
+      "within_1_lsb": true
+    }
+  },
+  "program_timbre_control": {
+    "question": "does gmsynth honor the per-track MIDI program change?",
+    "same_note_events": true,
+    "change": "Flute source program change 73 -> 0; all note events unchanged",
+    "program73": {
+      "file": "v1-stem-1.wav",
+      "peak_dbfs": -9.617769,
+      "rms_dbfs": -19.977136,
+      "sha256": "ff36b4f8397a77cc0983042ee2d1c464b1f348ea12e09d1afcbdc69f2a56cc18"
+    },
+    "program0": {
+      "file": "progtest/export/prog0.wav",
+      "peak_dbfs": -12.748644,
+      "rms_dbfs": -32.565055,
+      "sha256": "75fcd42f7122fe6a1842bb092c74849576be33e60137ca49c926143b7d546a97"
+    },
+    "spectral_centroid_4p9s_window_hz": {
+      "program73": 715.8,
+      "program0": 652.6
+    },
+    "conclusion": "program change affects rendered audio/harmonic weighting; not a claim of real-instrument quality"
+  },
+  "renders_v2_edit": {
+    "method": "copy v1 project directory; replace the three source MIDI files with v2 abc2midi output; reopen v1-final snapshot in copy; save v2-final; export",
+    "source_hashes_changed": true,
+    "session_file": ".probe-tmp/deepseek/ardour-workflow/v2-edit/v2-final.ardour",
+    "session_sha256": "dfb1d25dc5928c74a95bb225cc6cf278962d2156fa89e05f35a08707753de3ec",
+    "mix": {
+      "file": "v2-final.wav",
+      "duration_s": 21.166667,
+      "bytes": 4064044,
+      "peak_dbfs": -5.776736,
+      "rms_dbfs": -18.751771,
+      "sha256": "49dba1a4c9a6ebcdc5a9f776b1f9db22dfee3decd3be8097d159636a808594ad"
+    },
+    "distinct_from_v1": true
+  },
+  "audio_onset_checks": {
+    "tool": "probes/verify/wav_note_check.py",
+    "tolerance_s": 0.08,
+    "v1": {
+      "Flute_stem": {
+        "expected": 12,
+        "observed": 12,
+        "matched": 11,
+        "missed_example": "17.935 s dominant-pitch detector miss"
+      },
+      "Bass_stem": {
+        "expected": 30,
+        "observed": 45,
+        "matched": 30
+      },
+      "Piano_stem": {
+        "expected": 37,
+        "observed": 44,
+        "matched": 25,
+        "note": "polyphonic/chord onsets merge"
+      }
+    },
+    "v2_mix": {
+      "Flute": {
+        "expected": 12,
+        "matched": 11
+      },
+      "Bass": {
+        "expected": 30,
+        "matched": 21
+      },
+      "Piano": {
+        "expected": 37,
+        "matched": 22
+      },
+      "note": "mix-level, not stem-isolated"
+    },
+    "structural_onsets_s": {
+      "bar3_expected": 4.8,
+      "bar5_expected": 9.6,
+      "bar8_expected": 18.7667,
+      "observed_Flute": [
+        4.8,
+        9.6,
+        18.8
+      ],
+      "observed_Bass": [
+        4.8,
+        9.6,
+        18.8
+      ],
+      "observed_Piano": [
+        4.8,
+        9.6,
+        18.7
+      ]
+    }
+  },
+  "scripts": {
+    "build": "probes/ardour/build_session.py",
+    "patch": "probes/ardour/patch_tempo_range.py",
+    "instrument": "probes/ardour/instrument_session.lua",
+    "reopen": "probes/ardour/reopen_session.lua",
+    "stems": "probes/ardour/save_stems.lua",
+    "verify_timeline": "probes/ardour/verify_timeline.py",
+    "verify_stems": "probes/ardour/verify_stems.py",
+    "licensing": "probes/ardour/licensing_inventory.py"
+  },
+  "limits": [
+    "explicit timing adapter; no general ABC timing inference",
+    "single 4-voice/3-track fixture; no arbitrary voice sharing/programs/banks",
+    "old 3001 template + deterministic XML generation; not a supported import API",
+    "demo nightly 9.8.241; no source-built Ardour/macOS/Arm64 receipt",
+    "DummyMidiBuffer timing warnings; audio onset tolerance 80 ms; not sample-accurate",
+    "solo-render stems, not GUI stem dialog/raw pre-fader/batch stems",
+    "gmsynth GPL-family and GeneralUser custom-licensed SoundFont require license review",
+    "no musical-quality claim from GM program labels; program-controlled timbre only"
+  ],
+  "reproducibility": {
+    "fresh_rerun_with_committed_scripts": true,
+    "method": "build_session.py -> upgrade reopen -> instrument_session.lua -> patch_tempo_range.py -> reopen -> ardour9-export -> save_stems.lua",
+    "mix_sha256_matches_v1": true,
+    "stem_sha256_match_v1": [
+      "ff36b4f8397a77cc0983042ee2d1c464b1f348ea12e09d1afcbdc69f2a56cc18",
+      "407b548d2e253384ebad3c23eb862b0dbf811d88e204f403b0b34aa3d9d41245",
+      "c5be98a95386299db3b58fde967ac9e68b4db6184c80ce6f80aceda4bfd85b57"
+    ],
+    "note": "the initial 3001->7004 migration must happen before gmsynth insertion; instrumenting the raw 3001 template first yields a valid but different panner migration and mix hash"
+  }
+}

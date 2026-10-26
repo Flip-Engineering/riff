@@ -1,0 +1,21 @@
+{
+  "comment": "Voice->instrument map for probes/fixtures/arrangement-v1.abc and -v2.abc. Demonstrates the required shared-instrument case: PianoRH and PianoLH are TWO VOICES on ONE instrument. Programs are RAW MIDI bytes 0-127 (abc2midi convention, abcguide.txt); GM names are 1-indexed (raw 73 = GM #74 Flute).",
+  "voices": {
+    "Flute":  {"instrument": "flute",         "program_raw": 73, "gm_name_1indexed": 74, "role": "lead"},
+    "Bass":   {"instrument": "acoustic_bass", "program_raw": 33, "gm_name_1indexed": 34, "role": "bass"},
+    "PianoRH":{"instrument": "acoustic_grand","program_raw": 0,  "gm_name_1indexed": 1,  "role": "keyboard", "shares_instrument_with": "PianoLH"},
+    "PianoLH":{"instrument": "acoustic_grand","program_raw": 0,  "gm_name_1indexed": 1,  "role": "keyboard", "shares_instrument_with": "PianoRH"}
+  },
+  "edit_v1_to_v2": {
+    "flute": "bars 3-4 up one octave (d4g2b2 -> d'4g'2b'2 etc.)",
+    "harmony": "bars 6-7 chord G/D7 -> Em (bass and piano follow)",
+    "purpose": "the meaningful edit step of the workflow probe: same project, edited score, re-render"
+  },
+  "timing_features": {
+    "base": "Q:1/4=100, M:4/4, K:G",
+    "bar5": "inline tempo change [Q:1/4=72]",
+    "bar7": "inline meter change [M:3/4]",
+    "bar8": "return [M:4/4][Q:1/4=100]",
+    "purpose": "adapter must carry conductor events, common timeline across voices, and correct endings"
+  }
+}

@@ -1,0 +1,82 @@
+{
+  "probe": "LMMS musical workflow — shared arrangement fixture (root-review authorization)",
+  "date": "2026-10-25",
+  "author": "riff-daw-glm-20261025",
+  "fixture": [
+    "probes/fixtures/arrangement-v1.abc",
+    "probes/fixtures/arrangement-v2.abc",
+    "probes/fixtures/voice-map.json"
+  ],
+  "tooling": [
+    "probes/verify/mmp_generator.py (this seat; abc2midi per-voice SMFs + voice map -> v1.3-schema .mmp with contrasting built-in instruments, discrete tempo automation map, global 4/4)",
+    "probes/verify/midi_summary.py (DeepSeek)",
+    "probes/verify/wav_note_check.py (conductor)"
+  ],
+  "runtime": {
+    "binary": "lmms-1.3.0-alpha.2-linux-x86_64.AppImage",
+    "appimage_sha256": "7580e832b9a10041ef632ebf2d70d588f41c31be8c6c80d1f9a96d1c0871298b",
+    "env": "owned HOME/XDG_CONFIG_HOME/XDG_RUNTIME_DIR, JACK_NO_START_SERVER=1, no display for render/rendertracks; Xvfb required for dump/upgrade",
+    "converter": "abc2midi 5.07 (2026-10-14, commit 6582eb8), per-voice conversion with %%MIDI gchordoff"
+  },
+  "commands": [
+    "abc2midi <V>-v1.abc -o <V>-v1.mid   # per voice; gchordoff",
+    "mmp_generator.py --voice Name=inst_key=SMF ... --out arrangement-v1.mmp",
+    "lmms -r arrangement-v1.mmp -o arrangement-v1.wav -f wav -s 44100",
+    "lmms rendertracks arrangement-v1.mmp -o stems/ -f wav -s 44100",
+    "lmms dump (MMPZ via Qt qCompress) -> canonical XML, notes byte-identical",
+    "v2: same chain on arrangement-v2 fixtures; re-render",
+    "wav_note_check.py stems/<V>.wav <V>-summary.json  (per-stem, exact)"
+  ],
+  "design_decisions": {
+    "shared_piano_instrument": "PianoRH and PianoLH are TWO LMMS tracks with IDENTICAL OPL2 (OpulenZ-family FM) settings = one logical instrument (GM program 0 raw 0), preserving per-voice stems for verification while modeling shared timbre",
+    "instruments": "Flute=TripleOscillator sine (basenote 69), Bass=TripleOscillator saw low (basenote 45, osc vols 70/40/20 after clipping fix), Piano=OPL2 FM (basenote 60) — all bundled, zero external licensing; Sf2Player+SF2 deferred to qualification (LMMS ships no soundfont: 0 .sf2/.sf3 in AppImage, license-clean pinned font unreviewed)"
+  },
+  "results": {
+    "render_v1": {
+      "mix_sha256": "4dbed32f3201e23432f48bce446d0301f520290cc6897b5fe90751ccda7646b4",
+      "duration_s": 24.166168,
+      "stems": {
+        "1_Flute.wav": "722aa90bcff4664a2b48379ed00402a978dbd919619e367c819a8bfce1e11239",
+        "2_Bass.wav": "8b7012beb365aeb742d927731ea538c5fcbd20a124420f1b683b9ed2ec3df70b",
+        "3_PianoRH.wav": "eccbcbca9043bf30190041b7dcb3dc29b000fc8dccccdfb26e8bd0593d36237b",
+        "4_PianoLH.wav": "79ee541a430fd9b646353c7e98a8616a5aa61841815cf7b9a70b43ab861044b4"
+      }
+    },
+    "event_verification_v1": {
+      "Flute": "11/12 matched (miss: 9.602s legato D5->E5 transition, pitch-change detector limit)",
+      "Bass": "28/30 matched (misses: repeated same-pitch G3 downbeats — detector blind to same-pitch repeats)",
+      "PianoRH": "21/22 matched (miss: 16.268s bar-7 boundary note)",
+      "PianoLH": "6/15 matched (voice is whole/half repeated pitches — pitch-change detector inherently blind; timing of all matched events within 80ms; no drift anywhere)",
+      "conclusion": "every unmatched expectation is a same-pitch repeat or legato transition (documented detector limit), zero timing drift"
+    },
+    "timing_C": {
+      "tempo_map": "100->72->100 at LMMS ticks 0/768/1296 (SMF 0/7680/12960): APPLIED AND AUDIBLY VERIFIED (onset spacing changes at bar 5; bar-7 and bar-8 onsets at 16.2s/18.77s match the 72 BPM segment)",
+      "meter_map": "NOT representable: LMMS Song time signature is project-global (Song.cpp setTimeSignature rescales ticksPerBar globally, v1.3.0-alpha.2). Absolute SMF ticks still place all events correctly; the 4/4->3/4->4/4 map survives as timing, not as notation/meter",
+      "bar_references": "bar5=768, bar8=1296 LMMS ticks confirmed in generated .mmp",
+      "render_length_rule": "measured 24.166s = content end (19.97s) + song-end pad: LMMS renders to pattern end (1536 ticks = 21.77s on the tempo timeline) plus one extra bar (432 ticks = 5.4s at the mapped tempo) — length is deterministic but includes the pad"
+    },
+    "stem_mix_routing_B": {
+      "finding": "stems and mix BOTH pass the master-volume stage (per-stem sha256 changes when mastervol changes: mv65 vs mv100 renders differ); mix = master-bus sum of all track outputs",
+      "clipping_cause": "initial stems clipped at track level (osc vol 200 overdrove TripleOscillator buffers: stem maxima 32767 with flat tops) — track clipping precedes mixing, so sum-of-clipped-stems != clipped-sum; RMS 7775-class discrepancies explained",
+      "after_headroom_fix": "stem maxima 29227/16612/798/798 (no clipping); best-fit mix/sum scale 0.9812 at mastervol 65, residual rms 622 (~-27dB rel) attributable to int16 per-render quantization and LMMS nonlinear master taper (mv65->100 measured gain ratio 1.3486, not 1.538 linear)",
+      "rule": "give every track headroom (osc+track levels near unity); never assert bit-exact stem-sum-to-mix; verify by event alignment (wav_note_check), not by sample sum",
+      "no_daw_defect_claimed": true
+    },
+    "edit_v2": {
+      "note_diff": "exactly the intended edit: Flute 7 notes +12 semitones (bars 3-4 octave up); Bass 6, PianoRH 4, PianoLH 4 notes changed at bars 6-7 (D7->Em); nothing else changed; duration identical 24.166168s",
+      "mix_sha256": "1c23f69e82f42e466e92cb2d164a4c081de1d97d42e7c01b368a4c04b1aea8aa",
+      "flute_stem_check": "12/12 onsets matched, zero unmatched — the octave-up edit is audibly verified at every event"
+    },
+    "abc2midi_quirks": {
+      "per_voice_conversion": "adds gchord accompaniment tracks unless %%MIDI gchordoff (one word); -NGUI and '%%MIDI gchord off' did NOT suppress in 5.07 per-voice conversion",
+      "meter_meta_placement": "inline [M:3/4] emitted at loose ticks (9600/11280 observed vs 11520 expected bar-7 start), varies per voice",
+      "note_onsets": "+1 tick after bar position, durations -1 tick (rounds clean at /10 to LMMS ticks)"
+    }
+  },
+  "limits": [
+    "Linux x86_64 only; macOS headless render remains unverified",
+    "LMMS 1.3.0-alpha.2 AppImage: schema and behavior are version-locked; .mmp generation must be revalidated per pin",
+    "meter map unrepresentable (global only) — arrangements needing notation-grade meter changes need a different adapter or upstream change",
+    "PianoLH low match rate is a detector limitation on repeated pitches, not evidence of missing audio; sample-sum identity is explicitly NOT claimed"
+  ]
+}

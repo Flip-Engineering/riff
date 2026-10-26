@@ -1,0 +1,22 @@
+{
+  "comment": "Explicit timing map for probes/fixtures/arrangement-v1.abc and -v2.abc. The probe does NOT infer ABC timing; this manifest is the adapter contract: quarter-note positions are exact, bbt labels are for the receipt. 480 quarter-note ticks is the SMF reference used by abc2midi.",
+  "quarter_note_ticks": 480,
+  "end_quarters": 31,
+  "tempos": [
+    {"bbt": "1|1|0", "quarters": 0, "bpm": 100},
+    {"bbt": "5|1|0", "quarters": 16, "bpm": 72},
+    {"bbt": "8|1|0", "quarters": 27, "bpm": 100}
+  ],
+  "meters": [
+    {"bbt": "1|1|0", "quarters": 0, "divisions_per_bar": 4},
+    {"bbt": "7|1|0", "quarters": 24, "divisions_per_bar": 3},
+    {"bbt": "8|1|0", "quarters": 27, "divisions_per_bar": 4}
+  ],
+  "expected": {
+    "bar5_tick": 7680,
+    "bar7_tick": 11520,
+    "bar8_tick": 12960,
+    "end_tick": 14880,
+    "duration_s_at_48k": 21.1666666667
+  }
+}

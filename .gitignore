@@ -19,3 +19,4 @@ dist/
 .mix-venv/
 .compiler-cache-tool/
 native-cache-receipts/
+.probe-tmp/

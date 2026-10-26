@@ -1,0 +1,46 @@
+<?xml version="1.0"?>
+<!DOCTYPE lmms-project>
+<lmms-project creator="riff-daw-glm-probe" version="1.0" type="song" creatorversion="1.3.0-alpha.2">
+  <head timesig_numerator="4" bpm="108" timesig_denominator="4" mastervol="100" masterpitch="0"/>
+  <song>
+    <trackcontainer x="5" y="5" w="700" h="300" visible="1" type="song">
+      <track muted="0" name="Melody" solo="0" type="0">
+        <instrumenttrack pan="0" pitchrange="1" pitch="0" basenote="57" vol="100">
+          <instrument name="tripleoscillator">
+            <tripleoscillator phoffset2="0" finer0="0" finer1="0" finer2="0" coarse0="0" coarse1="-12" coarse2="0" finel0="0" finel1="0" modalgo1="2" modalgo2="1" finel2="0" pan0="0" modalgo3="2" pan1="0" stphdetun0="0" pan2="0" stphdetun1="0" wavetype0="2" stphdetun2="0" wavetype1="2" wavetype2="2" vol0="200" vol1="100" phoffset0="0" phoffset1="0" vol2="100"/>
+          </instrument>
+          <eldata fres="0.5" ftype="0" fcut="14000" fwet="0"/>
+          <chordcreator chord="0" chordrange="1" chord-enabled="0"/>
+          <arpeggiator arptime="100" arprange="1" arptime_denominator="4" syncmode="0" arpmode="0" arp-enabled="0" arp="0" arptime_numerator="4" arpdir="0" arpgate="100"/>
+          <midiport inputcontroller="0" fixedoutputvelocity="-1" inputchannel="0" outputcontroller="0" writable="0" outputchannel="1" fixedinputvelocity="-1" fixedoutputnote="-1" outputprogram="1" basevelocity="63" readable="0"/>
+          <fxchain numofeffects="0" enabled="0"/>        </instrumenttrack>
+      <pattern name="Melody" pos="0" steps="32" muted="0">
+            <note key="5" pos="0" len="48" vol="100"/>
+            <note key="8" pos="48" len="48" vol="100"/>
+            <note key="12" pos="96" len="48" vol="100"/>
+            <note key="10" pos="144" len="48" vol="100"/>
+            <note key="8" pos="192" len="48" vol="100"/>
+            <note key="7" pos="240" len="48" vol="100"/>
+            <note key="5" pos="288" len="96" vol="100"/>
+          </pattern>
+      </track>
+      <track muted="0" name="Bass" solo="0" type="0">
+        <instrumenttrack pan="0" pitchrange="1" pitch="0" basenote="45" vol="100">
+          <instrument name="tripleoscillator">
+            <tripleoscillator phoffset2="0" finer0="0" finer1="0" finer2="0" coarse0="-12" coarse1="-24" coarse2="0" finel0="0" finel1="0" modalgo1="2" modalgo2="1" finel2="0" pan0="0" modalgo3="2" pan1="0" stphdetun0="0" pan2="0" stphdetun1="0" wavetype0="2" stphdetun2="0" wavetype1="2" wavetype2="2" vol0="200" vol1="100" phoffset0="0" phoffset1="0" vol2="100"/>
+          </instrument>
+          <eldata fres="0.5" ftype="0" fcut="14000" fwet="0"/>
+          <chordcreator chord="0" chordrange="1" chord-enabled="0"/>
+          <arpeggiator arptime="100" arprange="1" arptime_denominator="4" syncmode="0" arpmode="0" arp-enabled="0" arp="0" arptime_numerator="4" arpdir="0" arpgate="100"/>
+          <midiport inputcontroller="0" fixedoutputvelocity="-1" inputchannel="0" outputcontroller="0" writable="0" outputchannel="2" fixedinputvelocity="-1" fixedoutputnote="-1" outputprogram="1" basevelocity="63" readable="0"/>
+          <fxchain numofeffects="0" enabled="0"/>        </instrumenttrack>
+      <pattern name="Bass" pos="0" steps="32" muted="0">
+            <note key="2" pos="0" len="96" vol="100"/>
+            <note key="9" pos="96" len="96" vol="100"/>
+            <note key="2" pos="192" len="96" vol="100"/>
+            <note key="9" pos="288" len="96" vol="100"/>
+          </pattern>
+      </track>
+    </trackcontainer>
+  </song>
+</lmms-project>

@@ -1,0 +1,42 @@
+-- Environment: ARDOUR_PROBE_LOG, ARDOUR_PROBE_SESSION_DIR, ARDOUR_PROBE_SNAPSHOT_IN.
+local function required(name)
+  local value = os.getenv(name)
+  assert(value and value ~= "", "Set " .. name)
+  return value
+end
+local outpath = required("ARDOUR_PROBE_LOG")
+local sdir = required("ARDOUR_PROBE_SESSION_DIR")
+local snapshot = required("ARDOUR_PROBE_SNAPSHOT_IN")
+local f = assert(io.open(outpath, "w"))
+local function log(x) f:write(tostring(x).."\n"); f:flush() end
+log("start")
+local s = load_session(sdir, snapshot)
+log("session="..tostring(s))
+if not s then f:close(); quit(); return end
+local n = 0
+for t in s:get_tracks():iter() do
+  n = n + 1
+  log("track "..n.." name="..tostring(t:name()))
+  local p = ARDOUR.LuaAPI.new_plugin(s, "http://gareus.org/oss/lv2/gmsynth", ARDOUR.PluginType.LV2, "")
+  log("plugin="..tostring(p).." isnil="..tostring(p:isnil()))
+  if not p:isnil() then
+    local ok, err = pcall(function() t:add_processor_by_index(p, 0, nil, true) end)
+    log("add_processor ok="..tostring(ok).." err="..tostring(err))
+  end
+end
+log("tracks="..n)
+local ok, err = pcall(function() s:save_state() end)
+log("save_state ok="..tostring(ok).." err="..tostring(err))
+local se = s:simple_export()
+log("simple_export="..tostring(se))
+se:set_name("gmsynth-probe")
+se:set_folder(sdir.."/export")
+se:set_range(529680, 1089150)
+log("check_outputs="..tostring(se:check_outputs()))
+log("run_export start")
+local rok, rerr = pcall(function() return se:run_export() end)
+log("run_export ok="..tostring(rok).." result/err="..tostring(rerr))
+close_session()
+log("closed")
+f:close()
+quit()
