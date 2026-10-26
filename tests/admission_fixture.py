@@ -7,7 +7,7 @@ class FixtureAdmission:
     def __init__(self):
         self.lock = threading.Lock()
         self.entries = {}
-        self.gates = {kind: threading.Event() for kind in ("native", "writer")}
+        self.gates = {kind: threading.Event() for kind in ("native", "writer", "daw")}
         for gate in self.gates.values():
             gate.set()
 

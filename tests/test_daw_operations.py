@@ -1,10 +1,13 @@
 """Focused checks for the daw.compose / daw.render operation integration.
 
-Runs against a real StudioServer with a hermetic fake Ardour runtime (stub
-ardour9-lua / ardour9-export / abc2midi scripts): the shared queue, admission,
-receipts and artifact recording are exercised end to end without Ardour, a
-model, or a native build.  Path-plumbing evidence only — actual Ardour
-operation is qualified separately on the pinned runtime.
+Runs against a real StudioServer with a hermetic pinned-runtime record
+(hash-verified stubs): the shared queue, admission, receipts and artifact
+recording are exercised end to end without Ardour, a model, or a native
+build.  The fake ardour9-lua runs the REAL maintained Lua scripts from
+scripts/daw/ under a real liblua interpreter with a stub Ardour API derived
+from the actual session file, so the runner is checked against the committed
+log protocol rather than a mirror of its own strings.  Path-plumbing evidence
+only — actual Ardour operation is qualified separately on the pinned runtime.
 """
 import hashlib
 import http.client
@@ -15,12 +18,12 @@ import stat
 import sys
 import tempfile
 import threading
+import time
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from capabilities import describe
-from operations import catalog
 from studio import StudioServer
 from studio_core import Generator
 from test_studio import StudioFixture, wait_until
@@ -78,45 +81,124 @@ TEMPLATE = """<?xml version="1.0" encoding="UTF-8"?>
 </Session>
 """
 
-FAKE_LUA = r"""#!/usr/bin/env python3
-import os, re, shutil, sys
+FAKE_LUA = r'''#!/usr/bin/env python3
+# Fake ardour9-lua for Slice B tests: runs the REAL maintained Lua scripts
+# (scripts/daw/*.lua) under a real liblua interpreter with a stub Ardour API
+# whose session shape comes from the actual session file.  This is a host
+# stub exercising the committed protocol, not a mirror of runner strings.
+import ctypes, ctypes.util, sys
 from pathlib import Path
-script = Path(sys.argv[1]).name
-sdir = Path(os.environ["ARDOUR_PROBE_SESSION_DIR"])
-snap_in = os.environ.get("ARDOUR_PROBE_SNAPSHOT_IN")
-snap_out = os.environ.get("ARDOUR_PROBE_SNAPSHOT_OUT")
-log = Path(os.environ["ARDOUR_PROBE_LOG"])
 
-def upgrade(text):
-    # Emulate the 3001 -> 7004 migration: b-coordinate locations/regions and a
-    # superclock TempoMap, so patch_tempo_range.py sees the real new shape.
-    text = text.replace('version="3001"', 'version="7004"')
-    def block(match):
-        inner = match.group(0)
-        tempos = re.findall(r"<Tempo [^>]*/>", inner)
-        meters = re.findall(r"<Meter [^>]*/>", inner)
-        return ('\n  <TempoMap superclocks-per-second="282240000">\n    <Tempos>\n'
-                + "".join("      " + t + "\n" for t in tempos)
-                + '    </Tempos>\n    <Meters>\n'
-                + "".join("      " + m + "\n" for m in meters)
-                + '    </Meters>\n    <MusicTimes/>\n  </TempoMap>')
-    text = re.sub(r"<TempoMap>.*?</TempoMap>", block, text, flags=re.S)
-    text = re.sub(r'start="(\d+)"', lambda m: 'start="b' + m.group(1) + '"', text)
-    text = re.sub(r'end="(\d+)"', lambda m: 'end="b' + m.group(1) + '"', text)
-    text = re.sub(r'length="(\d+)"', lambda m: 'length="b' + m.group(1) + '@b0"', text)
-    return text
+STUB = r"""
+local function readfile(p)
+  local f = io.open(p); if not f then return nil end
+  local t = f:read("a"); f:close(); return t
+end
 
-if snap_out:
-    text = upgrade((sdir / (snap_in + ".ardour")).read_text())
-    (sdir / (snap_out + ".ardour")).write_text(text)
-    log.write_text("save ok=True\n")
-elif script == "save_stems.lua":
-    for index in (1, 2):
-        shutil.copyfile(sdir / (snap_in + ".ardour"), sdir / (f"stem-{index}.ardour"))
-    log.write_text("stem 1 Lead save=True\nstem 2 Bass save=True\nsave ok=True\n")
-else:
-    log.write_text("ok\n")
+local function migrate(text)
+  text = text:gsub('version="3001"', 'version="7004"')
+  if not text:find('superclocks%-per%-second') then
+    text = text:gsub('<TempoMap>(.-)</TempoMap>', function(inner)
+      local out = {'  <TempoMap superclocks-per-second="282240000">', '    <Tempos>'}
+      for t in inner:gmatch('<Tempo [^>]*/>') do out[#out+1] = '      ' .. t end
+      out[#out+1] = '    </Tempos>'
+      out[#out+1] = '    <Meters>'
+      for m in inner:gmatch('<Meter [^>]*/>') do out[#out+1] = '      ' .. m end
+      out[#out+1] = '    </Meters>'
+      out[#out+1] = '    <MusicTimes/>'
+      out[#out+1] = '  </TempoMap>'
+      return table.concat(out, '\n')
+    end)
+  end
+  text = text:gsub('start="(%d+)"', 'start="b%1"')
+  text = text:gsub('end="(%d+)"', 'end="b%1"')
+  text = text:gsub('length="(%d+)"', 'length="b%1@b0"')
+  return text
+end
+
+local session = nil
+local session_dir, session_name = nil, nil
+
+local function new_track(name)
+  return {
+    name = function() return name end,
+    tname = function() return name end,
+    add_processor_by_index = function(p, i, a, b) return true end,
+    solo_control = function() return { set_value = function() end } end,
+  }
+end
+
+function load_session(dir, name)
+  local text = readfile(dir .. "/" .. name .. ".ardour")
+  if not text then return nil, "no session" end
+  local tracks = {}
+  for block in text:gmatch("<Route%s(.-)>") do
+    if block:find('default%-type="midi"') then
+      local n = block:match('name="([^"]+)"')
+      if n then tracks[#tracks+1] = new_track(n) end
+    end
+  end
+  session_dir, session_name = dir, name
+  local list = { n = #tracks }
+  list.iter = function()
+    local i = 0
+    return function() i = i + 1; if i <= #tracks then return tracks[i] end end
+  end
+  session = {
+    name = function() return name end,
+    get_tracks = function() return list end,
+    save_state = function(_, out)
+      local body = migrate(readfile(dir .. "/" .. name .. ".ardour"))
+      local f = io.open(dir .. "/" .. out .. ".ardour", "w")
+      f:write(body); f:close()
+      return 0
+    end,
+  }
+  return session
+end
+
+function close_session() end
+function quit() end
+
+ARDOUR = {
+  LuaAPI = { new_plugin = function() return { isnil = function() return false end } end },
+  PluginType = { LV2 = "LV2" },
+}
+PBD = { GroupControlDisposition = { NoGroup = "NoGroup" } }
 """
+
+
+def main():
+    library = ctypes.util.find_library("lua5.4") or ctypes.util.find_library("lua5.3")
+    if not library:
+        raise SystemExit("liblua5.4/5.3 is required for the script host stub")
+    lua = ctypes.CDLL(library)
+    lua.luaL_newstate.restype = ctypes.c_void_p
+    for fn in ("luaL_openlibs", "lua_close"):
+        getattr(lua, fn).restype = None
+        getattr(lua, fn).argtypes = [ctypes.c_void_p]
+    lua.luaL_loadstring.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
+    lua.luaL_loadstring.restype = ctypes.c_int
+    lua.lua_pcallk.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_int,
+                             ctypes.c_int, ctypes.c_ssize_t, ctypes.c_void_p]
+    lua.lua_pcallk.restype = ctypes.c_int
+    lua.lua_tolstring.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p]
+    lua.lua_tolstring.restype = ctypes.c_char_p
+    state = lua.luaL_newstate()
+    lua.luaL_openlibs(state)
+    for chunk in (STUB, Path(sys.argv[1]).read_text()):
+        status = lua.luaL_loadstring(state, chunk.encode())
+        if status == 0:
+            status = lua.lua_pcallk(state, 0, -1, 0, 0, None)
+        if status != 0:
+            print(lua.lua_tolstring(state, -1, None).decode("utf-8", "replace"), file=sys.stderr)
+            lua.lua_close(state)
+            raise SystemExit(1)
+    lua.lua_close(state)
+
+
+main()
+'''
 
 FAKE_EXPORT = """#!/usr/bin/env python3
 import array, sys, wave
@@ -165,11 +247,14 @@ class DawFixture(StudioFixture):
         template.write_text(TEMPLATE)
         for binary in bin_dir.iterdir():
             binary.chmod(binary.stat().st_mode | stat.S_IEXEC)
-        record = {"version": "9.8", "commit": "059c95883d8158b03f632056ba36e5c7de91ef28",
-                  "kind": "source-build", "prefix": str(bin_dir), "abc2midi": str(abc2midi),
-                  "template": str(template),
+        record = {"version": "9.8", "commit": "22ed8656c2533e325322ff11831448e5123e0d4b",
+                  "kind": "source-build", "prefix": str(bin_dir),
+                  "abc2midi": str(abc2midi), "template": str(template),
+                  "instrument": {"uri": "http://gareus.org/oss/lv2/gmsynth",
+                                 "sf2_sha256": "c278464b823daf9c52106c0957f752817da0e52964817ff682fe3a8d2f8446ce"},
                   "sha256": {name: _sha(bin_dir / name)
-                             for name in ("ardour9-lua", "ardour9-export", "ardour9-new_session")}}
+                             for name in ("ardour9-lua", "ardour9-export", "ardour9-new_session")},
+                  "tools": {"abc2midi": _sha(abc2midi), "template": _sha(template)}}
         (self.store.data_root / "ardour-runtime.json").write_text(json.dumps(record))
         self.generator = Generator(self.store, self.command)
         self.server = StudioServer(("127.0.0.1", 0), self.store, self.generator)
@@ -238,7 +323,7 @@ class SubmitTests(DawFixture):
         wait_until(lambda: self.store.job(body["job_id"])["status"] == "done")
         from operations import Operations
         reference = Operations(self.store, self.generator).receipt(body["operation_id"])["outputs"]["arrangement_source"]
-        status, render = self.post("daw.render", {"title": "Two voices", "arrangement_source": reference,
+        status, render = self.post("daw.render", {"arrangement_source": reference,
                                                   "idempotency_key": "r1"})
         self.assertEqual(status, 201)
         wait_until(lambda: self.store.job(render["job_id"])["status"] == "done")
@@ -248,8 +333,14 @@ class SubmitTests(DawFixture):
         self.assertEqual(receipt["stages"]["render"]["state"], "done")
         self.assertEqual(receipt["stages"]["stems"]["state"], "done")
         self.assertEqual(len(receipt["outputs"]["stem_manifest"]), 2)
+        self.assertEqual([s["track"] for s in receipt["outputs"]["stem_manifest"]],
+                         ["Lead", "Bass"])
         self.assertTrue(receipt["outputs"]["track_id"])
         self.assertNotIn(str(self.root), json.dumps(receipt))
+        # The public references path verifies the own kind.
+        _, resolved = self.post("references.resolve", {"arrangement_source": reference})
+        self.assertEqual(resolved["references"][0]["status"], "verified")
+        self.assertEqual(resolved["references"][0]["kind"], "arrangement")
 
     def test_validation_errors_are_explicit(self):
         status, body = self.post("daw.compose", {"abc": ABC, "voice_map": VOICE_MAP, "timing": TIMING})
@@ -265,6 +356,20 @@ class SubmitTests(DawFixture):
         self.assertEqual(status, 400)
         self.assertIn("program_raw", body["error"])
 
+    def test_unsupported_selections_are_refused_before_queueing(self):
+        status, body = self.post("daw.compose", {"title": "X", "abc": ABC, "voice_map": VOICE_MAP,
+                                                 "timing": TIMING,
+                                                 "instrument_map": {"default": {"plugin": "other", "bank": "other"}}})
+        self.assertEqual(status, 400)
+        self.assertIn("gmsynth", body["error"])
+        _, body = self.compose("k3")
+        wait_until(lambda: self.store.job(body["job_id"])["status"] == "done")
+        from operations import Operations
+        reference = Operations(self.store, self.generator).receipt(body["operation_id"])["outputs"]["arrangement_source"]
+        status, body = self.post("daw.render", {"arrangement_source": reference, "format": "flac"})
+        self.assertEqual(status, 400)
+        self.assertIn("format", body["error"])
+
     def test_idempotency_replays_the_same_operation(self):
         _, first = self.compose("same-key")
         status, second = self.compose("same-key")
@@ -272,12 +377,6 @@ class SubmitTests(DawFixture):
         self.assertTrue(second["replayed"])
         self.assertEqual(first["operation_id"], second["operation_id"])
         wait_until(lambda: self.store.job(first["job_id"])["status"] == "done")
-
-    def test_render_requires_an_existing_arrangement(self):
-        status, body = self.post("daw.render", {"title": "X",
-                                                "arrangement_source": "riff-arrangement-v1:" + "0" * 64})
-        self.assertEqual(status, 400)
-        self.assertIn("unavailable", body["error"])
 
     def test_family_linkage(self):
         _, first = self.compose("fam1")
@@ -342,6 +441,92 @@ class UnavailableRuntimeTests(StudioFixture):
         self.assertFalse(receipt["recorded"])
         self.assertIn("operation", receipt["unrecorded"])
         self.assertNotIn(str(self.root), json.dumps(receipt))
+
+    def test_malformed_or_demo_or_unhashed_records_are_refused(self):
+        import daw_runtime
+        record_path = self.store.data_root / "ardour-runtime.json"
+        # Malformed JSON
+        record_path.write_text("not json")
+        with self.assertRaises(daw_runtime.RuntimeUnavailable):
+            daw_runtime.require(self.store)
+        # Demo kind is never a production runtime, even hash-valid
+        bin_dir = self.root / "bin"
+        bin_dir.mkdir()
+        (bin_dir / "tool").write_text("x")
+        (bin_dir / "tool").chmod(0o755)
+        template = self.root / "t.ardour"
+        template.write_text("x")
+        demo = {"version": "9.8", "commit": "22ed8656c2533e325322ff11831448e5123e0d4b",
+                "kind": "demo", "prefix": str(bin_dir),
+                "abc2midi": str(bin_dir / "tool"), "template": str(template),
+                "instrument": {"uri": "http://gareus.org/oss/lv2/gmsynth",
+                               "sf2_sha256": "c278464b823daf9c52106c0957f752817da0e52964817ff682fe3a8d2f8446ce"},
+                "sha256": {n: _sha(bin_dir / "tool") for n in ("ardour9-lua", "ardour9-export", "ardour9-new_session")},
+                "tools": {"abc2midi": _sha(bin_dir / "tool"), "template": _sha(template)}}
+        record_path.write_text(json.dumps(demo))
+        with self.assertRaises(daw_runtime.RuntimeUnavailable):
+            daw_runtime.require(self.store)
+        # Same record with a missing hash is refused, not verified
+        del demo["sha256"]["ardour9-lua"]
+        record_path.write_text(json.dumps(demo))
+        with self.assertRaises(daw_runtime.RuntimeUnavailable):
+            daw_runtime.require(self.store)
+
+
+class CustodyTests(unittest.TestCase):
+    """Bounded cancellation custody over this suite's own test processes."""
+
+    def test_stubborn_child_group_is_killed_and_reports_cancelled(self):
+        import daw_runner
+        with tempfile.TemporaryDirectory() as td:
+            td = Path(td)
+            stubborn = td / "stubborn.py"
+            stubborn.write_text("import signal, time\nsignal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
+                                "time.sleep(120)\n")
+            log = td / "child.log"
+            cancelled = threading.Event()
+            holder = {}
+            outcome = {}
+
+            def work():
+                try:
+                    daw_runner._run([sys.executable, str(stubborn)], os.environ.copy(), log,
+                                    cancelled, attach=lambda p: holder.setdefault("p", p))
+                except daw_runner.StageError as error:
+                    outcome["stage"] = error.stage
+
+            thread = threading.Thread(target=work)
+            thread.start()
+            deadline = time.monotonic() + 10
+            while "p" not in holder and time.monotonic() < deadline:
+                time.sleep(0.02)
+            self.assertIn("p", holder)
+            process = holder["p"]
+            cancelled.set()
+            thread.join(timeout=30)
+            self.assertFalse(thread.is_alive(), "the run call must return after cancellation")
+            self.assertEqual(outcome.get("stage"), "cancelled")
+            self.assertIsNotNone(process.poll(), "the stubborn child must be dead")
+
+    def test_cancellation_before_any_stage_publishes_nothing(self):
+        import daw_runner
+        import daw_runtime
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            from studio_core import Store
+            store = Store(root / "data", root / "outputs")
+            from arrangement_artifacts import ArrangementArtifacts
+            store.arrangements = ArrangementArtifacts(store)
+            cancelled = threading.Event()
+            cancelled.set()
+            recipe = {"title": "X", "daw": {"kind": "compose", "stages": {}, "abc": ABC,
+                                            "voice_map": VOICE_MAP, "timing": TIMING,
+                                            "session_name": "arrangement", "converter": "t"}}
+            record = {"prefix": str(root)}  # never reached: cancellation precedes custody
+            with self.assertRaises(daw_runner.StageError):
+                daw_runner.compose(store, "a" * 32, recipe, record, cancelled)
+            job_dir = store.data_root / "daw" / ("a" * 32)
+            self.assertFalse((job_dir / "session").exists())
 
 
 if __name__ == "__main__":

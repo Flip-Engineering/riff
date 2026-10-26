@@ -4,9 +4,20 @@ The daw payload is contract-validated here, outside the YuE2 recipe path;
 the job's recorded recipe carries exactly these fields.  Failures are plain
 ``ValueError`` so the operation surface answers 400, and the same checks run
 in ``Generator.prepare`` so no route can queue an unvalidated daw job.
+
+Unsupported selections are rejected before queueing — the runner never
+silently substitutes a timbre, format, rate or depth the requester did not
+ask for.
 """
 import ardour_session
 import arrangement_artifacts
+import daw_runtime
+
+
+DEFAULT_INSTRUMENT = {"plugin": daw_runtime.GMSYNTH_URI, "bank": "GeneralUser_LV2.sf2"}
+SUPPORTED_FORMATS = ("wav",)
+SUPPORTED_RATES = (44100, 48000, 96000)
+SUPPORTED_DEPTHS = ("16", "24", "float")
 
 
 def _title(payload):
@@ -23,6 +34,21 @@ def _resolve_arrangement(store, source):
         return store.arrangements.describe(source)
     except KeyError:
         raise ValueError("The arrangement reference is unavailable.") from None
+
+
+def _instruments(daw):
+    """Instrument selection: the bundled gmsynth/GeneralUser default or nothing.
+
+    Any other engine, bank or override is refused until that selection is
+    implemented and qualified; the runner never substitutes silently.
+    """
+    overrides = daw.get("instrument_map")
+    if overrides is None:
+        daw["instrument_map"] = {"default": dict(DEFAULT_INSTRUMENT)}
+        return
+    if overrides != {"default": DEFAULT_INSTRUMENT}:
+        raise ValueError("Only the bundled gmsynth + GeneralUser instrument is supported; "
+                         "other instrument_map selections are not yet implemented.")
 
 
 def _compose(daw):
@@ -44,15 +70,25 @@ def _compose(daw):
         daw.setdefault("session_name", "arrangement")
         daw.setdefault("converter", "abc2midi 5.07 6582eb8")
         daw.pop("session_input", None)
+    _instruments(daw)
 
 
 def _render(daw):
     source = daw.get("arrangement_source")
     if not source:
         raise ValueError("arrangement_source is required.")
-    daw.setdefault("format", "wav")
-    daw.setdefault("sample_rate", 48000)
-    daw.setdefault("bit_depth", "16")
+    fmt = daw.setdefault("format", "wav")
+    if fmt not in SUPPORTED_FORMATS:
+        raise ValueError(f"format {fmt} is not supported by the runner; supported: "
+                         + ", ".join(SUPPORTED_FORMATS) + ".")
+    rate = daw.setdefault("sample_rate", 48000)
+    if rate not in SUPPORTED_RATES:
+        raise ValueError(f"sample_rate {rate} is not supported; supported: "
+                         + ", ".join(map(str, SUPPORTED_RATES)) + ".")
+    depth = daw.setdefault("bit_depth", "16")
+    if depth not in SUPPORTED_DEPTHS:
+        raise ValueError(f"bit_depth {depth} is not supported; supported: "
+                         + ", ".join(SUPPORTED_DEPTHS) + ".")
     daw.setdefault("stems", True)
 
 
@@ -69,8 +105,9 @@ def prepare(store, payload):
     else:
         raise ValueError("The daw operation kind is required.")
     daw["stages"] = {}
-    recipe = {"title": _title(payload), "daw": daw}
+    recipe = {"daw": daw}
     source = daw.get("arrangement_source") or daw.get("session_input")
+    provenance = None
     if source:
         provenance = _resolve_arrangement(store, source)
         recipe["arrangement_source"] = source
@@ -78,4 +115,8 @@ def prepare(store, payload):
         if kind == "compose":
             # Regeneration from a saved arrangement reuses its recorded inputs.
             daw.update(provenance.get("composition") or {})
+    if kind == "render" and not payload.get("title") and provenance is not None:
+        recipe["title"] = provenance["title"] or "Arrangement render"
+    else:
+        recipe["title"] = _title(payload)
     return recipe

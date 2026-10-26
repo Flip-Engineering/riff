@@ -4,15 +4,21 @@ Stages follow the adapter contract §3.1: build (``ardour_session.py``) ->
 upgrade-load -> instrument -> tempo/range patch -> reopen/save for
 ``daw.compose``; resolve -> mix export -> solo-stem snapshots -> per-stem
 export for ``daw.render``.  Every stage is fail-closed on evidence: the
-expected artifacts exist non-empty and the expected success lines are in the
-logs — never the exit status alone (contract I5).  All work runs under an
-owned per-job environment with ``JACK_NO_START_SERVER=1``, one process at a
-time, using only the pinned runtime's hash-verified binaries and the
-repository's committed probe scripts.
+expected artifacts exist non-empty and the committed Lua scripts' own success
+lines are in the logs — never the exit status alone (contract I5).  All work
+runs under an owned per-job environment with ``JACK_NO_START_SERVER=1``, one
+process at a time, using only the pinned runtime's hash-verified binaries and
+the maintained production script set in ``scripts/daw/``.
+
+Every child process runs in its own process group under the job's admission
+custody: cancellation terminates the group, escalating to a kill when a child
+ignores TERM, and a cancellation never publishes a cancelled result.
 """
 import json
 import os
+import re
 import shutil
+import signal
 import subprocess
 import sys
 import time
@@ -20,6 +26,10 @@ from pathlib import Path
 
 import ardour_session
 from paths import ROOT
+
+
+SCRIPTS = ROOT / "scripts" / "daw"
+SUMMARY_TOOL = SCRIPTS / "midi_summary.py"
 
 
 class StageError(RuntimeError):
@@ -51,30 +61,46 @@ def _environment(job_root):
     return {**os.environ, **env}
 
 
-def _run(command, env, log_path, cancelled):
-    """Run one chain tool; cancel terminates the child rather than the job."""
+def _stop_process_group(process):
+    """TERM the child's group, escalate to KILL when the child ignores it."""
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+    except (ProcessLookupError, PermissionError):
+        pass
+    try:
+        process.wait(timeout=5)
+        return
+    except subprocess.TimeoutExpired:
+        pass
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        pass
+    process.wait(timeout=10)
+
+
+def _run(command, env, log_path, cancelled, attach=None, capture=False):
+    """Run one chain tool under the job's custody; cancel stops the group."""
     with open(log_path, "w") as log:
-        process = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT, env=env)
+        process = subprocess.Popen(command, stdout=subprocess.PIPE if capture else log,
+                                   stderr=subprocess.STDOUT if not capture else subprocess.PIPE,
+                                   env=env, start_new_session=True)
+        if attach:
+            attach(process)
         while process.poll() is None:
             if cancelled is not None and cancelled.is_set():
-                process.terminate()
-                process.wait(timeout=10)
+                _stop_process_group(process)
                 raise StageError("cancelled", "Cancelled.")
             time.sleep(0.05)
     if process.returncode:
         raise StageError("process", f"{Path(command[0]).name} exited {process.returncode}; see the stage log.")
+    if capture:
+        return process.stdout.read()
 
 
-def _lua(runtime, env, script, log_path, cancelled, **probe_env):
-    command = [str(Path(runtime["prefix"]) / "ardour9-lua"), str(ROOT / "probes" / "ardour" / script)]
-    _run(command, {**env, **probe_env}, log_path, cancelled)
-
-
-def _expect(log_path, *lines):
-    text = Path(log_path).read_text() if Path(log_path).exists() else ""
-    for line in lines:
-        if line not in text:
-            raise StageError("evidence", f"{Path(log_path).name} lacks {line!r}.")
+def _lua(runtime, env, script, log_path, cancelled, attach=None, **probe_env):
+    command = [str(Path(runtime["prefix"]) / "ardour9-lua"), str(SCRIPTS / script)]
+    _run(command, {**env, **probe_env}, log_path, cancelled, attach=attach)
 
 
 def _expect_file(path):
@@ -82,13 +108,29 @@ def _expect_file(path):
         raise StageError("evidence", f"{Path(path).name} was not produced.")
 
 
-def compose(store, job_id, recipe, runtime, cancelled=None, stage_update=None):
+def _tracks_logged(log_path):
+    text = Path(log_path).read_text() if Path(log_path).exists() else ""
+    match = re.search(r"^tracks=(\d+)$", text, flags=re.M)
+    return int(match.group(1)) if match else 0
+
+
+def _expect_save(log_path, snapshot):
+    """The committed scripts write 'save ok=true result=0' (Lua tostring)."""
+    _expect_file(snapshot)
+    text = Path(log_path).read_text() if Path(log_path).exists() else ""
+    if "save ok=true" not in text:
+        raise StageError("evidence", f"{Path(log_path).name} lacks 'save ok=true'.")
+
+
+def compose(store, job_id, recipe, runtime, cancelled=None, stage_update=None, attach=None):
     """Build, instrument, patch and reopen the session; record the arrangement.
 
     Returns the arrangement reference.  ``stage_update(stage, facts)``
     persists progress into the job's recipe for the live receipt.
     """
     daw = recipe["daw"]
+    if cancelled is not None and cancelled.is_set():
+        raise StageError("cancelled", "Cancelled.")
     workdir = Path(store.data_root) / "daw" / job_id
     workdir.mkdir(parents=True, exist_ok=True)
     env = _environment(workdir)
@@ -98,21 +140,43 @@ def compose(store, job_id, recipe, runtime, cancelled=None, stage_update=None):
 
     (workdir / "input.abc").write_text(daw["abc"])
     (workdir / "timing.json").write_text(json.dumps(daw["timing"], indent=1))
+    (workdir / "voice-map.json").write_text(json.dumps(daw["voice_map"], indent=1))
 
     def convert(split, out_mid):
-        return ardour_session.abc2midi_notes(split, out_mid, runtime["abc2midi"],
-                                             ROOT / "probes" / "verify" / "midi_summary.py")
+        tmp = Path(out_mid).with_suffix('.tmp.mid')
+        _run([str(runtime["abc2midi"]), str(split), '-o', str(tmp), '-NGUI'],
+             env, logs / f"convert-{Path(split).stem}.out", cancelled, attach=attach)
+        out = _run([sys.executable, str(SUMMARY_TOOL), str(tmp)],
+                   env, logs / f"summarize-{Path(split).stem}.out", cancelled, attach=attach,
+                   capture=True)
+        tmp.unlink(missing_ok=True)
+        j = json.loads(out)
+        notes = []
+        for ti, t in enumerate(j['tracks']):
+            if ti == 0:
+                continue
+            for n in t['notes']:
+                notes.append((max(0, n['start'] - 1), n['dur'], n['pitch'], n['vel'], n['ch']))
+        return notes
 
     if stage_update:
         stage_update("session", {"state": "running"})
     session_file = ardour_session.build_session(runtime["template"], workdir / "input.abc",
                                                 daw["voice_map"], daw["timing"], session_dir,
                                                 name, convert)
-    probe = {"ARDOUR_PROBE_SESSION_DIR": str(session_dir), "ARDOUR_PROBE_LOG": ""}
-    _lua(runtime, env, "reopen_session.lua", logs / "upgrade.out", cancelled,
-         **{**probe, "ARDOUR_PROBE_LOG": str(logs / "upgrade.out"),
-            "ARDOUR_PROBE_SNAPSHOT_IN": name, "ARDOUR_PROBE_SNAPSHOT_OUT": "upgraded"})
-    _expect(logs / "upgrade.out", "save ok=True")
+    _expect_file(session_file)
+    groups = ardour_session.group_tracks(daw["voice_map"])
+    for g in groups:
+        _expect_file(session_dir / "interchange" / name / "midifiles" / f"{g['track']}.mid")
+    tracks = len(groups)
+
+    probe = {"ARDOUR_PROBE_SESSION_DIR": str(session_dir)}
+    _lua(runtime, env, "reopen_session.lua", logs / "upgrade.out", cancelled, attach=attach,
+         **probe, ARDOUR_PROBE_LOG=str(logs / "upgrade.out"),
+         ARDOUR_PROBE_SNAPSHOT_IN=name, ARDOUR_PROBE_SNAPSHOT_OUT="upgraded")
+    _expect_save(logs / "upgrade.out", session_dir / "upgraded.ardour")
+    if _tracks_logged(logs / "upgrade.out") != tracks:
+        raise StageError("evidence", "upgrade-load track count does not match the session.")
     if cancelled is not None and cancelled.is_set():
         raise StageError("cancelled", "Cancelled.")
     if stage_update:
@@ -120,24 +184,30 @@ def compose(store, job_id, recipe, runtime, cancelled=None, stage_update=None):
 
     if stage_update:
         stage_update("instrument", {"state": "running"})
-    _lua(runtime, env, "instrument_session.lua", logs / "instrument.out", cancelled,
-         **{**probe, "ARDOUR_PROBE_LOG": str(logs / "instrument.out"),
-            "ARDOUR_PROBE_SNAPSHOT_IN": "upgraded", "ARDOUR_PROBE_SNAPSHOT_OUT": "instrumented"})
-    _expect(logs / "instrument.out", "save ok=True")
+    _lua(runtime, env, "instrument_session.lua", logs / "instrument.out", cancelled, attach=attach,
+         **probe, ARDOUR_PROBE_LOG=str(logs / "instrument.out"),
+         ARDOUR_PROBE_SNAPSHOT_IN="upgraded", ARDOUR_PROBE_SNAPSHOT_OUT="instrumented")
+    _expect_save(logs / "instrument.out", session_dir / "instrumented.ardour")
+    instrument_log = (logs / "instrument.out").read_text()
+    loaded = re.findall(r"^track=(.+) plugin_isnil=(\w+)$", instrument_log, flags=re.M)
+    if len(loaded) != tracks or any(isnil != "false" for _, isnil in loaded):
+        raise StageError("evidence", "gmsynth did not load on every track.")
+    if len(re.findall(r"^add ok=true", instrument_log, flags=re.M)) != tracks:
+        raise StageError("evidence", "instrument insertion did not succeed on every track.")
     if stage_update:
         stage_update("instrument", {"state": "done"})
 
     if stage_update:
         stage_update("session", {"state": "running", "upgraded": True, "instrumented": True})
-    _run([sys.executable, str(ROOT / "probes" / "ardour" / "patch_tempo_range.py"),
+    _run([sys.executable, str(SCRIPTS / "patch_tempo_range.py"),
           "--session", str(session_dir / "instrumented.ardour"),
           "--timing", str(workdir / "timing.json"),
-          "--out", str(session_dir / "tempoed.ardour")], env, logs / "patch.out", cancelled)
-    _lua(runtime, env, "reopen_session.lua", logs / "reopen.out", cancelled,
-         **{**probe, "ARDOUR_PROBE_LOG": str(logs / "reopen.out"),
-            "ARDOUR_PROBE_SNAPSHOT_IN": "tempoed", "ARDOUR_PROBE_SNAPSHOT_OUT": "final"})
-    _expect(logs / "reopen.out", "save ok=True")
-    _expect_file(session_dir / "final.ardour")
+          "--out", str(session_dir / "tempoed.ardour")], env, logs / "patch.out", cancelled,
+         attach=attach)
+    _lua(runtime, env, "reopen_session.lua", logs / "reopen.out", cancelled, attach=attach,
+         **probe, ARDOUR_PROBE_LOG=str(logs / "reopen.out"),
+         ARDOUR_PROBE_SNAPSHOT_IN="tempoed", ARDOUR_PROBE_SNAPSHOT_OUT="final")
+    _expect_save(logs / "reopen.out", session_dir / "final.ardour")
     if stage_update:
         stage_update("session", {"state": "done"})
 
@@ -148,9 +218,16 @@ def compose(store, job_id, recipe, runtime, cancelled=None, stage_update=None):
     return recorded["reference"]
 
 
-def render(store, job_id, recipe, runtime, cancelled=None, stage_update=None):
-    """Render the mix and per-track stems of a saved arrangement."""
+def render(store, job_id, recipe, runtime, cancelled=None, stage_update=None, attach=None):
+    """Render the mix and per-track stems of a saved arrangement.
+
+    Stems are per-track snapshots: a shared-instrument track (piano hands on
+    one instrument) renders ONE stem, and the manifest names tracks, never
+    voices.
+    """
     daw = recipe["daw"]
+    if cancelled is not None and cancelled.is_set():
+        raise StageError("cancelled", "Cancelled.")
     workdir = Path(store.data_root) / "daw" / job_id
     workdir.mkdir(parents=True, exist_ok=True)
     env = _environment(workdir)
@@ -161,11 +238,17 @@ def render(store, job_id, recipe, runtime, cancelled=None, stage_update=None):
     shutil.copytree(source_dir, session_dir)
     final = "final"
 
+    export = [str(Path(runtime["prefix"]) / "ardour9-export")]
+    if daw.get("sample_rate"):
+        export += ["--samplerate", str(daw["sample_rate"])]
+    if daw.get("bit_depth"):
+        export += ["--bitdepth", str(daw["bit_depth"])]
+
     if stage_update:
         stage_update("render", {"state": "running"})
     mix = exports / "mix.wav"
-    _run([str(Path(runtime["prefix"]) / "ardour9-export"), "-o", str(mix), str(session_dir), final],
-         env, logs / "mix.out", cancelled)
+    _run(export + ["-o", str(mix), str(session_dir), final], env, logs / "mix.out", cancelled,
+         attach=attach)
     _expect_file(mix)
     if stage_update:
         stage_update("render", {"state": "done"})
@@ -174,22 +257,27 @@ def render(store, job_id, recipe, runtime, cancelled=None, stage_update=None):
     if daw.get("stems", True):
         if stage_update:
             stage_update("stems", {"state": "running"})
-        _lua(runtime, env, "save_stems.lua", logs / "stems.out", cancelled,
+        _lua(runtime, env, "save_stems.lua", logs / "stems.out", cancelled, attach=attach,
              ARDOUR_PROBE_SESSION_DIR=str(session_dir), ARDOUR_PROBE_SNAPSHOT_IN=final,
              ARDOUR_PROBE_STEM_PREFIX="stem-", ARDOUR_PROBE_LOG=str(logs / "stems.out"))
-        _expect(logs / "stems.out", "save ok=True")
-        count = sum(1 for line in Path(logs / "stems.out").read_text().splitlines()
-                    if line.startswith("stem ") and "save=True" in line)
-        for index in range(1, count + 1):
+        text = (logs / "stems.out").read_text()
+        saved = re.findall(r"^stem (\d+) (.+) save=(\w+)", text, flags=re.M)
+        expected = _tracks_logged(logs / "stems.out")
+        indices = [int(i) for i, _, _ in saved]
+        if not expected or indices != list(range(1, expected + 1)) or any(ok != "true" for _, _, ok in saved):
+            raise StageError("evidence", "stem snapshot evidence is missing, partial or duplicate.")
+        for index, track, _ in saved:
+            snapshot = session_dir / f"stem-{index}.ardour"
+            _expect_file(snapshot)
             stem = exports / f"stem-{index}.wav"
-            _run([str(Path(runtime["prefix"]) / "ardour9-export"), "-o", str(stem),
-                  str(session_dir), f"stem-{index}"], env, logs / f"stem-{index}.out", cancelled)
+            _run(export + ["-o", str(stem), str(session_dir), f"stem-{index}"],
+                 env, logs / f"stem-{index}.out", cancelled, attach=attach)
             _expect_file(stem)
-            stems.append({"file": f"export/stem-{index}.wav",
+            stems.append({"track": track, "file": f"export/stem-{index}.wav",
                           "bytes": stem.stat().st_size,
                           "sha256": _sha256(stem)})
         if stage_update:
-            stage_update("stems", {"state": "done", "count": count})
+            stage_update("stems", {"state": "done", "count": len(stems)})
     return {"mix": mix, "stems": stems}
 
 

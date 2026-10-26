@@ -186,14 +186,28 @@ apt-get install -y --no-install-recommends \
 
 ## 5. Build / install sequence the queue would run
 
+The build runs as a fixed, bounded-jobs child of the shared compile queue (the
+`setup_engine.py` `prepare_queued` pattern: `nice -n 19 ionice -c 3 /bin/sh
+scripts/run_native_build_queued.sh ...`), one heavy process at a time — never a
+foreground `waf build -j$(nproc)`. Staging is an owned, absent-on-first-use
+per-attempt NVMe path, never a shared `/tmp` tree and never `rm -rf` of an
+unverified existing path; a pre-existing stage refuses the attempt and is
+reviewed/removed by an owner, not by the build.
+
 ```sh
 set -eu
 export LC_ALL=C TZ=UTC
 export SOURCE_DATE_EPOCH=1787196678   # tagger timestamp; best-effort determinism only
 export CFLAGS='' CXXFLAGS='' LDFLAGS=''
 
-git clone --filter=blob:none https://git.ardour.org/ardour/ardour.git ardour-9.8
-cd ardour-9.8
+STAGE=/mnt/nvme4tb/ci-runners/baton2-native-homelab/home/queue/ardour-9.8.0-$(date +%s)
+if [ -e "$STAGE" ]; then
+  echo "refusing to reuse or remove an existing stage: $STAGE" >&2; exit 1
+fi
+mkdir -p "$STAGE"
+
+git clone --filter=blob:none https://git.ardour.org/ardour/ardour.git "$STAGE/ardour-9.8"
+cd "$STAGE/ardour-9.8"
 git checkout --detach 22ed8656c2533e325322ff11831448e5123e0d4b
 git describe --tags HEAD          # must print exactly: 9.8
 test -d .git                      # configure calls git describe; do not strip .git
@@ -203,10 +217,9 @@ python3 ./waf configure \
   --with-backends=dummy --optimize --cxx17 \
   --no-phone-home --no-nls --no-vst3 --no-lxvst
 
-python3 ./waf build -j"$(nproc)"
+python3 ./waf build -j"$RIFF_BUILD_JOBS"   # bounded by queue policy, not nproc
 
-rm -rf /tmp/ardour-stage && mkdir -p /tmp/ardour-stage
-python3 ./waf install --destdir=/tmp/ardour-stage
+python3 ./waf install --destdir="$STAGE/stage"
 ```
 
 Fail-closed configure gate (do not proceed to build unless all match in `configure` output / `build/c4che/_cache.py`):

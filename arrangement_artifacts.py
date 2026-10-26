@@ -2,15 +2,18 @@
 
 A recorded arrangement is a generated Ardour session directory: the session
 XML, the per-track SMF sources, and the exact composition inputs (original
-ABC, voice map, timing manifest).  References are content-addressed over the
-directory's full file manifest, so the same content resolves to the same
-record and a changed session is a new reference.
+ABC verbatim, voice map, timing manifest, converter identity).  The reference
+identity binds BOTH the session file manifest and the composition record, so
+identical files built from different original inputs are distinct references
+with their own retained provenance.
 
-Receipts and ``references.resolve`` carry provenance fields only, never a
-filesystem path (``operations.py`` ``clean_text`` convention).  Records are
-local to the library database: arrangements are produced by the local adapter
-(``ardour_session.py``), not minted through the engine control plane, so this
-module deliberately does not call the Elixir artifact actions.
+Retrieval verifies the stored bytes against the recorded manifest and refuses
+symlink escapes or mutated content.  Receipts and ``references.resolve`` carry
+provenance fields only, never a filesystem path (``operations.py``
+``clean_text`` convention).  Records are local to the library database:
+arrangements are produced by the local adapter (``ardour_session.py``), not
+minted through the engine control plane, so this module deliberately does not
+call the Elixir artifact actions.
 """
 import hashlib
 import json
@@ -24,7 +27,7 @@ from score_artifacts import _directory
 
 
 REFERENCE = re.compile(r"riff-arrangement-v1:([a-f0-9]{64})")
-PROVENANCE = ("id", "sha256", "bytes", "files", "tracks", "sample_rate", "converter")
+PROVENANCE = ("id", "sha256", "bytes", "files", "tracks", "converter")
 
 SCHEMA = """
     CREATE TABLE IF NOT EXISTS arrangements (
@@ -35,22 +38,29 @@ SCHEMA = """
 
 
 def manifest(session_dir):
-    """{relative path: sha256} for every regular file under the session dir."""
+    """{relative path: sha256} for every regular file under the session dir.
+
+    Refuses symlink entries: an arrangement is ordinary owned content, never a
+    reference escape.
+    """
     session_dir = Path(session_dir)
     if not session_dir.is_dir():
         raise ValueError(f"Arrangement {session_dir} is not a directory.")
     out = {}
-    for path in sorted(p for p in session_dir.rglob("*") if p.is_file()):
-        relative = path.relative_to(session_dir).as_posix()
-        out[relative] = hashlib.sha256(path.read_bytes()).hexdigest()
+    for path in sorted(session_dir.rglob("*")):
+        if path.is_symlink():
+            raise ValueError(f"Arrangement {session_dir} contains a symlink: {path.name}.")
+        if path.is_file():
+            out[path.relative_to(session_dir).as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()
     if not any(name.endswith(".ardour") for name in out):
         raise ValueError(f"Arrangement {session_dir} has no .ardour session file.")
     return out
 
 
-def content_digest(files):
-    """The reference hash over the full content manifest."""
-    canonical = json.dumps(files, sort_keys=True, separators=(",", ":"))
+def content_digest(files, composition):
+    """The reference hash over the full content manifest AND the composition record."""
+    canonical = json.dumps({"files": files, "composition": composition},
+                           sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
@@ -64,18 +74,17 @@ class ArrangementArtifacts:
     def record(self, job_id, session_dir, title, converter, composition=None):
         """Record a built session directory as an arrangement artifact.
 
-        Idempotent on content: the same files resolve to the existing record.
-        ``converter`` records the tool that produced the SMF sources (e.g.
-        "abc2midi 5.07 6582eb8") and ``composition`` the exact inputs (ABC,
-        voice map, timing manifest) so a later daw.compose can regenerate from
-        the reference.  Returns the reference and its provenance tuple;
-        receipts carry these fields, never the path.
+        Idempotent on content AND composition: the same session files built
+        from the same inputs resolve to the existing record; identical files
+        from different original ABC/map/timing/converter are distinct
+        references, each retaining its own inputs.  Returns the reference and
+        its provenance tuple; receipts carry these fields, never the path.
         """
         if not re.fullmatch(r"[a-f0-9]{32}", job_id or ""):
             raise ValueError("The generation reference is invalid.")
         session_dir = Path(session_dir)
         files = manifest(session_dir)
-        digest = content_digest(files)
+        digest = content_digest(files, composition)
         total = sum(path.stat().st_size for path in session_dir.rglob("*") if path.is_file())
         with self.store.db() as db:
             row = db.execute("SELECT * FROM arrangements WHERE sha256=?", (digest,)).fetchone()
@@ -87,7 +96,7 @@ class ArrangementArtifacts:
                           "files": sorted(files), "tracks": len({p.split('/')[-1] for p in files if p.endswith('.mid')}),
                           "converter": converter, "composition": composition}
             stage = self.root / (".stage-" + artifact_id)
-            shutil.copytree(session_dir, stage)
+            shutil.copytree(session_dir, stage, symlinks=False)
             _directory(self.root)  # published before the row, so a row implies content
             stage.rename(self.root / artifact_id)
             db.execute("INSERT INTO arrangements VALUES (?,?,?,?,?,?,?)",
@@ -105,14 +114,27 @@ class ArrangementArtifacts:
             raise KeyError("Arrangement not found.")
         return row
 
+    def _verified(self, row):
+        """Re-hash the stored directory and refuse mutated or escaped content."""
+        provenance = json.loads(row["provenance"])
+        stored = self.root / row["id"]
+        if not stored.is_dir():
+            raise KeyError("The arrangement's content is missing.")
+        current = manifest(stored)
+        if content_digest(current, provenance.get("composition")) != row["sha256"]:
+            raise ValueError("The arrangement's stored content does not match its record; "
+                             "refusing mutated evidence.")
+        return provenance
+
     def describe(self, reference):
         """The recorded arrangement's provenance; no filesystem paths."""
         row = self._row(reference)
-        provenance = json.loads(row["provenance"])
+        provenance = self._verified(row)
         return {"reference": reference, "title": row["title"], "created": row["created"],
                 "job_id": row["job_id"], **provenance}
 
     def path(self, reference):
-        """The internal artifact directory; for the render runner, never a receipt."""
+        """The internal artifact directory, verified; for the render runner, never a receipt."""
         row = self._row(reference)
+        self._verified(row)
         return self.root / row["id"]

@@ -90,6 +90,34 @@ class ArrangementArtifactsTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.artifacts.record("not-a-job", build_session_dir(Path(self.temp.name)), "X", "tool")
 
+    def test_composition_is_bound_into_the_reference_identity(self):
+        # Root's Slice B reproduction: identical session files built from two
+        # different original ABCs must be distinct references, each retaining
+        # its own inputs.
+        one = self.artifacts.record(self.job, build_session_dir(Path(self.temp.name)),
+                                    "One", "tool", composition={"abc": "original one"})
+        two = self.artifacts.record(self.job, build_session_dir(Path(self.temp.name)),
+                                    "Two", "tool", composition={"abc": "original two"})
+        self.assertNotEqual(one["reference"], two["reference"])
+        self.assertEqual(self.artifacts.describe(two["reference"])["composition"]["abc"],
+                         "original two")
+        self.assertEqual(self.artifacts.describe(one["reference"])["composition"]["abc"],
+                         "original one")
+
+    def test_retrieval_verifies_bytes_and_refuses_mutation(self):
+        result = self.artifacts.record(self.job, build_session_dir(Path(self.temp.name)),
+                                       "Arrangement", "tool", composition={"abc": "a"})
+        stored = self.artifacts.path(result["reference"])
+        (stored / "take.ardour").write_text("mutated")
+        with self.assertRaises(ValueError):
+            self.artifacts.describe(result["reference"])
+
+    def test_symlink_entries_are_refused(self):
+        session = build_session_dir(Path(self.temp.name))
+        (session / "interchange" / "take" / "midifiles" / "link.mid").symlink_to("/etc/hostname")
+        with self.assertRaises(ValueError):
+            self.artifacts.record(self.job, session, "X", "tool")
+
 
 if __name__ == "__main__":
     unittest.main()

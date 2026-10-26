@@ -407,12 +407,15 @@ class Operations:
 
     def references(self, payload):
         """Verify references the way submission would, reporting each outcome instead of raising."""
-        unknown = set(payload) - {"subject", "score_source", "performance_source", "acoustic_source", "parent_track_id"}
+        unknown = set(payload) - {"subject", "score_source", "performance_source", "acoustic_source",
+                                  "arrangement_source", "parent_track_id"}
         if unknown:
             raise ValueError("Unknown input: " + ", ".join(sorted(unknown)))
         patterns = {"score_source": (SCORE_REFERENCE, "The saved score reference is invalid."),
-                    "acoustic_source": (SOUND_REFERENCE, "The saved sound reference is invalid.")}
-        for field in ("subject", "score_source", "performance_source", "acoustic_source", "parent_track_id"):
+                    "acoustic_source": (SOUND_REFERENCE, "The saved sound reference is invalid."),
+                    "arrangement_source": (ARRANGEMENT_REFERENCE, "The arrangement reference is invalid.")}
+        for field in ("subject", "score_source", "performance_source", "acoustic_source",
+                      "arrangement_source", "parent_track_id"):
             if field not in payload:
                 continue
             value = payload[field]
@@ -433,10 +436,24 @@ class Operations:
                 found.append(self._sound_reference(item))
             return {"subject": subject["id"], "references": found}
         for field, check in (("score_source", self._check_score), ("performance_source", self._performance_reference),
-                             ("acoustic_source", self._check_sound), ("parent_track_id", self._check_parent)):
+                             ("acoustic_source", self._check_sound), ("arrangement_source", self._check_arrangement),
+                             ("parent_track_id", self._check_parent)):
             if field in payload:
                 found.append(check(payload[field]))
         return {"subject": None, "references": found}
+
+    def _check_arrangement(self, reference):
+        try:
+            if not self.store.arrangements:
+                raise KeyError("Arrangement not found.")
+            item = self.store.arrangements.describe(reference)
+            return {"field": "arrangement_source", "kind": "arrangement", "id": reference,
+                    "status": "verified",
+                    "provenance": {key: item.get(key) for key in ARRANGEMENT_PROVENANCE if key in item}}
+        except (ValueError, KeyError, OSError) as error:
+            return {"field": "arrangement_source", "kind": "arrangement", "id": reference,
+                    "status": "unavailable", "provenance": {},
+                    "error": self.clean_text(str(error.args[0] if isinstance(error, KeyError) else error))}
 
     @staticmethod
     def _score_reference(item):
@@ -1024,6 +1041,7 @@ def catalog(recipe_schema, riff_version):
                                        "incompatible or unavailable, with captured provenance and no file paths.",
                                        _object({"subject": {"type": "string"}, "score_source": {"type": "string"},
                                                 "performance_source": {"type": "string"}, "acoustic_source": {"type": "string"},
+                                                "arrangement_source": {"type": "string"},
                                                 "parent_track_id": {"type": "string"}}),
                                        {"type": "object", "required": ["references"], "properties": {"references": {
                                            "type": "array", "items": {"type": "object", "required": ["field", "kind", "id", "status", "provenance"],
@@ -1075,13 +1093,17 @@ def catalog(recipe_schema, riff_version):
                                          "parent": PARENT_SCHEMA}, ("title",)),
                                 SUBMISSION_SCHEMA, True),
             "daw.render": post("daw.render", "Queue an Ardour render of a saved arrangement on the pinned runtime: full mix "
-                               "plus per-voice stems.",
+                               "plus per-track stems.",
                                _object({"idempotency_key": KEY_SCHEMA,
                                         "arrangement_source": {"type": "string", "pattern": "^riff-arrangement-v1:[a-f0-9]{64}$"},
-                                        "format": {"type": "string", "enum": ["wav", "flac"]},
+                                        "format": {"type": "string", "enum": ["wav"]},
                                         "sample_rate": {"type": "integer", "enum": [44100, 48000, 96000]},
                                         "bit_depth": {"type": "string", "enum": ["16", "24", "float"]},
-                                        "stems": {"type": "boolean"}}, ("arrangement_source",)),
+                                        "stems": {"type": "boolean"},
+                                        "title": {"type": "string", "description": "Optional; defaults to the arrangement's "
+                                                  "recorded title."},
+                                        "family_id": {"type": "string", "pattern": "^[a-f0-9]{32}$"},
+                                        "parent": PARENT_SCHEMA}, ("arrangement_source",)),
                                SUBMISSION_SCHEMA, True),
         },
     }

@@ -145,7 +145,9 @@ is preserved alongside.
 
 The production runtime must be a full, non-demo Ardour. Options for root:
 
-1. **Pinned source build** of Ardour 9.8 (`059c95883d8158b03f632056ba36e5c7de91ef28`,
+1. **Pinned source build** of Ardour 9.8 (commit
+   `22ed8656c2533e325322ff11831448e5123e0d4b`, annotated tag object
+   `059c95883d8158b03f632056ba36e5c7de91ef28`,
    evidence-verified) through the managed build queue (`setup_engine.py`
    pattern; tests/test_managed_build_queue.py is the existing harness).
    Pros: full license-clean feature set, no demo timer, matches the

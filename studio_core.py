@@ -1443,18 +1443,32 @@ class Generator:
 
         try:
             runtime = daw_runtime.require(self.store)
-            if daw["kind"] == "compose":
-                daw["arrangement_source"] = daw_runner.compose(self.store, job_id, recipe, runtime,
-                                                               cancelled, stage_update)
-            else:
-                result = daw_runner.render(self.store, job_id, recipe, runtime, cancelled, stage_update)
-                mix = self.store.outputs / "riff" / f"{job_id}.wav"
-                mix.parent.mkdir(exist_ok=True)
-                shutil.copyfile(result["mix"], mix)
-                track_id = self.store.add_track(mix, recipe, {}, job_id)
-                daw["stem_manifest"] = result["stems"]
+            identity = f"daw:{job_id}"
+            # The same admission queue as native work: a CPU/file-only
+            # reservation, tool custody attached per child, released on every
+            # exit path.  A denied or cancelled reservation launches nothing.
+            reservation = self.admission.reserve(identity, recipe, "daw", cancelled,
+                                                 on_wait=lambda reason: stage_update("queue", {"state": "waiting", "reason": reason}))
+            try:
+                if daw["kind"] == "compose":
+                    daw["arrangement_source"] = daw_runner.compose(
+                        self.store, job_id, recipe, runtime, cancelled, stage_update,
+                        attach=lambda process: self.admission.attach(identity, process))
+                else:
+                    result = daw_runner.render(
+                        self.store, job_id, recipe, runtime, cancelled, stage_update,
+                        attach=lambda process: self.admission.attach(identity, process))
+                    mix = self.store.outputs / "riff" / f"{job_id}.wav"
+                    mix.parent.mkdir(exist_ok=True)
+                    shutil.copyfile(result["mix"], mix)
+                    track_id = self.store.add_track(mix, recipe, {}, job_id)
+                    daw["stem_manifest"] = result["stems"]
+            finally:
+                self.admission.release(identity)
         except daw_runner.StageError as error:
             failure = f"Cancelled." if error.stage == "cancelled" else str(error)
+        except AdmissionCancelled:
+            cancelled.set()
         except daw_runtime.RuntimeUnavailable as error:
             failure = str(error)
         except Exception as error:

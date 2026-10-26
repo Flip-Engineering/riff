@@ -21,7 +21,10 @@ than shaping them identically.
 """
 import copy
 import json
+import math
+import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -192,21 +195,23 @@ def timing_to_meta(timing, division=480):
         raise ContractError("timing must carry tempos and meters.")
     for kind, events in (('tempos', tempos), ('meters', meters)):
         quarters = [e.get('quarters') for e in events]
-        if any(not isinstance(q, (int, float)) or isinstance(q, bool) for q in quarters):
-            raise ContractError(f"timing.{kind} quarters must be numeric.")
+        if any(not isinstance(q, (int, float)) or isinstance(q, bool) or not math.isfinite(q) for q in quarters):
+            raise ContractError(f"timing.{kind} quarters must be finite numbers.")
         if quarters[0] != 0 or quarters != sorted(quarters) or len(set(quarters)) != len(quarters):
             raise ContractError(f"timing.{kind} must start at 0 and strictly increase.")
     end = timing.get('end_quarters')
-    if isinstance(end, bool) or not isinstance(end, (int, float)) or not end > 0:
+    if isinstance(end, bool) or not isinstance(end, (int, float)) or not math.isfinite(end) or not end > 0:
         raise ContractError("timing.end_quarters must be positive and finite.")
     if tempos[-1]['quarters'] > end or meters[-1]['quarters'] > end:
         raise ContractError("timing events must not start after end_quarters.")
     ev = []
     for t in tempos:
         bpm = float(t['bpm'])
-        if not bpm > 0:
+        if not math.isfinite(bpm) or not bpm > 0:
             raise ContractError("tempo bpm must be positive and finite.")
         us = round(60_000_000 / bpm)
+        if not us:
+            raise ContractError("tempo bpm is too fast to represent.")
         ev.append((int(t['quarters'] * tpq), meta(0x51, us.to_bytes(3, 'big'))))
     for m in meters:
         div = m.get('divisions_per_bar')
@@ -369,12 +374,16 @@ def build_session(template, abc_path, voice_map, timing, outdir, session_name,
     check_name(session_name, "session name")
     tree = load_template(template)
     session_file = outdir / f'{session_name}.ardour'
-    if session_file.exists():
-        raise ContractError(f"output session {session_file} already exists.")
+    if outdir.exists():
+        raise ContractError(f"output directory {outdir} already exists; refusing to merge into "
+                            "or overwrite a preexisting output tree.")
 
-    # Stage conversion in owned scratch; publish only on complete success.
-    with tempfile.TemporaryDirectory(prefix="ardour-session-") as scratch:
-        scratch = Path(scratch)
+    # Build in owned scratch beside the destination; publish atomically by
+    # rename, so a failing track cleans up and never publishes a partial
+    # session, and an existing tree is never touched.
+    outdir.parent.mkdir(parents=True, exist_ok=True)
+    scratch = Path(tempfile.mkdtemp(prefix=".build-", dir=outdir.parent))
+    try:
         mididir = scratch / 'interchange' / session_name / 'midifiles'
         mididir.mkdir(parents=True)
         for g in groups:
@@ -471,13 +480,15 @@ def build_session(template, abc_path, voice_map, timing, outdir, session_name,
                 ex.remove(child)
         tree.write(scratch / f'{session_name}.ardour', encoding='UTF-8', xml_declaration=True)
 
-        # Publish the completed staging tree; the targets were proved absent.
-        outdir.mkdir(parents=True, exist_ok=True)
-        (outdir / 'interchange').mkdir(exist_ok=True)
-        (outdir / 'interchange' / session_name).mkdir()
-        import shutil
-        shutil.move(str(mididir), str(outdir / 'interchange' / session_name / 'midifiles'))
-        for g in groups:
-            shutil.move(str(scratch / f"{g['track']}.abc"), str(outdir / f"{g['track']}.abc"))
-        shutil.move(str(scratch / f'{session_name}.ardour'), str(session_file))
-    return session_file
+        # Publish the completed tree atomically; the destination was proved
+        # absent at admission and the rename refuses a winner that appeared
+        # during the build.
+        if outdir.exists():
+            raise ContractError(f"output directory {outdir} appeared during the build; "
+                                "refusing to publish over it.")
+        os.rename(scratch, outdir)
+        scratch = None
+        return session_file
+    finally:
+        if scratch is not None:
+            shutil.rmtree(scratch, ignore_errors=True)

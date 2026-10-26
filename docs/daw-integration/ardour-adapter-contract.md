@@ -9,8 +9,10 @@ to implement beyond the plan and not a redistribution decision.
 - All runtime receipts are from the official **9.8.241 DEMO NIGHTLY** Linux
   x86_64 build (`Ardour_x86_64-9.8.241-demo`, package sha1
   `0007d1664fe92c0d982c8c5e5bfea1b07dc1a98d`).
-- Source citations are tag `9.8`, commit
-  `059c95883d8158b03f632056ba36e5c7de91ef28`.
+- Source citations are tag `9.8`: annotated tag object
+  `059c95883d8158b03f632056ba36e5c7de91ef28`, which peels to commit
+  `22ed8656c2533e325322ff11831448e5123e0d4b` (check out the commit; see
+  `ardour-build-preflight.md` §1).
 - Demo-nightly behavior must not be quoted as release or source-build behavior.
   The production runtime gate is §5.
 
@@ -93,7 +95,8 @@ artifacts; the adapter validates before side effects.
     "path": "templates/ardour-9.8-clean-7004.ardour",
     "sha256": "<recorded>",
     "session_format": 7004,
-    "built_by": {"ardour_version": "9.8", "commit": "059c95883d8158b03f632056ba36e5c7de91ef28", "build_kind": "full-source"}
+    "built_by": {"ardour_version": "9.8", "commit": "22ed8656c2533e325322ff11831448e5123e0d4b",
+                 "tag_object": "059c95883d8158b03f632056ba36e5c7de91ef28", "build_kind": "full-source"}
   }
 }
 ```
@@ -446,8 +449,10 @@ behavior must not be quoted as release behavior.
 
 ### 5.2 Recommendation
 
-**Primary recommendation: pinned source build** of Ardour 9.8 at
-`059c95883d8158b03f632056ba36e5c7de91ef28` as the production runtime.
+**Primary recommendation: pinned source build** of Ardour 9.8 at commit
+`22ed8656c2533e325322ff11831448e5123e0d4b` (annotated tag object
+`059c95883d8158b03f632056ba36e5c7de91ef28`, tag `9.8`) as the production
+runtime.
 
 Why: it is non-demo by construction; it is reproducible from the reviewed GPL
 source; it pins exact behavior; it lets provisioning choose the plugin set
@@ -465,9 +470,11 @@ binary does not remove the source-build decision for GA.
 
 1. **Authorization:** queue slot for an Ardour 9.8 source build; named build
    owner and runtime owner; target install prefix under the homelab.
-2. **Pinned source:** `git clone https://github.com/Ardour/ardour`, checkout
-   `059c95883d8158b03f632056ba36e5c7de91ef28`; record `git describe` and the
-   source archive hash.
+2. **Pinned source:** `git clone https://git.ardour.org/ardour/ardour.git`
+   (full history and tags; GitHub release tarballs are unsupported upstream),
+   checkout commit `22ed8656c2533e325322ff11831448e5123e0d4b` (tag object
+   `059c95883d8158b03f632056ba36e5c7de91ef28`); record `git describe` (must
+   print `9.8`) and the source archive hash.
 3. **Dependency/build receipt:** upstream configure/build recipe and dependency
    list at that commit are **not yet receipted here**; author them in the queued
    job (toolchain versions, dev packages, configure flags). Do not infer the

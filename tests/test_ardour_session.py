@@ -348,6 +348,49 @@ class SessionBuild(unittest.TestCase):
         with self.assertRaises(adapter.ContractError):
             adapter.vlq(-1)
 
+    def test_preexisting_output_tree_is_preserved_and_refused(self):
+        # Root's Slice B reproduction: a fresh build into a directory that
+        # already holds user content must refuse before touching it.
+        with tempfile.TemporaryDirectory() as td:
+            td = Path(td)
+            out = td / "out"
+            out.mkdir()
+            sentinel = out / "Flute.abc"
+            sentinel.write_text("sentinel")
+            with self.assertRaises(adapter.ContractError):
+                self.build(td)
+            self.assertEqual(sentinel.read_text(), "sentinel")
+
+    def test_publication_failure_leaves_no_scratch(self):
+        with tempfile.TemporaryDirectory() as td:
+            td = Path(td)
+
+            def failing(split_abc, out_mid):
+                if Path(split_abc).stem == "Piano":
+                    raise adapter.ContractError("Piano conversion failed")
+                return FAKE_NOTES[Path(split_abc).stem]
+
+            template = td / "template.ardour"
+            template.write_text(TEMPLATE)
+            abc = td / "input.abc"
+            abc.write_text(ABC_TEXT)
+            with self.assertRaises(adapter.ContractError):
+                adapter.build_session(template, abc, VOICE_MAP, TIMING,
+                                      td / "out", "arrangement-v1", failing)
+            self.assertFalse((td / "out").exists())
+            self.assertEqual([p for p in td.iterdir() if p.name.startswith(".build-")], [])
+
+    def test_infinite_or_nonpositive_timing_values_refused(self):
+        for bpm in (float("inf"), float("nan"), 0, -60):
+            bad = json.loads(json.dumps(TIMING))
+            bad["tempos"][0]["bpm"] = bpm
+            with self.assertRaises(adapter.ContractError, msg=str(bpm)):
+                adapter.timing_to_meta(bad)
+        bad = json.loads(json.dumps(TIMING))
+        bad["end_quarters"] = float("inf")
+        with self.assertRaises(adapter.ContractError):
+            adapter.timing_to_meta(bad)
+
 
 if __name__ == "__main__":
     unittest.main()
