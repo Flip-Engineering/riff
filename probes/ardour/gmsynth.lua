@@ -1,9 +1,16 @@
-local outpath = "/mnt/nvme4tb/ci-runners/baton2-native-homelab/home/worktrees/riff-daw-ensemble-20261025/.probe-tmp/deepseek/ardour-probe/gmsynth.out"
-local sdir = "/mnt/nvme4tb/ci-runners/baton2-native-homelab/home/worktrees/riff-daw-ensemble-20261025/.probe-tmp/deepseek/ardour-probe/region-session"
-local f = io.open(outpath,"w")
+-- Environment: ARDOUR_PROBE_LOG, ARDOUR_PROBE_SESSION_DIR, ARDOUR_PROBE_SNAPSHOT_IN.
+local function required(name)
+  local value = os.getenv(name)
+  assert(value and value ~= "", "Set " .. name)
+  return value
+end
+local outpath = required("ARDOUR_PROBE_LOG")
+local sdir = required("ARDOUR_PROBE_SESSION_DIR")
+local snapshot = required("ARDOUR_PROBE_SNAPSHOT_IN")
+local f = assert(io.open(outpath, "w"))
 local function log(x) f:write(tostring(x).."\n"); f:flush() end
 log("start")
-local s = load_session(sdir, "1region")
+local s = load_session(sdir, snapshot)
 log("session="..tostring(s))
 if not s then f:close(); quit(); return end
 local n = 0
@@ -31,4 +38,5 @@ local rok, rerr = pcall(function() return se:run_export() end)
 log("run_export ok="..tostring(rok).." result/err="..tostring(rerr))
 close_session()
 log("closed")
+f:close()
 quit()

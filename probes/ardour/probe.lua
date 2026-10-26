@@ -1,5 +1,13 @@
+-- Environment: ARDOUR_PROBE_SESSION_DIR, ARDOUR_PROBE_SNAPSHOT_IN.
+local function required(name)
+  local value = os.getenv(name)
+  assert(value and value ~= "", "Set " .. name)
+  return value
+end
+local sdir = required("ARDOUR_PROBE_SESSION_DIR")
+local snapshot = required("ARDOUR_PROBE_SNAPSHOT_IN")
 print("lua probe start")
-s = load_session("/mnt/nvme4tb/ci-runners/baton2-native-homelab/home/worktrees/riff-daw-ensemble-20261025/.probe-tmp/deepseek/ardour-probe/session3", "Test3")
+local s = load_session(sdir, snapshot)
 print("session", s)
 if s then
   local tl = s:get_tracks()

@@ -1,9 +1,13 @@
 const fs=require('fs'), vm=require('vm'), path=require('path');
+const input=process.argv[2], out=process.argv[3];
+if (!input || !out || process.argv.length !== 4) {
+  console.error('Usage: node abc2js.js INPUT.abc OUTPUT.mid');
+  process.exit(1);
+}
 const code=fs.readFileSync(path.resolve(__dirname,'../..','web/vendor/abcjs-basic-min.js'),'utf8');
 const sandbox={window:{},document:{createElement:()=>({}),documentElement:{}},navigator:{userAgent:'node'},console};
 sandbox.window=sandbox; sandbox.globalThis=sandbox; vm.createContext(sandbox); vm.runInContext(code,sandbox,{timeout:30000});
 const ABCJS=sandbox.ABCJS;
-const input=process.argv[2], out=process.argv[3];
 const abc=fs.readFileSync(input,'utf8');
 try {
   const files=ABCJS.synth.getMidiFile(abc,{midiOutputType:'binary'});

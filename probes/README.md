@@ -57,6 +57,65 @@ nightly, extracted no-root) and `docs/daw-integration/daw-candidates.md`
 `JACK_NO_START_SERVER=1`; LMMS `dump`/`upgrade` additionally need a display
 (Xvfb) and MMPZ input.
 
+## Legacy Ardour path probes
+
+Run from the checkout root, using the existing Ardour installation and an
+owned scratch environment configured as described above. These scripts do not
+create session directories or log parents. Supply existing paths explicitly;
+spaces are supported when shell values are quoted.
+
+| Script | Required environment |
+| --- | --- |
+| `hi.lua` | `ARDOUR_PROBE_LOG` |
+| `probe.lua` | `ARDOUR_PROBE_SESSION_DIR`, `ARDOUR_PROBE_SNAPSHOT_IN` |
+| `load.lua` | session directory, input snapshot, and log |
+| `gmsynth.lua` | session directory, input snapshot, and log |
+| `savegmsynth.lua` | session directory, input snapshot, log, and `ARDOUR_PROBE_SNAPSHOT_OUT` |
+
+For example, choose an existing scratch session and snapshot; the log parent
+must already exist:
+
+```sh
+ARDOUR_PROBE_SESSION_DIR="/path/to/owned/scratch session" \
+ARDOUR_PROBE_SNAPSHOT_IN="input snapshot" \
+ARDOUR_PROBE_LOG="/path/to/owned/probe logs/load.out" \
+  ardour9-lua probes/ardour/load.lua
+
+ARDOUR_PROBE_SESSION_DIR="/path/to/owned/scratch session" \
+ARDOUR_PROBE_SNAPSHOT_IN="input snapshot" \
+ARDOUR_PROBE_SNAPSHOT_OUT="gmsynthprobe" \
+ARDOUR_PROBE_LOG="/path/to/owned/probe logs/savegmsynth.out" \
+  ardour9-lua probes/ardour/savegmsynth.lua
+```
+
+`load.lua` and `probe.lua` only inspect the loaded session. `hi.lua` writes
+its small startup log. `savegmsynth.lua` inserts instruments and saves the
+explicit output snapshot. `gmsynth.lua` inserts instruments, saves the loaded
+snapshot, then exports the original experimental frame range 529680–1089150
+under the supplied session's `export/` directory. Use a scratch copy: the save
+and export probes modify it. That fixed range is a historical experiment,
+not a general arrangement renderer. The later musical-workflow scripts below
+have their own explicit environment contracts.
+
+Both `abc2js.js` and the superseded `abcjs_midi_to_file.js` accept exactly
+`INPUT.abc OUTPUT.mid`; their vendored abcjs bundle is resolved relative to
+the script, independently of the caller's directory. Missing arguments print
+usage before reading inputs or writing output. Prefer `abc2js.js` for new work.
+
+Focused portability checks require Node and a system Lua 5.3 or 5.4 shared
+library. Run with an owned NVMe `TMPDIR`:
+
+```sh
+python3 probes/verify/check_portability.py
+```
+
+These checks execute the actual Lua files with stub session/export objects,
+verify missing/empty inputs and failed log opens precede session operations,
+and pass paths with spaces through unchanged. They also run the real vendored
+abcjs converter from another directory and check its MIDI header. They do not
+qualify Ardour, instrument loading, renders, timbre, or production behavior.
+Historical receipts under `docs/evidence/` retain their original paths.
+
 
 ## Musical workflow (four voices, three tracks)
 

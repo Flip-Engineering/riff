@@ -1,4 +1,7 @@
-local f=io.open("/mnt/nvme4tb/ci-runners/baton2-native-homelab/home/worktrees/riff-daw-ensemble-20261025/.probe-tmp/deepseek/ardour-probe/hi.out","w")
+-- Environment: ARDOUR_PROBE_LOG (an existing writable parent is required).
+local path = os.getenv("ARDOUR_PROBE_LOG")
+assert(path and path ~= "", "Set ARDOUR_PROBE_LOG")
+local f = assert(io.open(path, "w"))
 f:write("start\n"); f:flush()
 f:write("arg="..tostring(arg).."\n"); f:flush()
 f:write("done\n"); f:close()
