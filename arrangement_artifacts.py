@@ -84,6 +84,7 @@ class ArrangementArtifacts:
             raise ValueError("The generation reference is invalid.")
         session_dir = Path(session_dir)
         files = manifest(session_dir)
+        composition = {**(composition or {}), "converter": converter}
         digest = content_digest(files, composition)
         total = sum(path.stat().st_size for path in session_dir.rglob("*") if path.is_file())
         with self.store.db() as db:

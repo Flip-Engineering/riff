@@ -32,6 +32,7 @@ APPROVED_KINDS = ("source-build", "reviewed-full")
 # (docs/evidence/ardour-bundle-licensing-20261025.json).
 GMSYNTH_URI = "http://gareus.org/oss/lv2/gmsynth"
 GENERALUSER_SF2_SHA256 = "c278464b823daf9c52106c0957f752817da0e52964817ff682fe3a8d2f8446ce"
+APPROVED_CONVERTER = "abc2midi 5.07 6582eb8"
 
 
 def record_path(store):
@@ -112,6 +113,8 @@ def probe(store):
     if sf2 != GENERALUSER_SF2_SHA256:
         _refuse("The pinned Ardour runtime instrument bank does not match the recorded "
                 "GeneralUser_LV2.sf2 provenance hash.")
+    if record.get("converter") != APPROVED_CONVERTER:
+        _refuse(f"The pinned Ardour runtime converter must be the approved {APPROVED_CONVERTER!r}.")
     return record
 
 

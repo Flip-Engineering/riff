@@ -104,6 +104,18 @@ class ArrangementArtifactsTests(unittest.TestCase):
         self.assertEqual(self.artifacts.describe(one["reference"])["composition"]["abc"],
                          "original one")
 
+    def test_converter_identity_is_bound_into_the_reference(self):
+        # Root's alias reproduction: same files and ABC with converter-A versus
+        # converter-B must not alias.
+        first = self.artifacts.record(self.job, build_session_dir(Path(self.temp.name)),
+                                      "One", "converter-A", composition={"abc": "same"})
+        second = self.artifacts.record(self.job, build_session_dir(Path(self.temp.name)),
+                                       "Two", "converter-B", composition={"abc": "same"})
+        self.assertNotEqual(first["reference"], second["reference"])
+        self.assertFalse(second["replayed"])
+        self.assertEqual(self.artifacts.describe(second["reference"])["converter"],
+                         "converter-B")
+
     def test_retrieval_verifies_bytes_and_refuses_mutation(self):
         result = self.artifacts.record(self.job, build_session_dir(Path(self.temp.name)),
                                        "Arrangement", "tool", composition={"abc": "a"})

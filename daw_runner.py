@@ -62,40 +62,60 @@ def _environment(job_root):
 
 
 def _stop_process_group(process):
-    """TERM the child's group, escalate to KILL when the child ignores it."""
+    """TERM the child's whole group, then KILL whatever remains.
+
+    Descendants can outlive a leader that dies to TERM; the sweep covers the
+    whole owned group (start_new_session makes the child its leader), never
+    any other group.
+    """
+    pgid = process.pid
     try:
-        os.killpg(process.pid, signal.SIGTERM)
+        os.killpg(pgid, signal.SIGTERM)
     except (ProcessLookupError, PermissionError):
         pass
     try:
         process.wait(timeout=5)
-        return
     except subprocess.TimeoutExpired:
         pass
     try:
-        os.killpg(process.pid, signal.SIGKILL)
+        os.killpg(pgid, signal.SIGKILL)
     except (ProcessLookupError, PermissionError):
         pass
-    process.wait(timeout=10)
+    try:
+        process.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        pass
 
 
 def _run(command, env, log_path, cancelled, attach=None, capture=False):
-    """Run one chain tool under the job's custody; cancel stops the group."""
+    """Run one chain tool under the job's custody; cancel stops the group.
+
+    Output goes to owned files as it is produced — no pipe can fill and block
+    the child.  ``capture=True`` returns the captured stdout text read from
+    the owned capture file after exit.
+    """
+    capture_path = Path(log_path).with_suffix(".capture") if capture else None
     with open(log_path, "w") as log:
-        process = subprocess.Popen(command, stdout=subprocess.PIPE if capture else log,
-                                   stderr=subprocess.STDOUT if not capture else subprocess.PIPE,
-                                   env=env, start_new_session=True)
-        if attach:
-            attach(process)
-        while process.poll() is None:
-            if cancelled is not None and cancelled.is_set():
-                _stop_process_group(process)
-                raise StageError("cancelled", "Cancelled.")
-            time.sleep(0.05)
+        capture_file = open(capture_path, "w") if capture else None
+        try:
+            process = subprocess.Popen(command,
+                                       stdout=capture_file if capture else log,
+                                       stderr=log,
+                                       env=env, start_new_session=True)
+            if attach:
+                attach(process)
+            while process.poll() is None:
+                if cancelled is not None and cancelled.is_set():
+                    _stop_process_group(process)
+                    raise StageError("cancelled", "Cancelled.")
+                time.sleep(0.05)
+        finally:
+            if capture_file:
+                capture_file.close()
     if process.returncode:
         raise StageError("process", f"{Path(command[0]).name} exited {process.returncode}; see the stage log.")
     if capture:
-        return process.stdout.read()
+        return capture_path.read_text()
 
 
 def _lua(runtime, env, script, log_path, cancelled, attach=None, **probe_env):
@@ -211,7 +231,8 @@ def compose(store, job_id, recipe, runtime, cancelled=None, stage_update=None, a
     if stage_update:
         stage_update("session", {"state": "done"})
 
-    recorded = store.arrangements.record(job_id, session_dir, recipe.get("title", ""), daw.get("converter", ""),
+    recorded = store.arrangements.record(job_id, session_dir, recipe.get("title", ""),
+                                         runtime["converter"],
                                          composition={"abc": daw.get("abc"), "voice_map": daw.get("voice_map"),
                                                       "timing": daw.get("timing"),
                                                       "session_name": daw.get("session_name")})

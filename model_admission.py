@@ -471,6 +471,16 @@ class ModelAdmission:
 
 def resource_inputs(recipe, kind, observer, writer_settings=None):
     """Collect installed facts; estimation and admission live in Elixir."""
+    if kind == "daw":
+        # CPU/file-only DAW toolchain: no model files, no device, no KV.  The
+        # estimator gets only the composition input bytes and the margin; the
+        # conservative working bound lives in the Elixir clause.
+        daw = recipe.get("daw") or {}
+        input_bytes = len(json.dumps({key: daw.get(key)
+                                      for key in ("abc", "voice_map", "timing", "arrangement_source")},
+                                     sort_keys=True).encode())
+        return {"kind": kind, "input_bytes": input_bytes,
+                "margin": float(os.environ.get("RIFF_MODEL_MEMORY_MARGIN", "0.2"))}
     configured = platform_support.settings()
     if kind == "acoustic_decode":
         model_root = Path(configured["model_root"])

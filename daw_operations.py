@@ -68,7 +68,6 @@ def _compose(daw):
         except ardour_session.ContractError as error:
             raise ValueError(str(error)) from None
         daw.setdefault("session_name", "arrangement")
-        daw.setdefault("converter", "abc2midi 5.07 6582eb8")
         daw.pop("session_input", None)
     _instruments(daw)
 

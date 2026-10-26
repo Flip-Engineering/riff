@@ -20,6 +20,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -250,6 +251,7 @@ class DawFixture(StudioFixture):
         record = {"version": "9.8", "commit": "22ed8656c2533e325322ff11831448e5123e0d4b",
                   "kind": "source-build", "prefix": str(bin_dir),
                   "abc2midi": str(abc2midi), "template": str(template),
+                  "converter": "abc2midi 5.07 6582eb8",
                   "instrument": {"uri": "http://gareus.org/oss/lv2/gmsynth",
                                  "sf2_sha256": "c278464b823daf9c52106c0957f752817da0e52964817ff682fe3a8d2f8446ce"},
                   "sha256": {name: _sha(bin_dir / name)
@@ -473,8 +475,88 @@ class UnavailableRuntimeTests(StudioFixture):
             daw_runtime.require(self.store)
 
 
+class BridgeTests(unittest.TestCase):
+    def test_daw_resource_inputs_carry_no_model_facts(self):
+        from model_admission import resource_inputs
+        recipe = {"daw": {"kind": "compose", "abc": ABC, "voice_map": VOICE_MAP, "timing": TIMING}}
+        with patch("model_admission.platform_support.settings",
+                   side_effect=AssertionError("daw must not read platform settings")):
+            inputs = resource_inputs(recipe, "daw", None)
+        self.assertEqual(inputs["kind"], "daw")
+        self.assertGreater(inputs["input_bytes"], 0)
+        self.assertIn("margin", inputs)
+        for absent in ("model_bytes", "vae_bytes", "device", "config", "text_bytes"):
+            self.assertNotIn(absent, inputs)
+
+
 class CustodyTests(unittest.TestCase):
     """Bounded cancellation custody over this suite's own test processes."""
+
+    def test_large_stdout_capture_completes_without_cancellation(self):
+        # The summary output grows with notes; a pipe drained only after exit
+        # would deadlock on the buffer. Capture must stream to an owned file.
+        import daw_runner
+        with tempfile.TemporaryDirectory() as td:
+            td = Path(td)
+            log = td / "child.log"
+            writer = td / "writer.py"
+            writer.write_text("import sys\nsys.stdout.write('x' * (4 * 1024 * 1024))\n")
+            out = daw_runner._run([sys.executable, str(writer)], os.environ.copy(), log,
+                                  threading.Event(), capture=True)
+            self.assertEqual(len(out), 4 * 1024 * 1024)
+
+    def test_descendant_ignoring_term_dies_with_the_group(self):
+        import daw_runner
+        with tempfile.TemporaryDirectory() as td:
+            td = Path(td)
+            stubborn = td / "stubborn.py"
+            stubborn.write_text(
+                "import os, signal, sys, time\n"
+                "signal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
+                "if os.fork() == 0:\n"  # the descendant ignores TERM
+                "    signal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
+                "    time.sleep(120)\n"
+                "    os._exit(0)\n"
+                "time.sleep(120)\n")
+            log = td / "child.log"
+            cancelled = threading.Event()
+            holder = {}
+            outcome = {}
+
+            def work():
+                try:
+                    daw_runner._run([sys.executable, str(stubborn)], os.environ.copy(), log,
+                                    cancelled, attach=lambda p: holder.setdefault("p", p))
+                except daw_runner.StageError as error:
+                    outcome["stage"] = error.stage
+
+            thread = threading.Thread(target=work)
+            thread.start()
+            deadline = time.monotonic() + 10
+            while "p" not in holder and time.monotonic() < deadline:
+                time.sleep(0.02)
+            self.assertIn("p", holder)
+            process = holder["p"]
+            try:
+                import subprocess as sp
+                group = os.getpgid(process.pid)
+
+                def members():
+                    out = sp.run(["ps", "-eo", "pgid=,pid="], capture_output=True, text=True).stdout
+                    return [line for line in out.splitlines()
+                            if line.split() and int(line.split()[0]) == group]
+
+                cancelled.set()
+                thread.join(timeout=30)
+                self.assertFalse(thread.is_alive())
+                self.assertEqual(outcome.get("stage"), "cancelled")
+                self.assertIsNotNone(process.poll())
+                self.assertEqual(members(), [], "no descendant may survive the group sweep")
+            finally:
+                try:
+                    os.killpg(os.getpgid(process.pid), 9)
+                except (ProcessLookupError, PermissionError):
+                    pass
 
     def test_stubborn_child_group_is_killed_and_reports_cancelled(self):
         import daw_runner
