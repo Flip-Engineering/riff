@@ -1166,10 +1166,16 @@ class Generator:
                     review_id = checked.get("review_id")
                     clause = "AND id=?" if review_id else ""
                     params = (reference_id, review_id) if review_id else (reference_id,)
-                    review = db.execute("SELECT id,model,focus,notes,summary,generation FROM reviews "
+                    review = db.execute("SELECT * FROM reviews "
                         "WHERE track_id=? AND status='done' " + clause + " ORDER BY created DESC LIMIT 1", params).fetchone()
                     if review:
                         settings["reference"]["review"] = {key: review[key] for key in ("id", "model", "focus", "notes", "summary")}
+                        # Reference clips stay part of this review's context: identity and provenance, never files.
+                        if "attachments" in review.keys() and json.loads(review["attachments"]):
+                            settings["reference"]["review"]["references"] = [
+                                {key: item[key] for key in ("id", "sha256", "label", "link", "note", "duration", "format")}
+                                for item in json.loads(review["attachments"])]
+                            settings["reference"]["review"]["observations"] = json.loads(review["observations"])
                         settings["reference"]["review"]["generation"] = generation_context(json.loads(review["generation"]))
         offered = {value["id"]: value for value in self.store.available_scores(checked, cancelled=cancelled)}
         if reference_id:
@@ -1275,11 +1281,36 @@ class Generator:
             if reserved:
                 self.admission.release(identity)
 
+    def with_review_references(self, recipe):
+        """Record the reference clips of the review a take was made from.
+
+        This is provenance for people and agents reading the take. It is derived here
+        from the saved review, never taken from the caller, and no generation or
+        review prompt reads it.
+        """
+        if not recipe.get("review_id"):
+            return recipe
+        with self.store.db() as db:
+            row = None
+            if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='reviews'").fetchone():
+                row = db.execute("SELECT * FROM reviews WHERE id=?", (recipe["review_id"],)).fetchone()
+        clips = json.loads(row["attachments"]) if row is not None and "attachments" in row.keys() else []
+        recipe = dict(recipe)
+        recipe.pop("review_references", None)
+        if clips:
+            recipe["review_references"] = [{key: item[key] for key in ("id", "sha256", "label")} for item in clips]
+        return recipe
+
     def prepare(self, payload):
-        """Validate a payload and resolve its references, without queueing."""
+        """Validate a payload and resolve its references, without queueing.
+
+        The review's reference clips are recorded here, so every route that queues a take, the Studio's
+        and the operation surface's, records the same provenance."""
         if isinstance(payload, dict) and payload.get("acoustic_source"):
-            return self.store.acoustics.recipe(payload)
-        return self.store.prepare_performance(validate_recipe(payload))
+            recipe = self.store.acoustics.recipe(payload)
+        else:
+            recipe = self.store.prepare_performance(validate_recipe(payload))
+        return self.with_review_references(recipe)
 
     def enqueue(self, recipe, operation=None):
         """Insert the job. ``operation(db, job_id, recipe)`` runs in the same transaction."""

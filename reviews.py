@@ -1,6 +1,10 @@
 """Persistent producer notes and a cancellable OpenRouter review worker."""
+import hashlib
 import json
+import math
 import os
+import re
+import shutil
 import sys
 from pathlib import Path
 import subprocess
@@ -9,11 +13,23 @@ import tempfile
 import threading
 import time
 import urllib.request
+from urllib.parse import urlsplit
 import uuid
 
 from keychain import Keychain
 from studio_core import ROOT
-from review_recipe import recommended_generation, source_seed
+from review_recipe import attribute_observations, recommended_generation, send_estimate, sent_audio_receipt, source_seed
+
+# Review setting with a documented default (docs/capabilities.md). It bounds only how
+# long Riff waits for ffprobe to read an uploaded clip: ffprobe reads a clip's header, and
+# it took about 0.1 s for an 86 MB MP3 and a 576 MB WAV on the homelab host (2026-10-24).
+# The default leaves a large margin for slow or network storage, and a check can be cancelled.
+REFERENCE_DEFAULTS = {"reference_probe_seconds": 60}
+# ffprobe container names Riff accepts. OpenRouter lists WAV, MP3, AIFF, AAC, OGG Vorbis, FLAC and M4A
+# (https://openrouter.ai/docs/features/multimodal/audio, read 2026-10-23); Riff converts every clip to MP3.
+REFERENCE_FORMATS = (("wav", "wav"), ("mp3", "mp3"), ("flac", "flac"), ("ogg", "ogg"),
+                     ("aiff", "aiff"), ("mp4", "m4a"))
+REFERENCE_FIELDS = ("id", "sha256", "label", "link", "note", "duration", "bytes", "format")
 
 
 class Reviews:
@@ -24,6 +40,7 @@ class Reviews:
         self.lock = threading.RLock()
         self.wake, self.stop = threading.Event(), threading.Event()
         self.process = None
+        self.probes, self.cancelled_probes = set(), set()
         self.models_cache = None
         with store.db() as db:
             db.executescript("""
@@ -35,8 +52,20 @@ class Reviews:
                     usage TEXT DEFAULT '{}', error TEXT DEFAULT '');
                 CREATE INDEX IF NOT EXISTS reviews_track ON reviews(track_id,created);
             """)
-            if "generation" not in {row["name"] for row in db.execute("PRAGMA table_info(reviews)")}:
+            columns = {row["name"] for row in db.execute("PRAGMA table_info(reviews)")}
+            if "generation" not in columns:
                 db.execute("ALTER TABLE reviews ADD COLUMN generation TEXT NOT NULL DEFAULT '{}'")
+            for name in ("attachments", "observations", "warnings", "sent_audio"):
+                if name not in columns:
+                    db.execute(f"ALTER TABLE reviews ADD COLUMN {name} TEXT NOT NULL DEFAULT '[]'")
+            db.executescript("""
+                CREATE TABLE IF NOT EXISTS review_references (
+                    id TEXT PRIMARY KEY, sha256 TEXT NOT NULL, label TEXT NOT NULL,
+                    link TEXT NOT NULL DEFAULT '', note TEXT NOT NULL DEFAULT '',
+                    duration REAL NOT NULL, bytes INTEGER NOT NULL, format TEXT NOT NULL,
+                    created REAL NOT NULL, status TEXT NOT NULL DEFAULT 'pending', review_id TEXT);
+                CREATE INDEX IF NOT EXISTS review_references_hash ON review_references(sha256);
+            """)
             db.execute("UPDATE reviews SET status='interrupted',error='The studio closed during this review.',finished=? WHERE status IN ('running','cancelling')", (time.time(),))
         self.worker = threading.Thread(target=self.work, daemon=True)
         self.worker.start()
@@ -45,7 +74,8 @@ class Reviews:
     def settings(self):
         with self.store.db() as db:
             row = db.execute("SELECT value FROM library_meta WHERE key='review_settings'").fetchone()
-        return json.loads(row[0]) if row else {"enabled": False, "model": "google/gemini-3.8-flash"}
+        return {**REFERENCE_DEFAULTS, "enabled": False, "model": "google/gemini-3.8-flash",
+                **(json.loads(row[0]) if row else {})}
 
     def connection(self):
         return {**self.settings(), "has_key": self.keychain.exists(), "key_storage": getattr(self.keychain, "storage_name", "Credential store"), "key_storage_available": getattr(self.keychain, "available", True)}
@@ -59,13 +89,19 @@ class Reviews:
         enabled, model = payload.get("enabled", current["enabled"]), payload.get("model", current["model"])
         if type(enabled) is not bool or not isinstance(model, str) or not model.strip():
             raise ValueError("Choose a review model and whether reviews are enabled.")
+        limits = {}
+        for key in REFERENCE_DEFAULTS:
+            value = payload.get(key, current[key])
+            if type(value) not in (int, float) or not math.isfinite(value) or value <= 0:
+                raise ValueError("The reference clip check timeout must be a positive number of seconds.")
+            limits[key] = value
         if "api_key" in payload:
             self.keychain.set(payload["api_key"])
         if enabled and not self.keychain.exists():
             raise ValueError("Save an OpenRouter key to enable reviews.")
         with self.store.db() as db:
             db.execute("INSERT OR REPLACE INTO library_meta(key,value) VALUES('review_settings',?)",
-                       (json.dumps({"enabled": enabled, "model": model.strip()}),))
+                       (json.dumps({"enabled": enabled, "model": model.strip(), **limits}),))
             if not enabled:
                 db.execute("UPDATE reviews SET status='cancelled',finished=? WHERE status='queued'", (time.time(),))
         return self.connection()
@@ -92,8 +128,9 @@ class Reviews:
     @staticmethod
     def unpack(row):
         item = dict(row)
-        for name in ("source_recipe", "revision", "generation", "usage"):
+        for name in ("source_recipe", "revision", "generation", "usage", "observations", "warnings", "sent_audio"):
             item[name] = json.loads(item[name])
+        item["references"] = json.loads(item.pop("attachments"))
         # Historical recommendations may predate seed retention. Present an
         # editable take without rewriting the original saved review.
         seed = source_seed(item["source_recipe"])
@@ -132,6 +169,10 @@ class Reviews:
         focus, keep = payload.get("focus", ""), payload.get("keep_lyrics", True)
         if not isinstance(focus, str) or type(keep) is not bool:
             raise ValueError("Add a review focus and choose whether to keep the lyrics.")
+        attached = payload.get("references", [])
+        if (not isinstance(attached, list) or any(not isinstance(item, str) for item in attached)
+                or len(set(attached)) != len(attached)):
+            raise ValueError("Attach each reference clip once.")
         track = self.store.track(track_id)
         self.store.audio_path(track_id)
         source = dict(track["recipe"])
@@ -142,10 +183,225 @@ class Reviews:
             source["performance_track_id"] = track_id
         review_id = uuid.uuid4().hex
         with self.store.db() as db:
-            db.execute("INSERT INTO reviews(id,track_id,created,status,model,focus,keep_lyrics,source_recipe) VALUES(?,?,?,?,?,?,?,?)",
-                       (review_id, track_id, time.time(), "queued", settings["model"], focus.strip(), int(keep), json.dumps(source)))
+            snapshot = []
+            for reference_id in attached:
+                row = db.execute("SELECT * FROM review_references WHERE id=? AND status='pending'", (reference_id,)).fetchone()
+                if not row:
+                    raise ValueError("A reference clip was removed or already belongs to a review. Attach it again.")
+                snapshot.append(self._public(row))
+            self._check_references(snapshot)
+            db.execute("INSERT INTO reviews(id,track_id,created,status,model,focus,keep_lyrics,source_recipe,attachments) VALUES(?,?,?,?,?,?,?,?,?)",
+                       (review_id, track_id, time.time(), "queued", settings["model"], focus.strip(), int(keep), json.dumps(source),
+                        json.dumps(snapshot)))
+            db.executemany("UPDATE review_references SET status='submitted',review_id=? WHERE id=?",
+                           [(review_id, item["id"]) for item in snapshot])
         self.wake.set()
         return self.get(review_id)
+
+    @staticmethod
+    def _public(row):
+        return {key: row[key] for key in REFERENCE_FIELDS}
+
+    def _check_references(self, items):
+        """Refuse a clip whose file is gone. Size and duration are reported, never enforced."""
+        for item in items:
+            if not self.reference_path(item["sha256"]).is_file():
+                raise ValueError(f"The reference clip {item['label']!r} is no longer stored. Attach it again.")
+
+    def _stored_reference(self, item):
+        """The kept file for a receipt entry, after checking that it is still the same clip."""
+        path = self.reference_path(item["sha256"])
+        digest = hashlib.sha256()
+        try:
+            with path.open("rb") as handle:
+                while chunk := handle.read(1024 * 1024):
+                    digest.update(chunk)
+        except OSError:
+            digest = None
+        if digest is None or digest.hexdigest() != item["sha256"]:
+            raise ValueError(f"The reference clip {item['label']!r} is missing or has changed. Attach it again.")
+        return path
+
+    def reference_path(self, digest):
+        if not re.fullmatch(r"[a-f0-9]{64}", digest):
+            raise ValueError("Reference clip identity is invalid.")
+        return self.store.data_root / "review-references" / digest
+
+    def references(self, track_id=None):
+        """Clips attached for the next review, oldest first, with an estimate of what a review would send.
+
+        Local paths are never returned. The estimate is a report: it never blocks a review.
+        """
+        with self.store.db() as db:
+            rows = db.execute("SELECT * FROM review_references WHERE status='pending' ORDER BY rowid").fetchall()
+        items = [self._public(row) for row in rows]
+        seconds = 0.0
+        if track_id:
+            seconds = float(self.store.track(track_id)["audio"]["duration"] or 0)
+        return {"references": items, "settings": {key: self.settings()[key] for key in REFERENCE_DEFAULTS},
+                "estimate": send_estimate(items, seconds, self.settings()["model"])}
+
+    @staticmethod
+    def _text(payload, name):
+        value = payload.get(name, "")
+        if not isinstance(value, str):
+            raise ValueError(f"The reference {name} must be text.")
+        return value.strip()
+
+    def _details(self, payload, current=None):
+        current = dict(current or {})
+        payload = {**{key: current[key] for key in ("label", "link", "note") if key in current}, **payload}
+        label, link, note = (self._text(payload, name) for name in ("label", "link", "note"))
+        if not label:
+            raise ValueError("Give the reference clip a label.")
+        if link:
+            parts = urlsplit(link)
+            if parts.scheme not in ("http", "https") or not parts.netloc:
+                raise ValueError("A reference source link must be an http or https address. Put other notes in the note.")
+        return label, link, note
+
+    def _probe(self, path):
+        """Read a clip's container and duration with ffprobe, from an argument list and never a shell."""
+        if not shutil.which("ffprobe"):
+            raise ValueError("Install FFmpeg with brew install ffmpeg to check reference clips.")
+        timeout = self.settings()["reference_probe_seconds"]
+        process = subprocess.Popen(["ffprobe", "-v", "error", "-protocol_whitelist", "file", "-show_entries",
+                                    "format=format_name,duration:stream=codec_type:stream_disposition=attached_pic",
+                                    "-of", "json", str(path)], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                   start_new_session=True)
+        with self.lock:
+            self.probes.add(process)
+        try:
+            output, _ = process.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            self._kill(process)
+            process.communicate()
+            raise ValueError(f"Riff stopped checking this clip after {timeout:g} seconds. Try again, or raise "
+                             "reference_probe_seconds in review settings for slow storage.") from None
+        finally:
+            with self.lock:
+                self.probes.discard(process)
+        with self.lock:
+            cancelled = process in self.cancelled_probes
+            self.cancelled_probes.discard(process)
+        if cancelled:
+            raise ValueError("Checking this clip was cancelled.")
+        try:
+            if process.returncode:
+                raise ValueError()
+            probe = json.loads(output)
+        except ValueError:
+            raise ValueError("Riff could not read this file as audio. Choose a WAV, MP3, FLAC, Ogg, AIFF or M4A clip.") from None
+        names = str(probe.get("format", {}).get("format_name", "")).split(",")
+        streams = probe.get("streams", [])
+        audio_format = next((label for name, label in REFERENCE_FORMATS if name in names), None)
+        video = [item for item in streams if item.get("codec_type") == "video" and not item.get("disposition", {}).get("attached_pic")]
+        try:
+            duration = float(probe["format"]["duration"])
+        except (KeyError, TypeError, ValueError):
+            duration = 0.0
+        if (audio_format is None or video or not any(item.get("codec_type") == "audio" for item in streams)
+                or not math.isfinite(duration) or duration <= 0):
+            raise ValueError("This file is not a supported audio clip. Choose a WAV, MP3, FLAC, Ogg, AIFF or M4A clip.")
+        return audio_format, duration
+
+    @staticmethod
+    def _kill(process):
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            pass
+
+    def cancel_probes(self):
+        """Stop every clip check in progress; each reports that it was cancelled."""
+        with self.lock:
+            running = [process for process in self.probes if process.poll() is None]
+            self.cancelled_probes.update(running)
+        for process in running:
+            self._kill(process)
+        return {"cancelled": len(running)}
+
+    def add_reference(self, source, metadata=None, name=""):
+        """Keep an uploaded clip as an opaque, content-addressed attachment."""
+        metadata = metadata or {}
+        if not isinstance(metadata, dict):
+            raise ValueError("Reference clip details must be an object.")
+        source = Path(source)
+        size = source.stat().st_size
+        if size <= 0:
+            raise ValueError("This reference clip is empty.")
+        label, link, note = self._details({"label": Path(name).stem, **metadata})
+        audio_format, duration = self._probe(source)
+        digest = hashlib.sha256()
+        with source.open("rb") as handle:
+            while chunk := handle.read(1024 * 1024):
+                digest.update(chunk)
+        sha = digest.hexdigest()
+        with self.lock:
+            blob = self.reference_path(sha)
+            if not blob.is_file():
+                blob.parent.mkdir(parents=True, exist_ok=True)
+                part = blob.with_name(blob.name + "." + uuid.uuid4().hex + ".part")
+                try:
+                    shutil.copyfile(source, part)
+                    os.replace(part, blob)
+                finally:
+                    part.unlink(missing_ok=True)
+            row = {"id": uuid.uuid4().hex, "sha256": sha, "label": label, "link": link, "note": note,
+                   "duration": duration, "bytes": size, "format": audio_format}
+            with self.store.db() as db:
+                db.execute("INSERT INTO review_references(id,sha256,label,link,note,duration,bytes,format,created) VALUES(?,?,?,?,?,?,?,?,?)",
+                           (*(row[key] for key in REFERENCE_FIELDS), time.time()))
+            return row
+
+    def _pending(self, db, reference_id):
+        row = db.execute("SELECT * FROM review_references WHERE id=? AND status='pending'", (reference_id,)).fetchone()
+        if not row:
+            raise KeyError("Reference clip not found, or it already belongs to a review.")
+        return row
+
+    def update_reference(self, reference_id, payload):
+        if not isinstance(payload, dict) or set(payload) - {"label", "link", "note"}:
+            raise ValueError("Only a reference clip's label, source link and note can change.")
+        with self.lock, self.store.db() as db:
+            row = self._pending(db, reference_id)
+            label, link, note = self._details(payload, row)
+            db.execute("UPDATE review_references SET label=?,link=?,note=? WHERE id=?", (label, link, note, reference_id))
+            return self._public({**dict(row), "label": label, "link": link, "note": note})
+
+    def remove_reference(self, reference_id):
+        with self.lock:
+            with self.store.db() as db:
+                row = self._pending(db, reference_id)
+                db.execute("UPDATE review_references SET status='removed' WHERE id=?", (reference_id,))
+            self._release(row["sha256"])
+        return {"status": "removed", "id": reference_id}
+
+    def _release(self, digest):
+        """Delete an unreferenced clip file; clips named by a review receipt stay."""
+        with self.store.db() as db:
+            kept = (db.execute("SELECT 1 FROM review_references WHERE sha256=? AND status!='removed' LIMIT 1", (digest,)).fetchone()
+                    or db.execute("SELECT 1 FROM reviews WHERE attachments LIKE ? LIMIT 1", ("%" + digest + "%",)).fetchone())
+        if not kept:
+            self.reference_path(digest).unlink(missing_ok=True)
+
+    def reuse_references(self, review_id):
+        """Attach copies of a review receipt's clips so they can be edited before another review."""
+        if not isinstance(review_id, str) or not re.fullmatch(r"[a-f0-9]{32}", review_id):
+            raise ValueError("Choose the review whose reference clips to attach again.")
+        with self.lock:
+            review = self.get(review_id)
+            if not review["references"]:
+                raise ValueError("This review had no reference clips.")
+            self._check_references(review["references"])
+            created = []
+            with self.store.db() as db:
+                for item in review["references"]:
+                    row = {**item, "id": uuid.uuid4().hex}
+                    db.execute("INSERT INTO review_references(id,sha256,label,link,note,duration,bytes,format,created) VALUES(?,?,?,?,?,?,?,?,?)",
+                               (*(row[key] for key in REFERENCE_FIELDS), time.time()))
+                    created.append(row)
+            return {"references": created}
 
     def cancel(self, review_id):
         with self.lock, self.store.db() as db:
@@ -191,6 +447,9 @@ class Reviews:
                         "recipe": source, "audio": str(self.store.audio_path(review["track_id"])),
                         "duration": track["audio"]["duration"],
                         "api_key": secret}
+            if review["references"]:
+                # The client reads these local files; their paths never go to the model or the page.
+                settings["references"] = [{**item, "path": str(self._stored_reference(item))} for item in review["references"]]
             with tempfile.TemporaryDirectory(prefix="review-", dir=self.store.data_root) as folder:
                 output = Path(folder) / "result.json"
                 with self.lock:
@@ -213,6 +472,10 @@ class Reviews:
                 if result and not error:
                     result["generation"] = recommended_generation(
                         result.get("generation"), source, review["keep_lyrics"])
+                    if review["references"]:
+                        result["observations"], result["warnings"] = attribute_observations(
+                            result.get("observations"), review["references"])
+                        result["sent_audio"] = sent_audio_receipt(result.get("sent_audio"))
         except Exception as exc:
             error = str(exc).replace(secret, "[redacted]") if secret else str(exc)
         finally:
@@ -231,9 +494,11 @@ class Reviews:
                                     if generation[key] != review["source_recipe"].get(key, "")}
                         if review["keep_lyrics"]:
                             revision.pop("lyrics", None)
-                        db.execute("UPDATE reviews SET status=?,finished=?,notes=?,summary=?,revision=?,generation=?,usage=? WHERE id=?",
+                        db.execute("UPDATE reviews SET status=?,finished=?,notes=?,summary=?,revision=?,generation=?,usage=?,observations=?,warnings=?,sent_audio=? WHERE id=?",
                                    (status, time.time(), result["notes"], str(result.get("summary", "")),
-                                    json.dumps(revision), json.dumps(generation), json.dumps(result.get("usage", {})), review["id"]))
+                                    json.dumps(revision), json.dumps(generation), json.dumps(result.get("usage", {})),
+                                    json.dumps(result.get("observations", [])), json.dumps(result.get("warnings", [])),
+                                    json.dumps(result.get("sent_audio", [])), review["id"]))
                     else:
                         db.execute("UPDATE reviews SET status=?,finished=?,error=? WHERE id=?",
                                    (status, time.time(), error if status == "failed" else "", review["id"]))

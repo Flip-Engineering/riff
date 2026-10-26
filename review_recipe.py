@@ -110,7 +110,82 @@ def source_seed(source):
     return str(seed) if type(seed) in (str, int) and str(seed).strip() else None
 
 
-def response_schema(source, keep_lyrics, *, preserve_seed=False):
+GENERATED_TAKE = "generated_take"
+# Riff converts every audio part it sends to MP3 at this bitrate.
+MP3_BITRATE = 192000
+# Figures the Google Gemini API documents for audio input (https://ai.google.dev/gemini-api/docs/audio,
+# read 2026-10-23). They only produce a notice for google/* models and never block a review:
+# OpenRouter documents no audio size or duration limit, and its provider may apply another.
+GEMINI_INLINE_REQUEST_BYTES = 20 * 1000 * 1000
+GEMINI_PROMPT_AUDIO_SECONDS = 9.5 * 3600
+
+
+def send_estimate(references, take_seconds, model):
+    """Report what a review would send. Estimates and notices only; nothing here refuses a review."""
+    seconds = float(take_seconds) + sum(item["duration"] for item in references)
+    # MP3 bytes at the sending bitrate, then base64 (4 bytes for every 3).
+    sent = int(seconds * MP3_BITRATE / 8 * 4 / 3)
+    notices = []
+    if str(model).startswith("google/"):
+        if sent > GEMINI_INLINE_REQUEST_BYTES:
+            notices.append(f"This review sends about {sent / 1e6:.1f} MB of audio. Google documents a "
+                           f"{GEMINI_INLINE_REQUEST_BYTES // 1000000} MB limit on the whole inline request for Gemini audio "
+                           "(ai.google.dev/gemini-api/docs/audio), so the provider may refuse it. You can still submit.")
+        if seconds > GEMINI_PROMPT_AUDIO_SECONDS:
+            notices.append(f"Google documents {GEMINI_PROMPT_AUDIO_SECONDS / 3600:g} hours of audio per Gemini prompt, "
+                           "and this review sends more. The provider may refuse it. You can still submit.")
+    return {"clips": len(references), "audio_seconds": seconds, "source_bytes": sum(item["bytes"] for item in references),
+            "estimated_sent_bytes": sent, "notices": notices}
+
+
+def observation_schema(references):
+    """Observations name their audio: the generated take or one supplied reference ID."""
+    sources = [GENERATED_TAKE, *(reference["id"] for reference in references)]
+    return {"type": "array",
+            "description": "Observations from this listening, each attributed to the audio it came from: "
+                           "generated_take or a reference ID. Include at least one for every supplied reference.",
+            "items": {"type": "object", "additionalProperties": False,
+                      "required": ["source", "timestamp", "note"],
+                      "properties": {"source": {"type": "string", "enum": sources},
+                                     "timestamp": {"type": "string",
+                                                   "description": "Time within that audio, or empty."},
+                                     "note": {"type": "string"}}}}
+
+
+def attribute_observations(value, references):
+    """Keep attributed observations the studio can name; report what is missing."""
+    labels = {reference["id"]: reference["label"] for reference in references}
+    names = {GENERATED_TAKE: "the generated take", **{key: "reference " + label for key, label in labels.items()}}
+    if not isinstance(value, list):
+        return [], ["The model did not attribute its observations to the generated take or the references."]
+    kept, warnings, dropped = [], [], False
+    for item in value:
+        if (isinstance(item, dict) and item.get("source") in names and isinstance(item.get("note"), str)
+                and item["note"].strip() and isinstance(item.get("timestamp", ""), str)):
+            kept.append({"source": item["source"], "timestamp": item.get("timestamp", ""), "note": item["note"].strip()})
+        else:
+            dropped = True
+    if dropped:
+        warnings.append("The model returned an observation the studio could not attribute and left it out.")
+    for key in names:
+        if key != GENERATED_TAKE and not any(item["source"] == key for item in kept):
+            warnings.append(f"The model gave no observations about {names[key]}.")
+    if not any(item["source"] == GENERATED_TAKE for item in kept):
+        warnings.append("The model gave no observations about the generated take.")
+    return kept, warnings
+
+
+def sent_audio_receipt(value):
+    """Keep the record of what audio was actually sent: its owner, format, size and hash."""
+    if not isinstance(value, list):
+        return []
+    return [{"source": item["source"], "format": item["format"], "bytes": item["bytes"], "sha256": item["sha256"]}
+            for item in value
+            if isinstance(item, dict) and isinstance(item.get("source"), str) and isinstance(item.get("format"), str)
+            and type(item.get("bytes")) is int and isinstance(item.get("sha256"), str)]
+
+
+def response_schema(source, keep_lyrics, *, preserve_seed=False, references=()):
     acoustics = available_acoustics(source)
     lora_ids = {item["id"] for item in source.get("loras", [])}
     for sound in acoustics:
@@ -164,13 +239,17 @@ def response_schema(source, keep_lyrics, *, preserve_seed=False):
     if preserve_seed and source_seed(source) is not None:
         properties["seed"].update(enum=[source_seed(source)],
                                   description="Retain this recording's original seed while refining its music. The artist can change it in the studio.")
-    return {"type": "object", "additionalProperties": False,
-            "required": ["notes", "summary", "generation"],
-            "properties": {
-                "notes": {"type": "string", "description": "Candid listening observations, with useful timestamps."},
-                "summary": {"type": "string", "description": "Brief musical intent of this recommended take."},
-                "generation": {"type": "object", "properties": properties,
-                               "required": list(FIELDS), "additionalProperties": False}}}
+    schema = {"type": "object", "additionalProperties": False,
+              "required": ["notes", "summary", "generation"],
+              "properties": {
+                  "notes": {"type": "string", "description": "Candid listening observations, with useful timestamps."},
+                  "summary": {"type": "string", "description": "Brief musical intent of this recommended take."},
+                  "generation": {"type": "object", "properties": properties,
+                                 "required": list(FIELDS), "additionalProperties": False}}}
+    if references:
+        schema["properties"]["observations"] = observation_schema(references)
+        schema["required"].insert(2, "observations")
+    return schema
 
 
 def validate_generation(value, source, keep_lyrics=False):

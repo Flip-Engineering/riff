@@ -57,6 +57,16 @@ else:
  if s['focus']=='compose': take['render_mode']='plan'
  result={'notes':'0:00 Strong entrance. '+s['api_key'], 'summary':'Bring the crowd forward.',
          'generation':{key:take[key] for key in FIELDS},'usage':{'cost':.01}}
+ refs=s.get('references') or []
+ if refs:
+  import hashlib
+  obs=[{'source':'generated_take','timestamp':'0:01','note':'The take keeps a steady pulse.'}]
+  for r in refs[:1] if s['focus']=='partial' else refs:
+   obs.append({'source':r['id'],'timestamp':'0:02','note':'Reference '+r['label']+' sits brighter in the mix.'})
+  if s['focus']=='unattributed': obs.append({'source':'invented','timestamp':'','note':'Nobody said this.'})
+  result['observations']=obs
+  result['sent_audio']=[{'source':x,'format':'mp3','bytes':10,'sha256':'a'*64} for x in ['generated_take']+[r['id'] for r in refs]]
+  result['usage']={'cost':.01,'seen':[hashlib.sha256(Path(r['path']).read_bytes()).hexdigest() for r in refs]}
 Path(sys.argv[1]).write_text(json.dumps(result))
 """
     return [sys.executable, "-c", script, str(output)]

@@ -8,6 +8,167 @@
   let submitting = false;
   const panel = $("#producer-panel");
   $("#review-settings-open").hidden = false;
+  let attached = [];
+  const saves = new Map();
+  const referenceDrafts = new Map();
+  const headerJSON = (value) =>
+    JSON.stringify(value).replace(
+      /[\u007f-\uffff]/g,
+      (char) => "\\u" + char.charCodeAt(0).toString(16).padStart(4, "0"),
+    );
+  const megabytes = (bytes) => `${Math.round((bytes / 1048576) * 100) / 100} MB`;
+  const shortHash = (value) => String(value).slice(0, 8);
+  const sourceText = (item) => item.link || item.note || "";
+  function referenceError(message = "") {
+    errorMessage("#review-reference-error", message);
+  }
+  function describeEstimate(estimate) {
+    $("#review-reference-hint").textContent =
+      "Reference clips are sent with this recording to OpenRouter and the review model’s provider, where usage charges apply. Riff keeps them on this computer only.";
+    if (!estimate) return;
+    const notices = (estimate.notices || []).join(" ");
+    $("#review-reference-estimate").textContent = estimate.clips
+      ? `This review would send about ${megabytes(estimate.estimated_sent_bytes)} of audio, ${formatDuration(estimate.audio_seconds)} in all, as MP3. ${notices}`
+      : "";
+  }
+  async function refreshEstimate() {
+    if (!currentTrack) return;
+    try {
+      describeEstimate((await api(`/api/review/references?track_id=${currentTrack.id}`)).estimate);
+    } catch {}
+  }
+  function drawReferences() {
+    $("#review-reference-list").innerHTML = attached
+      .map(
+        (stored) => {
+          const item = { ...stored, ...referenceDrafts.get(stored.id) };
+          return `<li class="review-reference" data-reference="${item.id}">
+          <label>Label<input data-reference-label value="${esc(item.label)}" maxlength="200" autocomplete="off" /></label>
+          <label>Source link or note<input data-reference-source value="${esc(sourceText(item))}" placeholder="https://… or where this came from" autocomplete="off" /></label>
+          <span class="quiet-text review-reference-meta">${esc(formatDuration(item.duration))} · ${esc(megabytes(item.bytes))} · ${esc(item.format.toUpperCase())} · ${shortHash(item.sha256)}</span>
+          <button type="button" class="text-button" data-remove-reference="${item.id}" aria-label="Remove reference ${esc(item.label)}">Remove</button>
+        </li>`;
+        },
+      )
+      .join("");
+    refreshEstimate();
+  }
+  async function loadReferences() {
+    try {
+      const result = await api("/api/review/references");
+      attached = result.references;
+      drawReferences();
+      describeEstimate(result.estimate);
+    } catch (error) {
+      referenceError(error.message);
+    }
+  }
+  function rememberReference(row) {
+    const id = row.dataset.reference;
+    const source = $("[data-reference-source]", row).value.trim();
+    const link = /^https?:\/\//i.test(source);
+    const draft = {
+      label: $("[data-reference-label]", row).value,
+      link: link ? source : "",
+      note: link ? "" : source,
+    };
+    const stored = attached.find((item) => item.id === id);
+    if (!saves.has(id) && stored && Object.keys(draft).every((key) => draft[key] === stored[key])) {
+      referenceDrafts.delete(id);
+    } else {
+      referenceDrafts.set(id, draft);
+    }
+  }
+  function saveReference(id) {
+    if (saves.has(id)) return saves.get(id);
+    // Serialize each clip's writes. Keep a draft until its PATCH succeeds, including
+    // edits made while an earlier PATCH is in flight. Redraws use the same draft.
+    const task = (async () => {
+      while (referenceDrafts.has(id)) {
+        const draft = referenceDrafts.get(id);
+        const item = await api(`/api/review/references/${id}`, "PATCH", draft);
+        attached = attached.map((entry) => (entry.id === id ? item : entry));
+        if (referenceDrafts.get(id) === draft) referenceDrafts.delete(id);
+        const row = $("#review-reference-list").querySelector(`[data-reference="${id}"]`);
+        row?.querySelector("[data-remove-reference]")?.setAttribute("aria-label", `Remove reference ${item.label}`);
+      }
+      if (!referenceDrafts.size) referenceError();
+    })().finally(() => saves.delete(id));
+    saves.set(id, task);
+    return task;
+  }
+  $("#review-reference-list").addEventListener("input", (event) => {
+    const row = event.target.closest("[data-reference]");
+    if (row) rememberReference(row);
+  });
+  $("#review-reference-list").addEventListener("change", (event) => {
+    const row = event.target.closest("[data-reference]");
+    if (row) {
+      rememberReference(row);
+      saveReference(row.dataset.reference).catch((error) => referenceError(error.message));
+    }
+  });
+  $("#review-reference-list").addEventListener("click", async (event) => {
+    const remove = event.target.closest("[data-remove-reference]");
+    if (!remove) return;
+    remove.disabled = true;
+    try {
+      await Promise.all(saves.values());
+      await api(`/api/review/references/${remove.dataset.removeReference}`, "DELETE", {});
+      attached = attached.filter((item) => item.id !== remove.dataset.removeReference);
+      referenceDrafts.delete(remove.dataset.removeReference);
+      referenceError();
+      drawReferences();
+      $("#add-review-reference").focus();
+    } catch (error) {
+      remove.disabled = false;
+      referenceError(error.message);
+    }
+  });
+  $("#add-review-reference").addEventListener("click", () =>
+    $("#review-reference-file").click(),
+  );
+  let checking = null;
+  $("#cancel-review-reference").addEventListener("click", () => {
+    checking?.abort();
+    api("/api/review/references/cancel", "POST", {}).catch(() => {});
+  });
+  $("#review-reference-file").addEventListener("change", async (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+    const button = $("#add-review-reference");
+    button.disabled = true;
+    $("#cancel-review-reference").hidden = false;
+    referenceError();
+    checking = new AbortController();
+    try {
+      const response = await fetch(
+        "/api/review/references?" + new URLSearchParams({ name: file.name }),
+        {
+          method: "POST",
+          signal: checking.signal,
+          headers: {
+            "X-Riff-Request": "1",
+            "Content-Type": "application/octet-stream",
+            "X-Riff-Reference-Metadata": headerJSON({}),
+          },
+          body: file,
+        },
+      );
+      const value = await response.json();
+      if (!response.ok) throw new Error(value.error);
+      attached = [...attached, value];
+      drawReferences();
+    } catch (error) {
+      referenceError(error.name === "AbortError" ? "Checking this clip was cancelled." : error.message);
+    } finally {
+      checking = null;
+      event.target.value = "";
+      button.disabled = false;
+      $("#cancel-review-reference").hidden = true;
+    }
+  });
+  loadReferences();
 
   function readFocus(id) {
     try {
@@ -40,6 +201,7 @@
       const connection = await api("/api/review/settings");
       $("#reviews-enabled").checked = connection.enabled;
       $("#review-model").value = connection.model;
+      $("#review-probe-seconds").value = connection.reference_probe_seconds;
       $("#remove-review-key").disabled = !connection.has_key;
       $("#review-key-status").textContent = connection.has_key
         ? `Your key is saved in ${connection.key_storage}.`
@@ -65,6 +227,7 @@
     const payload = {
       enabled: $("#reviews-enabled").checked,
       model: $("#review-model").value,
+      reference_probe_seconds: Number($("#review-probe-seconds").value),
     };
     if ($("#review-api-key").value)
       payload.api_key = $("#review-api-key").value;
@@ -122,16 +285,25 @@
     $("#request-review").disabled = true;
     errorMessage("#review-error");
     try {
+      // Capture even a focused field whose change event has not fired yet. A failed
+      // save stays dirty and must succeed on retry before a paid review can start.
+      for (const row of $("#review-reference-list").querySelectorAll("[data-reference]")) rememberReference(row);
+      $("#review-references").disabled = true;
+      await Promise.all(attached.map((item) => saveReference(item.id)));
       await api(`/api/tracks/${currentTrack.id}/reviews`, "POST", {
         focus: $("#review-focus").value,
         keep_lyrics: $("#review-keep-lyrics").checked,
+        references: attached.map((item) => item.id),
       });
+      attached = [];
+      drawReferences();
       signature = "";
       await refresh();
     } catch (error) {
       errorMessage("#review-error", error.message);
     } finally {
       submitting = false;
+      $("#review-references").disabled = false;
       $("#request-review").disabled = !state.review_settings?.enabled;
     }
   });
@@ -160,6 +332,35 @@
       ${take.abc ? `<details data-review-score="${review.id}"><summary>Score</summary><div class="review-score-preview" aria-label="Recommended score"></div></details>` : ""}
       <details><summary>Generation recipe</summary><pre class="review-recipe-json">${esc(JSON.stringify(take, null, 2))}</pre><button type="button" class="text-button" data-export-review="${review.id}">Download recipe</button></details>
       <div class="review-take-actions"><button type="button" class="secondary-button solid" data-generate-review="${review.id}">${take.acoustic_source ? "Finish audio" : take.render_mode === "plan" ? "Compose this score" : take.render_mode === "sound" ? "Create this sound" : take.render_mode === "performance" ? "Create this performance" : take.performance_source ? "Render this performance" : "Generate this take"}</button><button type="button" class="text-button" data-use-review="${review.id}">Edit in studio</button></div></section>`;
+  }
+
+  function sentAs(review, item) {
+    const sent = (review.sent_audio || []).find((entry) => entry.source === item.id);
+    return sent ? ` · sent as ${esc(sent.format.toUpperCase())}` : "";
+  }
+  function referencesBlock(review, open = false) {
+    if (!review.references?.length) return "";
+    const names = {
+      generated_take: "Generated take",
+      ...Object.fromEntries(review.references.map((item) => [item.id, item.label])),
+    };
+    const clips = review.references
+      .map(
+        (item) => `<li><strong>${esc(item.label)}</strong> <span class="quiet-text">${esc(formatDuration(item.duration))} · ${esc(item.format.toUpperCase())} · ${esc(megabytes(item.bytes))} · ${shortHash(item.sha256)}${sentAs(review, item)}</span>${item.link ? `<a class="review-reference-link" href="${esc(item.link)}" target="_blank" rel="noopener noreferrer">${esc(item.link)}</a>` : ""}${item.note ? `<span class="review-reference-note">${esc(item.note)}</span>` : ""}</li>`,
+      )
+      .join("");
+    const groups = Object.keys(names)
+      .map((source) => [source, (review.observations || []).filter((item) => item.source === source)])
+      .filter(([, items]) => items.length)
+      .map(
+        ([source, items]) => `<section class="review-observation-group" data-observation-source="${esc(source)}"><h4>${esc(names[source])}</h4><ul>${items
+          .map((item) => `<li>${item.timestamp ? `<span class="review-observation-time">${esc(item.timestamp)}</span> ` : ""}${esc(item.note)}</li>`)
+          .join("")}</ul></section>`,
+      )
+      .join("");
+    return `${(review.warnings || []).map((warning) => `<p class="review-warning" role="status">${esc(warning)}</p>`).join("")}
+      ${groups ? `<details class="review-observations" open><summary>Observations by recording</summary>${groups}</details>` : ""}
+      <details class="review-references-used" ${open ? "open" : ""}><summary>Reference clips · ${review.references.length}</summary><ul class="review-reference-receipt">${clips}</ul><button type="button" class="text-button" data-reuse-review="${review.id}">Use these clips in another review</button></details>`;
   }
 
   function takeRecipe(review) {
@@ -199,8 +400,8 @@
             );
             return `<article class="producer-note"><div class="producer-note-meta"><span>${esc(review.model)}</span><span>${esc(formatDate(review.created))}</span></div>${
               review.status === "done"
-                ? ` ${review.summary ? `<p class="review-summary">${esc(review.summary)}</p>` : ""}${recommendedTake(review) || `<button type="button" class="secondary-button" data-use-review="${review.id}">${icon("branch")}${Object.keys(review.revision).length ? "Use revision" : "Start another take"}</button>`}<details class="review-listening-notes"><summary>Listening notes<span aria-hidden="true">＋</span></summary><div class="review-note-text">${withCues(review.notes)}</div>${review.focus ? `<p class="review-focus-label">Review focus: ${esc(review.focus)}</p>` : ""}</details>`
-                : `<p class="review-state">${active ? '<span class="spinner" aria-hidden="true"></span>' : ""}${names[review.status] || esc(review.status)}</p>${review.error ? `<p class="form-error">${esc(review.error)}</p>` : ""}${active ? `<button type="button" class="text-button" data-cancel-review="${review.id}" ${review.status === "cancelling" ? "disabled" : ""}>Cancel review</button>` : ""}`
+                ? ` ${review.summary ? `<p class="review-summary">${esc(review.summary)}</p>` : ""}${recommendedTake(review) || `<button type="button" class="secondary-button" data-use-review="${review.id}">${icon("branch")}${Object.keys(review.revision).length ? "Use revision" : "Start another take"}</button>`}${referencesBlock(review)}<details class="review-listening-notes"><summary>Listening notes<span aria-hidden="true">＋</span></summary><div class="review-note-text">${withCues(review.notes)}</div>${review.focus ? `<p class="review-focus-label">Review focus: ${esc(review.focus)}</p>` : ""}</details>`
+                : `<p class="review-state">${active ? '<span class="spinner" aria-hidden="true"></span>' : ""}${names[review.status] || esc(review.status)}</p>${review.error ? `<p class="form-error">${esc(review.error)}</p>` : ""}${active ? `<button type="button" class="text-button" data-cancel-review="${review.id}" ${review.status === "cancelling" ? "disabled" : ""}>Cancel review</button>` : ""}${referencesBlock(review, true)}`
             }</article>`;
           })
           .join("")
@@ -227,7 +428,23 @@
     const generate = event.target.closest("[data-generate-review]");
     const download = event.target.closest("[data-export-review]");
     const cue = event.target.closest("[data-review-time]");
+    const reuse = event.target.closest("[data-reuse-review]");
     try {
+      if (reuse) {
+        reuse.disabled = true;
+        try {
+          const result = await api("/api/review/references/reuse", "POST", {
+            review_id: reuse.dataset.reuseReview,
+          });
+          attached = [...attached, ...result.references];
+          referenceError();
+          drawReferences();
+          notify("The reference clips are attached to your next review.");
+          $("#review-focus").focus();
+        } finally {
+          reuse.disabled = false;
+        }
+      }
       if (cancel) {
         cancel.disabled = true;
         await api(
@@ -289,6 +506,7 @@
         hasLyrics && (draft?.keep_lyrics ?? true);
       errorMessage("#review-error");
       drawNotes();
+      refreshEstimate();
     } else currentTrack = track;
     $("#review-parent").hidden = !track.recipe.parent_track_id;
     if (track.recipe.parent_track_id)
