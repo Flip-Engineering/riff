@@ -33,7 +33,8 @@ The five runners take jobs at the same time on one host, so anything outside a r
 | `metal-lora-inference.yml` | same Apple selector; device eligibility checked separately | manual exact-source dispatch after route and model-run approval |
 | `desktop.yml` publish | `self-hosted`, `Linux`, `X64`, `riff-linux` | tag or manual publish |
 | `pages.yml` deploy | `self-hosted`, `Linux`, `X64`, `riff-linux` | Pages workflow |
-| `release.yml` validate/release | `self-hosted`, `Linux`, `X64`, `riff-linux` | release workflow |
+| `release.yml` validate | reusable `ci.yml`: Linux selector plus the Apple selector above | release workflow; missing Apple route blocks validation |
+| `release.yml` release | `self-hosted`, `Linux`, `X64`, `riff-linux` | after validation succeeds |
 
 
 The native Linux CPU job retains the existing solver, CPU-tensor LoRA,
@@ -161,3 +162,32 @@ runs and retain their runner/toolchain/device receipts and all existing test and
 desktop acceptance results. A reviewed source proposal or an unset/missing route
 is not completed supported-platform qualification. This change does not dispatch
 jobs, provision infrastructure or alter release `v0.6.31`.
+
+## Publishing the workflow migration
+
+Publishing this change requires an authorized GitHub App installation token with
+repository permissions `contents: write` and `workflows: write`. Opening its PR
+also requires `pull_requests: write`; `metadata: read` accompanies repository
+access. GitHub documents [Git access to workflow files](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/choosing-permissions-for-a-github-app#choosing-permissions-for-git-access)
+and [installation token permissions](https://docs.github.com/en/rest/apps/apps#create-an-installation-access-token-for-an-app).
+
+Verify three separate layers before retrying publication: the App registration
+requests Workflows read/write, the repository owner's installation has approved
+that permission, and the credential helper actually requests it in the token's
+`permissions` object. A helper that explicitly requests only Contents and Pull
+requests still issues a token without Workflows even after the App grant changes.
+The workflow's `permissions:` block controls its job token; editing that block
+does not fix a Git push authorization failure.
+
+Root owns approval of the publication route and any App/helper permission change.
+Use the existing model identity and repository-bound helper after root supplies
+the reviewed helper revision and approved installation. Preserve the authored
+migration commits and perform an ordinary nonforce branch push, then open a
+focused draft PR for #31. Do not retry with another identity, token, API write
+path or broader permission after a refusal. Source publication can remove hosted
+routing before an Apple runner is provisioned: keep `RIFF_APPLE_RUNNER_LABEL`
+unset so Apple validation fails explicitly on the existing self-hosted Linux
+pool. Enabling the Apple selector still requires the runner and compile-custody
+handoff above. A new release tag must reference the reviewed migration before
+its reusable validation can satisfy the self-hosted policy; existing published
+tags remain immutable.
