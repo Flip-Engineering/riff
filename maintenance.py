@@ -53,11 +53,11 @@ class Maintenance:
         with self.lock:
             self.task["message"] = message
 
-    def run(self, command, cwd=None):
+    def run(self, command, cwd=None, env=None):
         if self.stopping.is_set():
             raise ValueError("Setup was stopped.")
         with self.lock:
-            self.process = subprocess.Popen(command, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            self.process = subprocess.Popen(command, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
             process = self.process
         with (DATA / "setup.log").open("a") as log:
             try:
