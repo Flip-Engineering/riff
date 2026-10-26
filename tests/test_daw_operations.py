@@ -390,6 +390,69 @@ class SubmitTests(DawFixture):
         wait_until(lambda: self.store.job(first["job_id"])["status"] == "done")
         wait_until(lambda: self.store.job(linked["job_id"])["status"] == "done")
 
+    @staticmethod
+    def _cancel_at_final_stage(name, stage, state):
+        """Wrap a daw_runner entry point so the job's cancel event lands inside
+        the exact final stage event — root's final-stage cancellation boundary."""
+        import daw_runner
+        real = getattr(daw_runner, name)
+
+        def cancelling(store, job_id, recipe, runtime, cancelled, stage_update, attach=None):
+            def wrapped(stage_name, facts):
+                stage_update(stage_name, facts)
+                if stage_name == stage and facts.get("state") == state:
+                    cancelled.set()
+            return real(store, job_id, recipe, runtime, cancelled, wrapped, attach=attach)
+
+        return cancelling
+
+    def test_final_stage_cancellation_publishes_no_arrangement(self):
+        # Reproduces exact-758b888/final-stage-cancellation-reproduction.json:
+        # the cancel lands at the final session=done event; the job must end
+        # cancelled with no arrangement published and no result in the receipt.
+        from operations import Operations
+        patcher = patch("daw_runner.compose", self._cancel_at_final_stage("compose", "session", "done"))
+        patcher.start()
+        try:
+            status, body = self.compose()
+            self.assertEqual(status, 201)
+            # The patch must stay active while the worker runs the job.
+            wait_until(lambda: self.store.job(body["job_id"])["status"] in ("done", "failed", "cancelled"))
+        finally:
+            patcher.stop()
+        job = self.store.job(body["job_id"])
+        self.assertEqual(job["status"], "cancelled")
+        self.assertFalse(job["track_id"])
+        receipt = Operations(self.store, self.generator).receipt(body["operation_id"])
+        self.assertEqual(receipt["outputs"]["arrangement_source"], "")
+        with self.store.db() as db:
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM arrangements").fetchone()[0], 0)
+
+    def test_final_stage_cancellation_publishes_no_render(self):
+        # Same boundary on the render side: the mix track must not be
+        # published, and the pre-existing arrangement stays intact.
+        from operations import Operations
+        _, made = self.compose("render-base")
+        wait_until(lambda: self.store.job(made["job_id"])["status"] == "done")
+        reference = Operations(self.store, self.generator).receipt(made["operation_id"])["outputs"]["arrangement_source"]
+        patcher = patch("daw_runner.render", self._cancel_at_final_stage("render", "stems", "done"))
+        patcher.start()
+        try:
+            status, render = self.post("daw.render", {"arrangement_source": reference,
+                                                      "idempotency_key": "r-cancel"})
+            self.assertEqual(status, 201)
+            wait_until(lambda: self.store.job(render["job_id"])["status"] in ("done", "failed", "cancelled"))
+        finally:
+            patcher.stop()
+        job = self.store.job(render["job_id"])
+        self.assertEqual(job["status"], "cancelled")
+        self.assertFalse(job["track_id"])
+        receipt = Operations(self.store, self.generator).receipt(render["operation_id"])
+        self.assertEqual(receipt["outputs"]["track_id"], "")
+        self.assertIsNone(receipt["outputs"]["stem_manifest"])
+        # Late cancellation erases nothing that was legitimately recorded.
+        self.assertEqual(self.store.arrangements.describe(reference)["reference"], reference)
+
 
 class UnavailableRuntimeTests(StudioFixture):
     """No runtime record: submission refuses, and a queued job fails truthfully."""
@@ -505,19 +568,42 @@ class CustodyTests(unittest.TestCase):
                                   threading.Event(), capture=True)
             self.assertEqual(len(out), 4 * 1024 * 1024)
 
+    @staticmethod
+    def _dead(pid):
+        """Tracked-PID evidence only, never a host-wide process listing.
+
+        A zombie is dead: it cannot act and awaits only reaping.
+        """
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return True
+        except PermissionError:
+            return False
+        try:
+            return Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0] == "Z"
+        except (FileNotFoundError, IndexError):
+            return True
+
     def test_descendant_ignoring_term_dies_with_the_group(self):
         import daw_runner
         with tempfile.TemporaryDirectory() as td:
             td = Path(td)
             stubborn = td / "stubborn.py"
+            # The descendant itself writes its tracked PID only after it has
+            # installed the SIG_IGN handler, so file presence proves the sweep
+            # faced a live TERM-ignoring descendant.
             stubborn.write_text(
                 "import os, signal, sys, time\n"
                 "signal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
-                "if os.fork() == 0:\n"  # the descendant ignores TERM
+                "pid = os.fork()\n"
+                "if pid == 0:\n"
                 "    signal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
+                "    open(sys.argv[1], 'w').write(str(os.getpid()))\n"
                 "    time.sleep(120)\n"
                 "    os._exit(0)\n"
                 "time.sleep(120)\n")
+            marker = td / "descendant.pid"
             log = td / "child.log"
             cancelled = threading.Event()
             holder = {}
@@ -525,7 +611,8 @@ class CustodyTests(unittest.TestCase):
 
             def work():
                 try:
-                    daw_runner._run([sys.executable, str(stubborn)], os.environ.copy(), log,
+                    daw_runner._run([sys.executable, str(stubborn), str(marker)],
+                                    os.environ.copy(), log,
                                     cancelled, attach=lambda p: holder.setdefault("p", p))
                 except daw_runner.StageError as error:
                     outcome["stage"] = error.stage
@@ -533,25 +620,23 @@ class CustodyTests(unittest.TestCase):
             thread = threading.Thread(target=work)
             thread.start()
             deadline = time.monotonic() + 10
-            while "p" not in holder and time.monotonic() < deadline:
+            while ("p" not in holder or not marker.exists()) and time.monotonic() < deadline:
                 time.sleep(0.02)
             self.assertIn("p", holder)
+            self.assertTrue(marker.exists(), "the descendant never announced itself")
             process = holder["p"]
+            descendant = int(marker.read_text())
             try:
-                import subprocess as sp
-                group = os.getpgid(process.pid)
-
-                def members():
-                    out = sp.run(["ps", "-eo", "pgid=,pid="], capture_output=True, text=True).stdout
-                    return [line for line in out.splitlines()
-                            if line.split() and int(line.split()[0]) == group]
-
                 cancelled.set()
                 thread.join(timeout=30)
                 self.assertFalse(thread.is_alive())
                 self.assertEqual(outcome.get("stage"), "cancelled")
                 self.assertIsNotNone(process.poll())
-                self.assertEqual(members(), [], "no descendant may survive the group sweep")
+                deadline = time.monotonic() + 10
+                while not self._dead(descendant) and time.monotonic() < deadline:
+                    time.sleep(0.02)
+                self.assertTrue(self._dead(descendant),
+                                "the tracked descendant must not survive the group sweep")
             finally:
                 try:
                     os.killpg(os.getpgid(process.pid), 9)

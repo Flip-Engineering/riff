@@ -1458,6 +1458,11 @@ class Generator:
                     result = daw_runner.render(
                         self.store, job_id, recipe, runtime, cancelled, stage_update,
                         attach=lambda process: self.admission.attach(identity, process))
+                    # Publication boundary: the library track is published
+                    # here, so cancellation is checked here as well as at the
+                    # runner's return; a cancelled job publishes nothing new.
+                    if cancelled.is_set():
+                        raise daw_runner.StageError("cancelled", "Cancelled.")
                     mix = self.store.outputs / "riff" / f"{job_id}.wav"
                     mix.parent.mkdir(exist_ok=True)
                     shutil.copyfile(result["mix"], mix)

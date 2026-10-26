@@ -230,7 +230,11 @@ def compose(store, job_id, recipe, runtime, cancelled=None, stage_update=None, a
     _expect_save(logs / "reopen.out", session_dir / "final.ardour")
     if stage_update:
         stage_update("session", {"state": "done"})
-
+    # Cancellation boundary: the arrangement record is the compose
+    # publication.  A cancel landing at the final stage must not publish a
+    # new arrangement; earlier artifacts stay untouched.
+    if cancelled is not None and cancelled.is_set():
+        raise StageError("cancelled", "Cancelled.")
     recorded = store.arrangements.record(job_id, session_dir, recipe.get("title", ""),
                                          runtime["converter"],
                                          composition={"abc": daw.get("abc"), "voice_map": daw.get("voice_map"),
@@ -299,6 +303,10 @@ def render(store, job_id, recipe, runtime, cancelled=None, stage_update=None, at
                           "sha256": _sha256(stem)})
         if stage_update:
             stage_update("stems", {"state": "done", "count": len(stems)})
+    # A cancelled render returns nothing publishable: the caller adds the mix
+    # and stem manifest to the library only on a clean return.
+    if cancelled is not None and cancelled.is_set():
+        raise StageError("cancelled", "Cancelled.")
     return {"mix": mix, "stems": stems}
 
 
