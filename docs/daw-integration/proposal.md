@@ -23,8 +23,8 @@ comparison + licensing inventory),
 `comparison-framework.md` (conductor), `docs/evidence/*.json` receipts,
 `probes/` (committed scripts + shared fixtures), Baton knowledge records.
 
-## 1. Recommendation (PROVISIONAL — root review continues; bounded musical
-comparison authorized and running)
+## 1. Recommendation (PROVISIONAL — root review continues; the bounded musical
+comparison authorized by root is COMPLETE and receipted)
 
 **The ensemble's evidence favors LMMS (pinned v1.3.0-alpha.2) as the first
 DAW render backend, under the batch-render hypothesis (H1), with a pinned
@@ -262,9 +262,11 @@ the operator's instruction.
   inline-field defects are recorded, not silently relied on.
 - No lossless-ABC claims anywhere: the fidelity matrix defines preserved /
   converted / approximated / dropped.
-- No stacking on pending work: #47 is MERGED (main `0230da64`); #75 remains
-  unmerged — no dependence on `family.*`. No changes to existing YuE2
-  generation; no deployment; musician session preserved.
+- Dependency status: #47 merged (main `0230da64`); #75 merged by root
+  (`0634fa36`). No dependence on either was taken; current main-line
+  integrations remain to be accounted for at integration time.
+  No changes to existing YuE2 generation; no deployment; musician session
+  preserved.
 - No macOS run was possible from this host: every macOS claim is
   official-page evidence, not a receipt. Scoped per root review: macOS
   qualification gates the BUNDLED-DESKTOP backend; a homelab-hosted
