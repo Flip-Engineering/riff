@@ -1,0 +1,108 @@
+{
+ "schema": "riff.daw.e2e-run.v1",
+ "store": "/mnt/nvme4tb/ci-runners/baton2-native-homelab/home/tmp-riff-conductor/ardour-qualification-20261026/e2e-store-1",
+ "runtime_record": "/mnt/nvme4tb/ci-runners/baton2-native-homelab/home/tmp-riff-conductor/ardour-qualification-20261026/runtime/ardour-runtime.json",
+ "compose": {
+  "job_id": "d363eeb0d24444d6aa8edd97a0bad94c",
+  "operation_id": "aba65848982c4a99aaab244d6a4e8f4d",
+  "stages": {
+   "session": {
+    "state": "done"
+   },
+   "instrument": {
+    "state": "done"
+   },
+   "render": {
+    "state": "not_applicable"
+   },
+   "stems": {
+    "state": "not_applicable"
+   }
+  },
+  "arrangement_source": "riff-arrangement-v1:192b12e90231a9febdd6b453d09fcd53f69e304985dc44b91d41399ea69b3326"
+ },
+ "render": {
+  "job_id": "73b65fa2106648fd9a093eb35a3fb2b6",
+  "stages": {
+   "session": {
+    "state": "reused",
+    "from": "riff-arrangement-v1:192b12e90231a9febdd6b453d09fcd53f69e304985dc44b91d41399ea69b3326"
+   },
+   "instrument": {
+    "state": "not_applicable"
+   },
+   "render": {
+    "state": "done"
+   },
+   "stems": {
+    "state": "done"
+   }
+  },
+  "stem_manifest": [
+   {
+    "track": "Flute",
+    "file": "export/stem-1.wav",
+    "bytes": 4064044,
+    "sha256": "ff36b4f8397a77cc0983042ee2d1c464b1f348ea12e09d1afcbdc69f2a56cc18"
+   },
+   {
+    "track": "Bass",
+    "file": "export/stem-2.wav",
+    "bytes": 4064044,
+    "sha256": "407b548d2e253384ebad3c23eb862b0dbf811d88e204f403b0b34aa3d9d41245"
+   },
+   {
+    "track": "Piano",
+    "file": "export/stem-3.wav",
+    "bytes": 4064044,
+    "sha256": "c5be98a95386299db3b58fde967ac9e68b4db6184c80ce6f80aceda4bfd85b57"
+   }
+  ],
+  "mix": {
+   "path": "/mnt/nvme4tb/ci-runners/baton2-native-homelab/home/tmp-riff-conductor/ardour-qualification-20261026/e2e-store-1/outputs/riff/73b65fa2106648fd9a093eb35a3fb2b6.wav",
+   "sha256": "4175c184a15cc678d7656cad52797641641a3609e653e4fbe7dcf9f060c2babe",
+   "frames": 1016000,
+   "rate": 48000,
+   "seconds": 21.166666666666668,
+   "peak_linear": 17877,
+   "rms_linear": 3705.705,
+   "nonzero": true
+  },
+  "stems": [
+   {
+    "track": "Flute",
+    "path": "/mnt/nvme4tb/ci-runners/baton2-native-homelab/home/tmp-riff-conductor/ardour-qualification-20261026/e2e-store-1/daw/73b65fa2106648fd9a093eb35a3fb2b6/export/stem-1.wav",
+    "sha256": "ff36b4f8397a77cc0983042ee2d1c464b1f348ea12e09d1afcbdc69f2a56cc18",
+    "frames": 1016000,
+    "rate": 48000,
+    "seconds": 21.166666666666668,
+    "peak_linear": 10828,
+    "rms_linear": 3285.337,
+    "nonzero": true
+   },
+   {
+    "track": "Bass",
+    "path": "/mnt/nvme4tb/ci-runners/baton2-native-homelab/home/tmp-riff-conductor/ardour-qualification-20261026/e2e-store-1/daw/73b65fa2106648fd9a093eb35a3fb2b6/export/stem-2.wav",
+    "sha256": "407b548d2e253384ebad3c23eb862b0dbf811d88e204f403b0b34aa3d9d41245",
+    "frames": 1016000,
+    "rate": 48000,
+    "seconds": 21.166666666666668,
+    "peak_linear": 3352,
+    "rms_linear": 641.051,
+    "nonzero": true
+   },
+   {
+    "track": "Piano",
+    "path": "/mnt/nvme4tb/ci-runners/baton2-native-homelab/home/tmp-riff-conductor/ardour-qualification-20261026/e2e-store-1/daw/73b65fa2106648fd9a093eb35a3fb2b6/export/stem-3.wav",
+    "sha256": "c5be98a95386299db3b58fde967ac9e68b4db6184c80ce6f80aceda4bfd85b57",
+    "frames": 1016000,
+    "rate": 48000,
+    "seconds": 21.166666666666668,
+    "peak_linear": 9175,
+    "rms_linear": 1485.358,
+    "nonzero": true
+   }
+  ]
+ },
+ "status": "pass"
+}

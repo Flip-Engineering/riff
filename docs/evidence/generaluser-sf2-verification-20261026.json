@@ -1,0 +1,42 @@
+{
+  "schema": "riff.daw.soundfont-verification.v1",
+  "date": "2026-10-26",
+  "author": "riff-daw-conductor-kimi-20261025",
+  "scope": "Byte-level verification of the GeneralUser_LV2.sf2 instrument bank used by the Ardour/gmsynth render path. This verifies identity and quotes the embedded license; it is not a redistribution clearance.",
+  "soundfont": {
+    "bytes": 32322864,
+    "sha256": "c278464b823daf9c52106c0957f752817da0e52964817ff682fe3a8d2f8446ce",
+    "expected_sha256": "c278464b823daf9c52106c0957f752817da0e52964817ff682fe3a8d2f8446ce",
+    "match": true,
+    "embedded_name": "GeneralUser GS 2.0.2",
+    "embedded_author": "S. Christian Collins",
+    "embedded_license": "License v2.0 (custom, not OSI)",
+    "measured_on": "2026-10-26",
+    "measured_at": ".probe-tmp/deepseek/ardour-bin/ardour-root/Ardour_x86_64-9.8.241-demo/lib/LV2/gmsynth.lv2/GeneralUser_LV2.sf2 (ensemble checkout scratch)",
+    "tool": "sha256sum (GNU coreutils), strings"
+  },
+  "provenance_chain": {
+    "bundle_url": "https://nightly.ardour.org/d/A_Linux_x86_64_FREE/Ardour-9.8.241-demo-x86_64.run",
+    "bundle_sha1": "0007d1664fe92c0d982c8c5e5bfea1b07dc1a98d",
+    "bundle_sha1_match": true,
+    "bundle_bytes": 80068722,
+    "note": "The SF2 hash is anchored to the recorded nightly demo bundle (SHA1 re-verified 2026-10-26 from the retained download). The bundle is the provenance source for the instrument payload; the SF2 itself is the upstream GeneralUser GS 2.0.2 bank."
+  },
+  "license_terms_verbatim": [
+    "You may use GeneralUser GS without restriction for your own music creation, private or commercial. This SoundFont bank is provided to the community free of charge. Please feel free to use it in your software projects, and to modify the SoundFont bank or its packaging to suit your needs.",
+    "GeneralUser GS inherits the usage rights of the samples contained within, all of which allow full use in music production, including the ability to make profit from musical recordings created with GeneralUser GS.",
+    "Many of the samples are original, but some were taken from other banks freely (and legally) available on the Internet from various SoundFont websites. Because GeneralUser GS originated as a personal project with no intention for publication, I cannot be 100% sure where all of the samples originated, although I do know that none of them came from commercially published SoundFont packages or sample CDs.",
+    "This uncertainty may concern you if you intend to use GeneralUser GS in a commercial software product."
+  ],
+  "redistribution_assessment": {
+    "use_in_software_projects": "permitted by license text",
+    "music_production_including_commercial_recordings": "permitted by license text",
+    "redistribution_as_bundled_payload": "not cleared: custom non-OSI license plus explicit author warning about sample provenance for commercial software products; legal review required before Riff redistributes this SF2 or any bundle containing it",
+    "local_execution_for_qualification": "permissible under the separate-process research approach recorded in docs/daw-integration/ardour-bundle-licensing.md"
+  },
+  "related": [
+    "docs/daw-integration/ardour-bundle-licensing.md",
+    "docs/evidence/ardour-bundle-licensing-20261025.json",
+    "https://github.com/Flip-Engineering/riff/issues/78"
+  ]
+}
