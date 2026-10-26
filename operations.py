@@ -24,6 +24,7 @@ SURFACE_VERSION = 1
 IDENTITY = re.compile(r"[a-f0-9]{32}")
 SCORE_REFERENCE = re.compile(r"riff-score-v1:[a-f0-9]{64}")
 SOUND_REFERENCE = re.compile(r"riff-acoustic-v1:[a-f0-9]{64}")
+ARRANGEMENT_REFERENCE = re.compile(r"riff-arrangement-v1:[a-f0-9]{64}")
 TERMINAL = ("done", "planned", "performed", "synthesized", "cancelled", "interrupted", "failed")
 SCHEMA = """
     CREATE TABLE IF NOT EXISTS operations (
@@ -60,6 +61,7 @@ def recipe_changes(before, after):
 
 
 SCORE_PROVENANCE = ("id", "sha256", "bytes", "token_count", "truncated")
+ARRANGEMENT_PROVENANCE = ("id", "sha256", "bytes", "files", "tracks", "converter")
 PERFORMANCE_PROVENANCE = ("frames", "truncated", "sha256")
 SOUND_PROVENANCE = ("artifact_id", "title", "source_job_id", "sample_rate", "channels", "duration", "seed", "steps",
                     "solver", "guidance", "hashes")
@@ -179,11 +181,23 @@ class Operations:
         errors = {name: self.clean_text(message) for name, message in (recipe.get("artifact_errors") or {}).items()}
         if job["error"]:
             errors["job"] = self.clean_text(job["error"])
-        stages = self._stages(effective, recipe, job, terminal)
+        daw = recipe.get("daw") or {}
+        if (operation.get("name") or "").startswith("daw."):
+            stages = self._daw_stages(recipe, job, terminal)
+            plan = None
+            outputs = {"track_id": job["track_id"] or "",
+                       "arrangement_source": daw.get("arrangement_source", ""),
+                       "stem_manifest": daw.get("stem_manifest")}
+        else:
+            stages = self._stages(effective, recipe, job, terminal)
+            plan = recipe.get("symbolic_plan") or {}
+            outputs = {"track_id": job["track_id"] or "",
+                       "score_source": plan.get("artifact_id", ""),
+                       "performance_source": job["id"] if stages["performance"]["state"] == "done" and terminal else "",
+                       "acoustic_source": (recipe.get("acoustic") or {}).get("artifact_id", "") if terminal else ""}
         for stage in stages.values():
             if "error" in stage:
                 stage["error"] = self.clean_text(stage["error"])
-        plan = recipe.get("symbolic_plan") or {}
         return {
             "recorded": not unrecorded, "unrecorded": unrecorded,
             "operation": operation,
@@ -194,17 +208,41 @@ class Operations:
             "references": references,
             "runtime": runtime,
             "derivation": derivation,
-            "seed": effective["seed"],
-            "symbolic_plan": {key: plan.get(key) for key in ("artifact_id", "sha256", "token_count", "truncated")} if plan else None,
+            "seed": effective.get("seed"),
+            "symbolic_plan": ({key: plan.get(key) for key in ("artifact_id", "sha256", "token_count", "truncated")}
+                              if plan else None),
             "stages": stages,
-            "outputs": {"track_id": job["track_id"] or "",
-                        "score_source": plan.get("artifact_id", ""),
-                        "performance_source": job["id"] if stages["performance"]["state"] == "done" and terminal else "",
-                        "acoustic_source": (recipe.get("acoustic") or {}).get("artifact_id", "") if terminal else ""},
+            "outputs": outputs,
             "errors": errors,
             "result_recipe": recipe,
             "terminal": terminal,
         }
+
+    @staticmethod
+    def _daw_stages(recipe, job, terminal):
+        """Daw stage states from the facts the chain recorded, in the same vocabulary."""
+        facts = (recipe.get("daw") or {}).get("stages") or {}
+        errors = recipe.get("artifact_errors") or {}
+
+        def stage(name, wanted=True):
+            fact = facts.get(name) or {}
+            if not wanted:
+                return {"state": "not_applicable"}
+            if fact.get("state") == "done":
+                return {"state": "done"}
+            failure = errors.get(name) or (job["error"] if job["status"] == "failed" else "")
+            if failure and terminal:
+                return {"state": "failed", "error": failure}
+            return {"state": "pending" if not terminal else "not_produced"}
+
+        kind = (recipe.get("daw") or {}).get("kind")
+        if kind == "render":
+            source = (recipe.get("daw") or {}).get("arrangement_source", "")
+            return {"session": {"state": "reused", "from": source},
+                    "instrument": stage("instrument", False),
+                    "render": stage("render"), "stems": stage("stems", (recipe.get("daw") or {}).get("stems", True))}
+        return {"session": stage("session"), "instrument": stage("instrument"),
+                "render": stage("render", False), "stems": stage("stems", False)}
 
     @staticmethod
     def _stages(effective, recipe, job, terminal):
@@ -347,6 +385,9 @@ class Operations:
         if recipe.get("acoustic_source"):
             found.append({"field": "acoustic_source", "kind": "sound", "id": recipe["acoustic_source"],
                           "provenance": pick(recipe.get("acoustic") or {}, SOUND_PROVENANCE)})
+        if recipe.get("arrangement_source"):
+            found.append({"field": "arrangement_source", "kind": "arrangement", "id": recipe["arrangement_source"],
+                          "provenance": pick(recipe.get("arrangement") or {}, ARRANGEMENT_PROVENANCE)})
         for field in ("parent_track_id", "review_id"):
             if recipe.get(field):
                 found.append({"field": field, "kind": "track" if field == "parent_track_id" else "review",
@@ -1016,5 +1057,31 @@ def catalog(recipe_schema, riff_version):
             "operation.cancel": post("operation.cancel", "Cancel the operation's job. Completed stages stay in the receipt.",
                                      _object({"operation_id": {"type": "string"}}, ("operation_id",)),
                                      {"type": "object", "required": ["operation_id", "job_id", "status", "receipt"]}, True),
+            "daw.compose": post("daw.compose", "Convert a per-instrument ABC arrangement into a generated, validated Ardour "
+                                "session artifact on the pinned runtime. Exactly one of abc or session_input. The timing "
+                                "manifest is explicit; nothing is inferred from the ABC text.",
+                                _object({"idempotency_key": KEY_SCHEMA,
+                                         "abc": {"type": "string", "description": "Per-instrument ABC: one V: voice per "
+                                                "instrument, voice_map covering every V:."},
+                                         "session_input": {"type": "string", "pattern": "^riff-arrangement-v1:[a-f0-9]{64}$",
+                                                           "description": "Regenerate from a saved arrangement instead of abc."},
+                                         "voice_map": _object({}, description="Voice name -> {instrument, program_raw 0-127, "
+                                                                 "optional track}; shared instruments repeat the same settings."),
+                                         "timing": _object({}, description="The explicit tempo/meter/end manifest."),
+                                         "instrument_map": {"type": "object", "description": "Pinned instrument settings "
+                                                            "overrides for the bundled engine."},
+                                         "title": {"type": "string"},
+                                         "family_id": {"type": "string", "pattern": "^[a-f0-9]{32}$"},
+                                         "parent": PARENT_SCHEMA}, ("title",)),
+                                SUBMISSION_SCHEMA, True),
+            "daw.render": post("daw.render", "Queue an Ardour render of a saved arrangement on the pinned runtime: full mix "
+                               "plus per-voice stems.",
+                               _object({"idempotency_key": KEY_SCHEMA,
+                                        "arrangement_source": {"type": "string", "pattern": "^riff-arrangement-v1:[a-f0-9]{64}$"},
+                                        "format": {"type": "string", "enum": ["wav", "flac"]},
+                                        "sample_rate": {"type": "integer", "enum": [44100, 48000, 96000]},
+                                        "bit_depth": {"type": "string", "enum": ["16", "24", "float"]},
+                                        "stems": {"type": "boolean"}}, ("arrangement_source",)),
+                               SUBMISSION_SCHEMA, True),
         },
     }

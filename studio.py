@@ -109,7 +109,10 @@ class StudioServer(ThreadingHTTPServer):
         with self.maintenance.lock if self.maintenance else nullcontext():
             if self.restart_requested:
                 raise ValueError("Riff is restarting. Your draft is saved.")
-            if not payload.get("acoustic_source") and not platform_support.readiness()["ready"]:
+            if payload.get("daw"):
+                import daw_runtime
+                daw_runtime.require(self.store)
+            elif not payload.get("acoustic_source") and not platform_support.readiness()["ready"]:
                 raise ValueError("Open Studio settings to finish setting up the music engine.")
             if self.maintenance and self.maintenance.task["status"] == "running" and self.maintenance.task.get("action") != "check":
                 raise ValueError("Setup is still running. Your draft is saved.")
@@ -534,7 +537,11 @@ class Handler(BaseHTTPRequestHandler):
         operations = self.server.operations
         fields = {"recipe.validate": {"recipe"}, "inputs.compare": {"subjects"}, "operation.cancel": {"operation_id"},
                   "operation.resume": {"operation_id", "idempotency_key"},
-                  "study.create": {"idempotency_key", "recipe", "family_id", "parent"}}
+                  "study.create": {"idempotency_key", "recipe", "family_id", "parent"},
+                  "daw.compose": {"idempotency_key", "abc", "session_input", "session_name", "voice_map", "timing",
+                                  "instrument_map", "title", "family_id", "parent"},
+                  "daw.render": {"idempotency_key", "arrangement_source", "format", "sample_rate", "bit_depth",
+                                 "stems", "title", "family_id", "parent"}}
         if name in fields and (unknown := set(payload) - fields[name]):
             raise ValueError("Unknown input: " + ", ".join(sorted(unknown)))
         key = payload["idempotency_key"] if "idempotency_key" in payload else self.headers.get("Idempotency-Key")
@@ -562,6 +569,13 @@ class Handler(BaseHTTPRequestHandler):
             self.json_response(200 if result["replayed"] else 201, result)
         elif name == "family.rename":
             self.json_response(200, self.server.families.rename(payload))
+        elif name in ("daw.compose", "daw.render"):
+            kind = name.split(".")[1]
+            recipe = {"title": payload.get("title"), "daw": {**{k: v for k, v in payload.items()
+                                                               if k not in ("idempotency_key", "family_id", "parent")},
+                      "kind": kind}}
+            self.queued(operations.submit(name, payload, recipe, key=key,
+                                          family_id=payload.get("family_id"), parent=payload.get("parent")))
         elif name == "operation.cancel":
             self.json_response(200, operations.cancel(payload.get("operation_id") or ""))
         else:

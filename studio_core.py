@@ -889,8 +889,10 @@ class Generator:
             self.admission.on_change = self.wake.set
         from score_artifacts import ScoreArtifacts
         from acoustic_artifacts import AcousticArtifacts
+        from arrangement_artifacts import ArrangementArtifacts
         store.artifacts = ScoreArtifacts(store, self.admission)
         store.acoustics = AcousticArtifacts(store, self.admission)
+        store.arrangements = ArrangementArtifacts(store)
         store.recover_jobs(cancelled=self.stop)
         self.thread = threading.Thread(target=self.work, name="riff-generator", daemon=True)
         self.thread.start()
@@ -1306,6 +1308,9 @@ class Generator:
 
         The review's reference clips are recorded here, so every route that queues a take, the Studio's
         and the operation surface's, records the same provenance."""
+        if isinstance(payload, dict) and payload.get("daw"):
+            import daw_operations
+            return daw_operations.prepare(self.store, payload)
         if isinstance(payload, dict) and payload.get("acoustic_source"):
             recipe = self.store.acoustics.recipe(payload)
         else:
@@ -1412,8 +1417,71 @@ class Generator:
             self.wake.wait()
             self.wake.clear()
 
+    def execute_daw(self, job, recipe):
+        """Run a daw.compose / daw.render job on the pinned Ardour runtime.
+
+        Truthful failure: an unprovisioned or corrupted runtime fails the job
+        before any stage runs, and a stage failure records its error.  Nothing
+        is ever published as a no-op success.  Cancellation terminates the
+        current tool and lands the job as cancelled.
+        """
+        import daw_runtime
+        import daw_runner
+        job_id = job["id"]
+        cancelled = self.job_cancelled or threading.Event()
+        started = time.monotonic()
+        track_id, failure = None, ""
+        daw = recipe["daw"]
+
+        def stage_update(stage, facts):
+            daw.setdefault("stages", {})[stage] = facts
+            with self.store.db() as db:
+                db.execute("UPDATE jobs SET recipe=? WHERE id=?", (json.dumps(recipe), job_id))
+            with self.lock:
+                if self.live and self.live["id"] == job_id:
+                    self.live.update(stage=f"Ardour {stage}", elapsed=time.monotonic() - started)
+
+        try:
+            runtime = daw_runtime.require(self.store)
+            if daw["kind"] == "compose":
+                daw["arrangement_source"] = daw_runner.compose(self.store, job_id, recipe, runtime,
+                                                               cancelled, stage_update)
+            else:
+                result = daw_runner.render(self.store, job_id, recipe, runtime, cancelled, stage_update)
+                mix = self.store.outputs / "riff" / f"{job_id}.wav"
+                mix.parent.mkdir(exist_ok=True)
+                shutil.copyfile(result["mix"], mix)
+                track_id = self.store.add_track(mix, recipe, {}, job_id)
+                daw["stem_manifest"] = result["stems"]
+        except daw_runner.StageError as error:
+            failure = f"Cancelled." if error.stage == "cancelled" else str(error)
+        except daw_runtime.RuntimeUnavailable as error:
+            failure = str(error)
+        except Exception as error:
+            failure = f"{type(error).__name__}: {error}"
+        if not failure and daw["kind"] == "compose":
+            daw.setdefault("stages", {}).get("session", {}).setdefault("state", "done")
+        with self.store.db() as db:
+            db.execute("UPDATE jobs SET recipe=? WHERE id=?", (json.dumps(recipe), job_id))
+            row = db.execute("SELECT status FROM jobs WHERE id=?", (job_id,)).fetchone()
+            if cancelled.is_set() or (row and row[0] == "cancelling"):
+                status, failure = "cancelled", ""
+            elif failure:
+                status = "failed"
+            else:
+                status = "done"
+            db.execute("UPDATE jobs SET status=?,error=?,finished=?,track_id=? WHERE id=?",
+                       (status, failure, time.time(), track_id, job_id))
+        with self.lock:
+            if self.active_job_id == job_id:
+                self.live = None
+                self.active_job_id = None
+                self.job_cancelled = None
+
     def execute(self, job):
         recipe, job_id = json.loads(job["recipe"]), job["id"]
+        if recipe.get("daw"):
+            return self.execute_daw(job, recipe)
         directory = self.store.outputs / "riff"
         directory.mkdir(exist_ok=True)
         output = directory / f"{job_id}.wav"
