@@ -1494,7 +1494,12 @@ class Generator:
         with self.store.db() as db:
             db.execute("UPDATE jobs SET recipe=? WHERE id=?", (json.dumps(recipe), job_id))
             row = db.execute("SELECT status FROM jobs WHERE id=?", (job_id,)).fetchone()
-            if cancelled.is_set() or (row and row[0] == "cancelling"):
+            # A committed publication is terminal truth: cancellation or
+            # shutdown (Generator.close sets the same event) landing after
+            # it cannot rewrite the job as cancelled while its arrangement
+            # or track persists.
+            if (cancelled.is_set() or (row and row[0] == "cancelling")) \
+                    and not self.publication_committed:
                 status, failure = "cancelled", ""
             elif failure:
                 status = "failed"

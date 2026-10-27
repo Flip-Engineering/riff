@@ -182,5 +182,13 @@ class RuntimeGate(unittest.TestCase):
         path.write_text(json.dumps(self.record))
 
 
+class ApprovedBankIdentity(unittest.TestCase):
+    def test_approved_bank_identity_is_the_pinned_generaluser_hash(self):
+        # The provenance contract names one approved bank; pin its value
+        # so an accidental constant edit fails here, not in production.
+        self.assertEqual(daw_runtime.GENERALUSER_SF2_SHA256,
+                         "c278464b823daf9c52106c0957f752817da0e52964817ff682fe3a8d2f8446ce")
+
+
 if __name__ == "__main__":
     unittest.main()

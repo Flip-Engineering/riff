@@ -519,6 +519,28 @@ class SubmitTests(DawFixture):
         receipt = Operations(self.store, self.generator).receipt(body["operation_id"])
         self.assertTrue(receipt["outputs"]["arrangement_source"].startswith("riff-arrangement-v1:"))
 
+    def test_shutdown_after_publication_keeps_terminal_state_truthful(self):
+        # Generator.close() sets the job's cancelled event on shutdown.
+        # Landing after publication (here: inside admission.release, which
+        # runs after the record/track is committed) must not rewrite a
+        # published job as cancelled.
+        real_release = self.generator.admission.release
+
+        def shutdown_release(identity):
+            if self.generator.job_cancelled is not None:
+                self.generator.job_cancelled.set()
+            return real_release(identity)
+
+        with patch.object(self.generator.admission, "release", shutdown_release):
+            status, body = self.compose("shutdown-after-publication")
+            self.assertEqual(status, 201)
+            wait_until(lambda: self.store.job(body["job_id"])["status"]
+                       in ("done", "failed", "cancelled"))
+        job = self.store.job(body["job_id"])
+        self.assertEqual(job["status"], "done")
+        with self.store.db() as db:
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM arrangements").fetchone()[0], 1)
+
     def test_cancel_during_render_track_publication_is_serialized(self):
         # Same serialization at the render publication (Store.add_track):
         # the job ends done with its track, and the late cancel is refused.
