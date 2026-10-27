@@ -54,7 +54,10 @@ def settings():
             "vae_file": saved.get("vae_file", "yue2-vae-f16.gguf"),
             # Keep one engine process with resident weights between takes.
             "warm_engine": saved.get("warm_engine", False),
-            "warm_engine_release_when_empty": saved.get("warm_engine_release_when_empty", False)}
+            # Riff is not privileged over other GPU farm work (#93): an idle
+            # warm engine releases its device when the queue empties unless
+            # the operator explicitly keeps it resident.
+            "warm_engine_release_when_empty": saved.get("warm_engine_release_when_empty", True)}
 
 
 def configure(payload):
@@ -202,10 +205,25 @@ def _linux_memory():
             "full_stall_percent": full_stall, "source": "Linux MemAvailable, cgroup budget and available PSI"}
 
 
+def farm_device(devices, visible, configured_identity):
+    """Shared farm device policy (#93): among the cards the engine can
+    see, name the one with the most available memory, so Riff queues
+    against the freest shared card instead of statically claiming the
+    configured one.  Ties keep the configured card, then the lowest
+    identity, so the choice is deterministic.  With no observed cards
+    the configured identity stands (existing behavior)."""
+    candidates = [identity for identity in visible if identity in devices] or list(devices)
+    if not candidates:
+        return configured_identity
+    return min(candidates,
+               key=lambda identity: (-devices[identity].get("available", 0),
+                                     identity != configured_identity, identity))
+
+
 def _cuda_memory(device):
     executable = shutil.which("nvidia-smi")
     if not executable:
-        return {}, {}, None
+        return {}, {}, None, []
     flags = ["--format=csv,noheader,nounits"]
     output = subprocess.check_output([executable, "--query-gpu=index,uuid,memory.total,memory.free", *flags], text=True, timeout=5, stderr=subprocess.DEVNULL)
     cards = []
@@ -217,11 +235,18 @@ def _cuda_memory(device):
     if visible is not None:
         choices = [value.strip() for value in visible.split(",") if value.strip()]
         if int(device) >= len(choices):
-            return {}, {}, None
+            return {}, {}, None, []
         identity = choices[int(device)]
     chosen = next((card for card in cards if card["index"] == identity or card["id"].startswith(identity)), None)
     if not chosen:
-        return {}, {}, None
+        return {}, {}, None, []
+    if visible is not None:
+        visible_ids = [next((card["id"] for card in cards
+                             if card["index"] == choice or card["id"].startswith(choice)), None)
+                       for choice in choices]
+        visible_ids = [card_id for card_id in visible_ids if card_id]
+    else:
+        visible_ids = [card["id"] for card in cards]
     processes = {}
     try:
         output = subprocess.check_output([executable, "--query-compute-apps=pid,gpu_uuid,used_memory", *flags], text=True, timeout=5, stderr=subprocess.DEVNULL)
@@ -232,7 +257,8 @@ def _cuda_memory(device):
     except (OSError, ValueError, subprocess.SubprocessError):
         # Missing per-process counters preserve the full growth reservation.
         pass
-    return {card["id"]: {key: card[key] for key in ("total", "available")} for card in cards}, processes, chosen["id"]
+    return ({card["id"]: {key: card[key] for key in ("total", "available")} for card in cards},
+            processes, chosen["id"], visible_ids)
 
 
 class MemoryObserver:
@@ -260,17 +286,19 @@ class MemoryObserver:
                 host = {"pressure": "unknown"}
             reserve = max(0, int(os.environ.get("RIFF_MEMORY_RESERVE_MB", "0"))) * 1024 ** 2
             host["reserve"] = reserve
-            devices, processes, identity = {}, {}, None
+            devices, processes, identity, visible = {}, {}, None, []
             configured = settings()
             backend = self.backend or configured["backend"]
             device = configured["device"] if self.device is None else self.device
             self.cuda_seen = self.cuda_seen or backend == "cuda"
             if self.cuda_seen:
                 try:
-                    devices, processes, identity = _cuda_memory(device)
+                    devices, processes, identity, visible = _cuda_memory(device)
                 except (OSError, ValueError, subprocess.SubprocessError):
                     pass
             self.last = {"host": host, "devices": devices, "device_processes": processes,
-                         "device_identity": identity, "observed_at": time.time()}
+                         "device_identity": identity, "visible_devices": visible,
+                         "farm_device": farm_device(devices, visible, identity),
+                         "observed_at": time.time()}
             self.observed = now
             return self.last

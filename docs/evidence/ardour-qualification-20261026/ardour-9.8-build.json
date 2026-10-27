@@ -1,0 +1,61 @@
+{
+ "schema": "riff.daw.ardour-build.v1",
+ "pin": {
+  "tag_object": "059c95883d8158b03f632056ba36e5c7de91ef28",
+  "commit": "22ed8656c2533e325322ff11831448e5123e0d4b",
+  "describe": "9.8",
+  "remote": "https://git.ardour.org/ardour/ardour.git"
+ },
+ "local_patches": [
+  {
+   "file": "0001-luasession-drop-unconditional-call_slot-cout.patch",
+   "sha256": "7eac1cbea7eb2601764ba1eb7c0d4d1b316fae23f37b717d3a6b6940bc9c368c",
+   "bytes": 700
+  }
+ ],
+ "dirty_files": [
+  "luasession/luasession.cc"
+ ],
+ "prefix": "/mnt/nvme4tb/ci-runners/baton2-native-homelab/home/tmp-riff-conductor/ardour-qualification-20261026/runtime/ardour-9.8.0",
+ "sha256": {
+  "ardour9-lua": "7010c0468bf5b5f0497d50e35c44e305f2e8ffade7ec93aabf7fb02197dd81e2",
+  "ardour9-export": "7d06e8246ff579c9fab95c2bfbb783205ba0108db3aac1d6c3f8a189123755d5",
+  "ardour9-new_session": "7d06e8246ff579c9fab95c2bfbb783205ba0108db3aac1d6c3f8a189123755d5"
+ },
+ "artifacts": {
+  "binaries": {
+   "ardour9-lua": {
+    "path": "/mnt/nvme4tb/ci-runners/baton2-native-homelab/home/tmp-riff-conductor/ardour-qualification-20261026/runtime/ardour-9.8.0/bin/ardour9-lua",
+    "sha256": "7010c0468bf5b5f0497d50e35c44e305f2e8ffade7ec93aabf7fb02197dd81e2",
+    "bytes": 988
+   },
+   "ardour9-export": {
+    "path": "/mnt/nvme4tb/ci-runners/baton2-native-homelab/home/tmp-riff-conductor/ardour-qualification-20261026/runtime/ardour-9.8.0/bin/ardour9-export",
+    "sha256": "7d06e8246ff579c9fab95c2bfbb783205ba0108db3aac1d6c3f8a189123755d5",
+    "bytes": 1505
+   },
+   "ardour9-new_session": {
+    "path": "/mnt/nvme4tb/ci-runners/baton2-native-homelab/home/tmp-riff-conductor/ardour-qualification-20261026/runtime/ardour-9.8.0/bin/ardour9-new_session",
+    "sha256": "7d06e8246ff579c9fab95c2bfbb783205ba0108db3aac1d6c3f8a189123755d5",
+    "bytes": 1505
+   }
+  },
+  "abc2midi": {
+   "path": "/mnt/nvme4tb/ci-runners/baton2-native-homelab/home/worktrees/riff-daw-ensemble-20261025/.probe-tmp/abcmidi/src/abc2midi",
+   "sha256": "77a4e398700127e87af41bddac3c45d3813329781c7d1ea9966b7e456db9eb51",
+   "bytes": 212656
+  },
+  "template": {
+   "path": "/mnt/nvme4tb/ci-runners/baton2-native-homelab/home/tmp-riff-conductor/ardour-qualification-20261026/ardour-9.8-src/libs/ardour/test/profiling/sessions/1region/1region.ardour",
+   "sha256": "1a5aba91c4721d6ce463bfa4fa4429971feb884f79ed4a958cea58a8827876e4",
+   "bytes": 10368
+  },
+  "gmsynth": {
+   "gmsynth.so": "0ff559f0d732b951c4edd08d549c0ab1dc700e7cd881a7adda191ddfe332d7bd",
+   "gmsynth.ttl": "cea126a1a60d701aa268e51e49969e19f261ade1cbc44316d36525c312b65e4c",
+   "manifest.ttl": "ae3eff5b98150254b9b5342522f505bb2c2c38e084af96d4e3d5c0f36b5c3ff2",
+   "GeneralUser_LV2.sf2": "c278464b823daf9c52106c0957f752817da0e52964817ff682fe3a8d2f8446ce"
+  }
+ },
+ "payload_note": "gmsynth.lv2 staged from the retained demo bundle; SF2 verified byte-for-byte against the recorded provenance hash."
+}

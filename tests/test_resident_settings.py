@@ -15,7 +15,11 @@ class ResidentSettingsTests(unittest.TestCase):
         data=patch.object(platform_support,'DATA',Path(self.temp.name))
         data.start();self.addCleanup(data.stop)
 
-    def test_release_when_empty_defaults_off_and_persists_independently_of_warm_mode(self):
+    def test_release_when_empty_defaults_on_and_persists_independently_of_warm_mode(self):
+        # #93: Riff is not privileged over video; an idle warm engine
+        # releases its device by default, and an explicit opt-out persists.
+        self.assertTrue(platform_support.settings()['warm_engine_release_when_empty'])
+        platform_support.configure({'warm_engine_release_when_empty':False})
         self.assertFalse(platform_support.settings()['warm_engine_release_when_empty'])
         platform_support.configure({'warm_engine':True,'warm_engine_release_when_empty':True})
         self.assertTrue(platform_support.settings()['warm_engine'])
