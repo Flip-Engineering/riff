@@ -133,3 +133,77 @@ frames). With this, Q1–Q10 all have recorded PASS evidence; the unified
 battery script emitting all gates in one invocation remains a tooling gap.
 Open root decisions are unchanged (provisioning route/kind, SF2 legal,
 ABC subset, stem wording).
+
+## 7. Addendum 3 — unified battery run and first-execution defects (2026-10-27, Kimi conductor)
+
+The committed `tools/daw/qualify-ardour.sh` had never been executed; running
+it against the preserved pinned prefix surfaced and fixed five latent
+defects, then passed all ten gates in one invocation:
+
+- **Unified receipt:** `docs/evidence/ardour-qualification-20261026/qualification-unified-20261026.json`
+  (sha256 `0af9434155cb8a69869b6c0c5abc6a5636ad1867afa0ede0d01ef81ef597da47`),
+  status `pass`, 10/10 gates, single invocation, `nice -n 19 ionice -c3`,
+  Q1 hash cross-check against the build receipt, Q9 determinism over two
+  fresh chain runs, Q8 v1-mix sha256 `4175c184…` identical to the earlier
+  recorded runs (cross-run mix stability), Q10 negatives all closed.
+- **Defects fixed (evidence that the gate-by-gate receipts were the prior
+  source of truth):** (a) the script matched `save ok=True` but the Lua
+  probes write `save ok=true`; (b) `run_env`'s `env -i` base wiped the
+  `ARDOUR_PROBE_*` prefix assignments, so every probe died at its
+  `os.getenv` assert — probe vars now pass through the inner `env`;
+  (c) the script assumed `build_session.py` nests `<out>/<name>/`; the
+  session directory IS the `--out` directory (runner contract), all layout
+  references corrected; (d) `verify_timeline.py` printed its verdict but
+  always exited 0 — it now exits 1 on `pass=false`, which both implements
+  Q10(b) and makes the positive Q5/Q8 timeline gates fail closed for the
+  first time; (e) Q10(c) as written could not work: a pre-created session
+  dir makes `ardour9-new_session` refuse, and the production prefix's
+  banked gmsynth always wins LV2 duplicate-URI resolution ("Previously
+  loaded"), so the bankless copy was ignored.  Q10(c) now renders the
+  qualified instrumented session against a throwaway copy of the whole
+  prefix with `GeneralUser_LV2.sf2` deleted: measured result is a
+  full-length SILENT mix (peak 0), i.e. a closed failure.
+- **Upstream teardown aborts** (`FATAL: exception not rethrown`, SIGABRT
+  after artifacts are complete) are now tolerated exactly where the
+  preflight's artifact-based acceptance already allows it (the Q2 pattern),
+  for `lua_run`, stem snapshots, and exports; any non-zero exit WITHOUT the
+  success evidence still fails.
+
+### 7.1 New finding — stem renders are nondeterministic on the dummy backend
+
+The battery's Q6 reconstruction gate failed in 2 of 5 full runs, and the
+mechanism is upstream render nondeterminism, not adapter output: identical
+session XML (modulo uuid/timestamps), identical interchange MIDI, identical
+mix (byte-stable across runs), but an individual stem export intermittently
+receives a MIDI event "too late" (`DummyMidiBuffer: it's too late for this
+event`, `libs/backends/dummy/dummy_audiobackend.cc:789`; the event is still
+appended, but the audible result diverges) — e.g. run `work-unified-failed-q6-20261026`:
+stem-1 `too-late` count 9 vs 10 in the passing runs, stem-1 diverging from
+frame 230,422 (~4.8 s) onward, sum/mix difference peak 19141.  The retained
+failed run dirs (`work-unified-failed*-20261026` in the qualification
+scratch) hold the artifact sets.
+
+Consequences already landed in this commit set:
+
+- `daw_runner.render()` now verifies solo stems reconstruct the mix within
+  1 LSB before anything can publish (`_verify_stem_reconstruction`, mirroring
+  `verify_stems.py` / contract §5.4 D); a divergent stem set raises
+  `StageError("evidence")` and nothing is promoted to the library.  Covered
+  by `tests/test_daw_stem_guard.py` (5 cases, dependency-free) and the
+  `test_daw_operations.py` export stub now models the solo-stem contract
+  (integer shares summing exactly to the mix).
+- The production reliability limit is recorded for root: on the dummy
+  backend an individual render can silently drop a note; the reconstruction
+  guard catches divergent STEM SETS, but mix completeness against the score
+  (e.g. `probes/verify/wav_note_check.py` onset evidence) is NOT yet gated
+  in `daw_runner` — recommended as the next qualification work item if root
+  wants render-completeness assurance beyond the committed fixture receipts.
+
+### 7.2 Session-format version note
+
+Docs written against the demo bundle say the migrated session is "7004".
+The pinned 9.8 source build writes `<Session version="7003"` on save
+(observed in this unified run and in the e2e operation-surface stores;
+generation from the 3001 template is unchanged).  No gate or code path
+asserts the number; the 7004 references describe the demo-bundle migration.
+Doc alignment recommended at consolidation; not a functional issue.

@@ -202,11 +202,25 @@ main()
 '''
 
 FAKE_EXPORT = """#!/usr/bin/env python3
-import array, sys, wave
+# Stub ardour9-export.  Stems are solo parts that must reconstruct the mix
+# (contract 5.4 D; the runner's reconstruction guard refuses otherwise), so
+# each stem gets an exact integer share of the mix amplitude: share = 1000 //
+# tracks, with the remainder on stem-1, making the stems sum to the mix.
+import array, re, sys, wave
+from pathlib import Path
 target = sys.argv[sys.argv.index("-o") + 1]
+session_dir = Path(sys.argv[-2])
+snapshot = sys.argv[-1]
+m = re.fullmatch(r"stem-(\\d+)", snapshot)
+if m:
+    tracks = Path(session_dir / f"{snapshot}.ardour").read_text().count('default-type="midi"')
+    share, rest = divmod(1000, tracks)
+    amp = share + (rest if int(m.group(1)) == 1 else 0)
+else:
+    amp = 1000
 with wave.open(target, "wb") as wav:
     wav.setparams((2, 2, 48000, 0, "NONE", "not compressed"))
-    wav.writeframes(array.array("h", [1000, -1000] * 4800).tobytes())
+    wav.writeframes(array.array("h", [amp, -amp] * 4800).tobytes())
 """
 
 FAKE_ABC2MIDI = """#!/usr/bin/env python3

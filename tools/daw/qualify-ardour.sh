@@ -99,14 +99,39 @@ run_env() { # run_env <jobstate> <command...>
 }
 
 # lua_run <logfile> <session-dir> <snapshot-in> <script> [extra env NAME=VALUE...]
+# Probe env vars must go through the inner env(1): run_env's env -i base
+# would otherwise wipe prefix assignments made on the run_env call itself.
 lua_run() {
   local log=$1 sdir=$2 snapin=$3 script=$4; shift 4
-  ARDOUR_PROBE_SESSION_DIR="$sdir" ARDOUR_PROBE_SNAPSHOT_IN="$snapin" ARDOUR_PROBE_LOG="$log" \
-    run_env "$sdir/.state" env "$@" "$LUA" "$script"
+  local rc=0
+  run_env "$sdir/.state" env \
+    ARDOUR_PROBE_SESSION_DIR="$sdir" ARDOUR_PROBE_SNAPSHOT_IN="$snapin" ARDOUR_PROBE_LOG="$log" \
+    "$@" "$LUA" "$script" || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    # Same documented upstream teardown abort as Q2: the snapshot is fully
+    # written and closed before the process dies, so acceptance stays
+    # artifact/log-based.  A non-zero exit without 'save ok=true' fails.
+    grep -q "save ok=true" "$log" \
+      || fail "lua_run: $(basename "$script") exited $rc without 'save ok=true' (see $log)"
+    echo "lua_run: $(basename "$script") exited $rc after 'save ok=true' (documented upstream teardown abort; artifact intact)" >&2
+  fi
+}
+
+# export_run <logfile> <out-wav> <session-dir> <snapshot>
+export_run() {
+  local log=$1 out=$2 sdir=$3 snap=$4
+  local rc=0
+  run_env "$sdir/.state" "$EXPORT" -o "$out" "$sdir" "$snap" > "$log" 2>&1 || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    # The WAV is complete and closed before any teardown abort; acceptance
+    # stays artifact-based (existence, then duration/content checks below).
+    [ -s "$out" ] || fail "export_run: ardour9-export exited $rc and left no artifact $out"
+    echo "export_run: ardour9-export exited $rc after writing $out (documented upstream teardown abort; artifact intact)" >&2
+  fi
 }
 
 expect_save_ok() { # expect_save_ok <logfile>
-  grep -q "save ok=True" "$1" || fail "expected 'save ok=True' in $1"
+  grep -q "save ok=true" "$1" || fail "expected 'save ok=true' in $1"
 }
 
 wav_seconds() { # wav_seconds <file> -> seconds (exact rational)
@@ -175,7 +200,7 @@ build_chain() { # build_chain <rundir>
     --voice-map "$FIXTURES/voice-map.json" --timing "$FIXTURES/arrangement-timing.json" \
     --out "$run/v1-build" --session-name arrangement-v1 \
     --abc2midi "$ABC2MIDI" --summary-tool "$SUMMARY_TOOL" > "$run/build.log"
-  local sdir="$run/v1-build/arrangement-v1"
+  local sdir="$run/v1-build"
   [ -f "$sdir/arrangement-v1.ardour" ] || fail "Q3: no generated session in $run"
   lua_run "$run/upgrade.log" "$sdir" arrangement-v1 "$ARDOUR_PROBES/reopen_session.lua" \
     ARDOUR_PROBE_SNAPSHOT_OUT=upgraded
@@ -191,24 +216,29 @@ build_chain() { # build_chain <rundir>
     ARDOUR_PROBE_SNAPSHOT_OUT=v1-final
   expect_save_ok "$run/reopen.log"
   mkdir -p "$sdir/export"
-  run_env "$sdir/.state" "$EXPORT" -o "$sdir/export/v1-final.wav" "$sdir" v1-final \
-    > "$run/export.log" 2>&1
+  export_run "$run/export.log" "$sdir/export/v1-final.wav" "$sdir" v1-final
   [ -s "$sdir/export/v1-final.wav" ] || fail "Q4: no mix rendered in $run"
   local secs; secs=$(wav_seconds "$sdir/export/v1-final.wav")
   [ "$secs" = "$MIX_SECONDS_EXPECTED" ] || fail "Q4: mix duration $secs != $MIX_SECONDS_EXPECTED"
   python3 "$ARDOUR_PROBES/verify_timeline.py" \
     --abc "$FIXTURES/arrangement-v1.abc" --voice-map "$FIXTURES/voice-map.json" \
     --timing "$FIXTURES/arrangement-timing.json" \
-    --midi-dir "$run/v1-build/midifiles" --session-xml "$sdir/v1-final.ardour" \
+    --midi-dir "$run/v1-build/interchange/arrangement-v1/midifiles" --session-xml "$sdir/v1-final.ardour" \
     --session-midi-dir "$sdir/interchange/arrangement-v1/midifiles" \
     --abc2midi "$ABC2MIDI" --summary-tool "$SUMMARY_TOOL" > "$run/timeline.log"
-  ARDOUR_PROBE_SESSION_DIR="$sdir" ARDOUR_PROBE_SNAPSHOT_IN=v1-final \
+  local rc=0
+  run_env "$sdir/.state" env \
+    ARDOUR_PROBE_SESSION_DIR="$sdir" ARDOUR_PROBE_SNAPSHOT_IN=v1-final \
     ARDOUR_PROBE_STEM_PREFIX=v1-stem- ARDOUR_PROBE_LOG="$run/stems.log" \
-    run_env "$sdir/.state" "$LUA" "$ARDOUR_PROBES/save_stems.lua"
+    "$LUA" "$ARDOUR_PROBES/save_stems.lua" || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    grep -q "save=true" "$run/stems.log" \
+      || fail "save_stems: exited $rc without a 'save=true' line (see $run/stems.log)"
+    echo "save_stems: exited $rc after 'save=true' (documented upstream teardown abort; artifacts intact)" >&2
+  fi
   local i
   for i in 1 2 3; do
-    run_env "$sdir/.state" "$EXPORT" -o "$sdir/export/v1-stem-$i.wav" "$sdir" "v1-stem-$i" \
-      >> "$run/export.log" 2>&1
+    export_run "$run/export-stem-$i.log" "$sdir/export/v1-stem-$i.wav" "$sdir" "v1-stem-$i"
     [ -s "$sdir/export/v1-stem-$i.wav" ] || fail "Q6: stem $i not rendered in $run"
   done
   python3 "$ARDOUR_PROBES/verify_stems.py" --mix "$sdir/export/v1-final.wav" \
@@ -244,7 +274,7 @@ python3 "$ARDOUR_PROBES/build_session.py" \
   --voice-map "$Q7DIR/voice-map-prog0.json" --timing "$FIXTURES/arrangement-timing.json" \
   --out "$Q7DIR/build" --session-name prog0 --abc2midi "$ABC2MIDI" \
   --summary-tool "$SUMMARY_TOOL" > "$Q7DIR/build.log"
-Q7S="$Q7DIR/build/prog0"
+Q7S="$Q7DIR/build"
 lua_run "$Q7DIR/upgrade.log" "$Q7S" prog0 "$ARDOUR_PROBES/reopen_session.lua" \
   ARDOUR_PROBE_SNAPSHOT_OUT=upgraded
 expect_save_ok "$Q7DIR/upgrade.log"
@@ -257,9 +287,8 @@ lua_run "$Q7DIR/reopen.log" "$Q7S" prog0-tempoed "$ARDOUR_PROBES/reopen_session.
   ARDOUR_PROBE_SNAPSHOT_OUT=prog0-final
 expect_save_ok "$Q7DIR/reopen.log"
 mkdir -p "$Q7S/export"
-run_env "$Q7S/.state" "$EXPORT" -o "$Q7S/export/prog0-final.wav" "$Q7S" prog0-final \
-  > "$Q7DIR/export.log" 2>&1
-python3 - "$Q3DIR/v1-build/arrangement-v1/export/v1-stem-1.wav" "$Q7S/export/prog0-final.wav" <<'PY'
+export_run "$Q7DIR/export.log" "$Q7S/export/prog0-final.wav" "$Q7S" prog0-final
+python3 - "$Q3DIR/v1-build/export/v1-stem-1.wav" "$Q7S/export/prog0-final.wav" <<'PY'
 import sys, wave, array, math
 def stats(p):
     w = wave.open(p, "rb"); a = array.array("h"); a.frombytes(w.readframes(w.getnframes()))
@@ -274,14 +303,14 @@ record q7_program_control pass
 
 echo "== Q8 edit v1 -> v2 =="
 Q8DIR="$WORK/q8"; mkdir -p "$Q8DIR"
-cp -a "$Q3DIR/v1-build/arrangement-v1" "$Q8DIR/v2-edit"
+cp -a "$Q3DIR/v1-build" "$Q8DIR/v2-edit"
 python3 "$ARDOUR_PROBES/build_session.py" \
   --template "$TEMPLATE" --abc "$FIXTURES/arrangement-v2.abc" \
   --voice-map "$FIXTURES/voice-map.json" --timing "$FIXTURES/arrangement-timing.json" \
   --out "$Q8DIR/v2-build" --session-name arrangement-v2 \
   --abc2midi "$ABC2MIDI" --summary-tool "$SUMMARY_TOOL" > "$Q8DIR/build.log"
 # Same-topology source replacement: v2 MIDI into the copied v1 session layout.
-for f in "$Q8DIR/v2-build/midifiles"/*.mid; do
+for f in "$Q8DIR/v2-build/interchange/arrangement-v2/midifiles"/*.mid; do
   base=$(basename "$f")
   dst="$Q8DIR/v2-edit/interchange/arrangement-v1/midifiles/$base"
   [ -f "$dst" ] || fail "Q8: no existing source $base to replace in copied session"
@@ -291,18 +320,17 @@ lua_run "$Q8DIR/reopen.log" "$Q8DIR/v2-edit" v1-final "$ARDOUR_PROBES/reopen_ses
   ARDOUR_PROBE_SNAPSHOT_OUT=v2-final
 expect_save_ok "$Q8DIR/reopen.log"
 mkdir -p "$Q8DIR/v2-edit/export"
-run_env "$Q8DIR/v2-edit/.state" "$EXPORT" -o "$Q8DIR/v2-edit/export/v2-final.wav" \
-  "$Q8DIR/v2-edit" v2-final > "$Q8DIR/export.log" 2>&1
+export_run "$Q8DIR/export.log" "$Q8DIR/v2-edit/export/v2-final.wav" "$Q8DIR/v2-edit" v2-final
 [ -s "$Q8DIR/v2-edit/export/v2-final.wav" ] || fail "Q8: no v2 mix rendered"
 secs=$(wav_seconds "$Q8DIR/v2-edit/export/v2-final.wav")
 [ "$secs" = "$MIX_SECONDS_EXPECTED" ] || fail "Q8: v2 duration $secs != $MIX_SECONDS_EXPECTED"
 python3 "$ARDOUR_PROBES/verify_timeline.py" \
   --abc "$FIXTURES/arrangement-v2.abc" --voice-map "$FIXTURES/voice-map.json" \
   --timing "$FIXTURES/arrangement-timing.json" \
-  --midi-dir "$Q8DIR/v2-build/midifiles" --session-xml "$Q8DIR/v2-edit/v2-final.ardour" \
+  --midi-dir "$Q8DIR/v2-build/interchange/arrangement-v2/midifiles" --session-xml "$Q8DIR/v2-edit/v2-final.ardour" \
   --session-midi-dir "$Q8DIR/v2-edit/interchange/arrangement-v1/midifiles" \
   --abc2midi "$ABC2MIDI" --summary-tool "$SUMMARY_TOOL" > "$Q8DIR/timeline.log"
-h_v1=$(sha256sum "$Q3DIR/v1-build/arrangement-v1/export/v1-final.wav" | cut -d' ' -f1)
+h_v1=$(sha256sum "$Q3DIR/v1-build/export/v1-final.wav" | cut -d' ' -f1)
 h_v2=$(sha256sum "$Q8DIR/v2-edit/export/v2-final.wav" | cut -d' ' -f1)
 [ "$h_v1" != "$h_v2" ] || fail "Q8: v2 mix hash equals v1 (edit had no effect)"
 record q8_edit pass v1_mix="$h_v1" v2_mix="$h_v2"
@@ -312,8 +340,8 @@ if [ "$SKIP_DETERMINISM" = 0 ]; then
   Q9DIR="$WORK/q9/run2"
   build_chain "$Q9DIR"
   for f in v1-final.wav v1-stem-1.wav v1-stem-2.wav v1-stem-3.wav; do
-    a="$Q3DIR/v1-build/arrangement-v1/export/$f"
-    b="$Q9DIR/v1-build/arrangement-v1/export/$f"
+    a="$Q3DIR/v1-build/export/$f"
+    b="$Q9DIR/v1-build/export/$f"
     ha=$(sha256sum "$a" | cut -d' ' -f1); hb=$(sha256sum "$b" | cut -d' ' -f1)
     [ "$ha" = "$hb" ] || fail "Q9: determinism failure on $f: $ha != $hb"
   done
@@ -324,16 +352,27 @@ fi
 
 echo "== Q10 negative =="
 Q10DIR="$WORK/q10"; mkdir -p "$Q10DIR"
-# (a) bad snapshot: load fails (session=None in the log), no save, no artifact.
-lua_run "$Q10DIR/bad-snapshot.log" "$Q2DIR/session" does-not-exist \
-  "$ARDOUR_PROBES/reopen_session.lua" ARDOUR_PROBE_SNAPSHOT_OUT=should-not-exist
-grep -q "session=None" "$Q10DIR/bad-snapshot.log" \
-  || fail "Q10: bad-snapshot load did not fail closed (expected session=None)"
-! grep -q "save ok=True" "$Q10DIR/bad-snapshot.log" \
+# (a) bad snapshot: the load must fail closed.  Two observed closed forms:
+# graceful (Lua logs session=None, exit 0) or a hard load abort (non-zero
+# exit; upstream throws on a missing snapshot file before Lua regains
+# control).  In both forms the safety invariants are identical and are what
+# this gate asserts: no save line and no produced artifact.
+rc=0
+run_env "$Q2DIR/session/.state" env \
+  ARDOUR_PROBE_SESSION_DIR="$Q2DIR/session" ARDOUR_PROBE_SNAPSHOT_IN=does-not-exist \
+  ARDOUR_PROBE_LOG="$Q10DIR/bad-snapshot.log" ARDOUR_PROBE_SNAPSHOT_OUT=should-not-exist \
+  "$LUA" "$ARDOUR_PROBES/reopen_session.lua" || rc=$?
+if [ "$rc" -eq 0 ]; then
+  grep -q "session=nil" "$Q10DIR/bad-snapshot.log" \
+    || fail "Q10: bad-snapshot load did not fail closed (expected session=nil)"
+else
+  echo "Q10: bad-snapshot load aborted hard (rc=$rc); asserting no-save/no-artifact invariants" >&2
+fi
+! grep -q "save ok=true" "$Q10DIR/bad-snapshot.log" \
   || fail "Q10: bad-snapshot run saved state"
 [ ! -e "$Q2DIR/session/should-not-exist.ardour" ] || fail "Q10: bad-snapshot run created an artifact"
 # (b) wrong track count: the timeline verifier must reject a tampered session.
-python3 - "$Q3DIR/v1-build/arrangement-v1/v1-final.ardour" "$Q10DIR/tampered.ardour" <<'PY'
+python3 - "$Q3DIR/v1-build/v1-final.ardour" "$Q10DIR/tampered.ardour" <<'PY'
 import re, sys
 xml = open(sys.argv[1]).read()
 # Remove the Flute route (first MIDI track) so the topology is wrong.
@@ -345,38 +384,48 @@ PY
 if python3 "$ARDOUR_PROBES/verify_timeline.py" \
     --abc "$FIXTURES/arrangement-v1.abc" --voice-map "$FIXTURES/voice-map.json" \
     --timing "$FIXTURES/arrangement-timing.json" \
-    --midi-dir "$Q3DIR/v1-build/midifiles" --session-xml "$Q10DIR/tampered.ardour" \
-    --session-midi-dir "$Q3DIR/v1-build/arrangement-v1/interchange/arrangement-v1/midifiles" \
+    --midi-dir "$Q3DIR/v1-build/interchange/arrangement-v1/midifiles" --session-xml "$Q10DIR/tampered.ardour" \
+    --session-midi-dir "$Q3DIR/v1-build/interchange/arrangement-v1/midifiles" \
     --abc2midi "$ABC2MIDI" --summary-tool "$SUMMARY_TOOL" > "$Q10DIR/tampered.log" 2>&1; then
   fail "Q10: tampered (missing-track) session passed verification"
 fi
-# (c) missing SF2: a gmsynth copy without its bank must not render audio.
-mkdir -p "$Q10DIR/lv2"
-cp -a "$PREFIX/lib/ardour9/LV2/gmsynth.lv2" "$Q10DIR/lv2/" 2>/dev/null || cp -a "$PREFIX/lib/LV2/gmsynth.lv2" "$Q10DIR/lv2/"
-rm -f "$Q10DIR/lv2/gmsynth.lv2/GeneralUser_LV2.sf2"
-mkdir -p "$Q10DIR/silent"
-run_env "$Q10DIR/state" env LV2_PATH="$Q10DIR/lv2" "$NEW_SESSION" -s 48000 -m 2 \
-  "$Q10DIR/silent" probe > "$Q10DIR/silent-new.log" 2>&1 || {
-  rc=$?
-  [ -f "$Q10DIR/silent/probe.ardour" ] || fail "Q10: new_session exited $rc and left no session file"
-  echo "Q10: new_session exited $rc after writing the session (documented upstream teardown abort; artifact intact)" >&2
+# (c) missing SF2: the qualified instrumented session, re-rendered without
+# the bank, must never produce audio.  The production prefix's bundle always
+# wins LV2 duplicate-URI resolution (observed: lilv keeps the 'Previously
+# loaded' copy), so a bankless LV2_PATH copy is silently ignored; the only
+# honest removal is a throwaway copy of the whole prefix with the SF2
+# deleted, invoked via the real binaries (the bin/ wrappers hardcode the
+# production prefix).
+NB="$Q10DIR/prefix-nobank"
+cp -a "$PREFIX" "$NB"
+rm -f "$NB/lib/ardour9/LV2/gmsynth.lv2/GeneralUser_LV2.sf2"
+[ ! -e "$NB/lib/ardour9/LV2/gmsynth.lv2/GeneralUser_LV2.sf2" ] || fail "Q10: bank copy not removed"
+cp -a "$Q3DIR/v1-build" "$Q10DIR/session-nobank"
+run_env_nb() { # run_env against the bankless copy
+  local state=$1; shift
+  mkdir -p "$state/ardour-config" "$state/home/.config" "$state/home/.cache" "$state/home/.local/share"
+  env -i PATH=/usr/bin:/bin HOME="$state/home" XDG_CONFIG_HOME="$state/home/.config" \
+      XDG_CACHE_HOME="$state/home/.cache" XDG_DATA_HOME="$state/home/.local/share" \
+      LD_LIBRARY_PATH="$NB/lib/ardour9" \
+      ARDOUR_PREFIX="$NB" ARDOUR_DLL_PATH="$NB/lib/ardour9" \
+      ARDOUR_DATA_PATH="$NB/share/ardour9" ARDOUR_CONFIG_PATH="$state/ardour-config" \
+      JACK_NO_START_SERVER=1 LC_ALL=C TZ=UTC "$@"
 }
-# The bankless bundle either refuses the instrument step (gmsynth fails to
-# load) or loads and renders silence; both are closed failures, never audio.
-if ARDOUR_PROBE_SESSION_DIR="$Q10DIR/silent" ARDOUR_PROBE_SNAPSHOT_IN=probe \
-   ARDOUR_PROBE_SNAPSHOT_OUT=instrumented ARDOUR_PROBE_LOG="$Q10DIR/silent-instrument.log" \
-   run_env "$Q10DIR/state" env LV2_PATH="$Q10DIR/lv2" "$LUA" "$ARDOUR_PROBES/instrument_session.lua" 2>/dev/null; then
-  # Plugin loaded despite missing bank: render must be silent to pass.
-  run_env "$Q10DIR/state" env LV2_PATH="$Q10DIR/lv2" "$EXPORT" -o "$Q10DIR/silent/export.wav" \
-    "$Q10DIR/silent" instrumented > "$Q10DIR/silent-export.log" 2>&1 || true
-  if [ -s "$Q10DIR/silent/export.wav" ]; then
-    python3 - "$Q10DIR/silent/export.wav" <<'PY'
+rc=0
+run_env_nb "$Q10DIR/nobank-state" "$NB/lib/ardour9/utils/ardour9-export" \
+  -o "$Q10DIR/nobank.wav" "$Q10DIR/session-nobank" v1-final > "$Q10DIR/nobank-export.log" 2>&1 || rc=$?
+# Closed outcomes: the export refuses (no artifact) or renders silence.
+# Anything else — in particular non-silent audio — fails the gate.
+if [ -s "$Q10DIR/nobank.wav" ]; then
+  python3 - "$Q10DIR/nobank.wav" <<'PY'
 import sys, wave, array
 w = wave.open(sys.argv[1], "rb"); a = array.array("h"); a.frombytes(w.readframes(w.getnframes()))
 if any(x != 0 for x in a):
     raise SystemExit("Q10: bankless gmsynth rendered non-silent audio")
 PY
-  fi
+  echo "Q10: bankless render produced silent audio (closed; rc=$rc)" >&2
+else
+  echo "Q10: bankless render refused (rc=$rc, no artifact; closed)" >&2
 fi
 record q10_negative pass
 

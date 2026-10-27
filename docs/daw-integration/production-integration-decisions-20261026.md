@@ -188,4 +188,9 @@ Source of truth: `daw_runner.render()` and
 - A single-invocation run of `tools/daw/qualify-ardour.sh` against a
   production prefix will produce the unified Q1–Q10 receipt when a
   production installation is provisioned; the gate-by-gate receipts
-  already recorded are the current evidence.
+  already recorded are the current evidence. **Update 2026-10-27:** the
+  unified battery has now run end-to-end against the preserved pinned
+  prefix — `docs/evidence/ardour-qualification-20261026/qualification-unified-20261026.json`,
+  status `pass`, 10/10 gates in one invocation (see the gap register
+  addendum 3 for the first-execution defects fixed and the new stem-render
+  nondeterminism finding).

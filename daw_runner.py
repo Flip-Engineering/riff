@@ -142,6 +142,40 @@ def _expect_save(log_path, snapshot):
         raise StageError("evidence", f"{Path(log_path).name} lacks 'save ok=true'.")
 
 
+def _verify_stem_reconstruction(mix_path, stem_paths):
+    """Fail closed unless the solo stems reconstruct the mix within 1 LSB.
+
+    The dummy-backend render can deliver a MIDI event late to an individual
+    stem export and drop it from the audible result (observed in the unified
+    qualification battery, 2026-10-26); a divergent stem set must never be
+    published.  Mirrors probes/ardour/verify_stems.py and contract §5.4 D.
+    """
+    import array
+    import wave
+
+    def frames(path):
+        with wave.open(str(path), "rb") as handle:
+            if handle.getsampwidth() != 2 or handle.getnchannels() != 2:
+                raise StageError("evidence",
+                                 f"{Path(path).name} is not 16-bit stereo PCM; stem evidence unverifiable.")
+            data = array.array("h")
+            data.frombytes(handle.readframes(handle.getnframes()))
+            return handle.getframerate(), data
+
+    rate, mix = frames(mix_path)
+    total = [0] * len(mix)
+    for path in stem_paths:
+        stem_rate, data = frames(path)
+        if stem_rate != rate or len(data) != len(mix):
+            raise StageError("evidence", f"{Path(path).name} format or length differs from the mix.")
+        for index, value in enumerate(data):
+            total[index] += value
+    worst = max(abs(total[index] - mix[index]) for index in range(len(mix)))
+    if worst > 1:
+        raise StageError("evidence",
+                         f"stems do not reconstruct the mix within 1 LSB (peak difference {worst}).")
+
+
 def compose(store, job_id, recipe, runtime, cancelled=None, stage_update=None, attach=None,
             publish_lock=None, on_published=None):
     """Build, instrument, patch and reopen the session; record the arrangement.
@@ -315,6 +349,7 @@ def render(store, job_id, recipe, runtime, cancelled=None, stage_update=None, at
             stems.append({"track": track, "file": f"export/stem-{index}.wav",
                           "bytes": stem.stat().st_size,
                           "sha256": _sha256(stem)})
+        _verify_stem_reconstruction(mix, [exports / f"stem-{index}.wav" for index, _, _ in saved])
         if stage_update:
             stage_update("stems", {"state": "done", "count": len(stems)})
     # A cancelled render returns nothing publishable: the caller adds the mix
