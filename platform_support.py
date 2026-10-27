@@ -54,7 +54,10 @@ def settings():
             "vae_file": saved.get("vae_file", "yue2-vae-f16.gguf"),
             # Keep one engine process with resident weights between takes.
             "warm_engine": saved.get("warm_engine", False),
-            "warm_engine_release_when_empty": saved.get("warm_engine_release_when_empty", False)}
+            # Riff is not privileged over other GPU farm work (#93): an idle
+            # warm engine releases its device when the queue empties unless
+            # the operator explicitly keeps it resident.
+            "warm_engine_release_when_empty": saved.get("warm_engine_release_when_empty", True)}
 
 
 def configure(payload):
