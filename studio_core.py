@@ -895,13 +895,13 @@ class Generator:
         self.thread = threading.Thread(target=self.work, name="riff-generator", daemon=True)
         self.thread.start()
 
-    def native_command(self, recipe, output):
+    def native_command(self, recipe, output, device=None):
         if recipe.get("acoustic_source"):
             return engine.build_decode_command(self.store.acoustics.input_path(Path(output).stem), output, recipe.get("decoder"))
         if recipe.get("render_mode", "music") in ("music", "sound"):
             engine.require_solver(recipe.get("solver", "midpoint"), engine.platform_runtime.settings()["binary"])
         return engine.build_command(lyrics=recipe["lyrics"], style=recipe["style"], max_seconds=recipe["max_seconds"],
-                                    steps=recipe["steps"], cot=recipe["cot"], seed=int(recipe["seed"]),
+                                    steps=recipe["steps"], cot=recipe["cot"], seed=int(recipe["seed"]), device=device,
                                     threads=engine.platform_runtime.settings()["threads"], output=output, abc=recipe["abc"],
                                     mode=recipe.get("mode", "lyrics"), cfg_scale=recipe.get("cfg_scale", 1.),
                                     temperature=recipe.get("temperature", 1.), refinement=recipe.get("refinement", {}),
@@ -915,6 +915,23 @@ class Generator:
                                     acoustic_only=recipe.get("render_mode") == "sound",
                                     lora_options=self.store.loras.resolve_saved(recipe["lora_provenance"])
                                     if recipe.get("lora_provenance") else None)
+
+    def _farm_device_index(self, reservation):
+        """Visible-card index for the device the reservation named (#93),
+        or None when it names no observed visible card."""
+        if not isinstance(reservation, dict):
+            return None
+        device = reservation.get("device")
+        if not isinstance(device, str):
+            return None
+        observer = getattr(self.admission, "observer", None)
+        if observer is None:
+            return None
+        try:
+            visible = observer.snapshot().get("visible_devices") or []
+        except Exception:
+            return None
+        return visible.index(device) if device in visible else None
 
     @staticmethod
     def warm_plan(command):
@@ -1474,7 +1491,16 @@ class Generator:
             # Recheck at the actual child boundary, even for custom builders.
             if kind == "native" and recipe.get("lora_provenance"):
                 self.store.prepare_loras(recipe)
-            command = self.command_builder(recipe, output)
+            # Launch on the device admission named under the shared farm
+            # policy (#93): the reservation's device identity mapped back
+            # to its visible-card index.  Custom command builders keep
+            # their own device handling; an unmapped identity launches
+            # on the configured device as before.
+            farm_index = self._farm_device_index(reservation)
+            if farm_index is not None and self.command_builder == self.native_command:
+                command = self.command_builder(recipe, output, device=farm_index)
+            else:
+                command = self.command_builder(recipe, output)
             warm_enabled, warm = self.warm_plan(command)
             if policy["key"] is not None and (warm is None or engine_key(warm[0]) != policy["key"]):
                 self.admission.release(identity)

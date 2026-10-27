@@ -469,6 +469,14 @@ class ModelAdmission:
                 self.log.close()
 
 
+def _farm_device(observation, configured):
+    """The shared farm device an admission names (#93): the freest
+    visible card from the snapshot when one was observed, else the
+    configured card's identity, else its indexed fallback."""
+    return (observation.get("farm_device") or observation.get("device_identity")
+            or f"cuda:{configured['device']}")
+
+
 def resource_inputs(recipe, kind, observer, writer_settings=None):
     """Collect installed facts; estimation and admission live in Elixir."""
     configured = platform_support.settings()
@@ -479,7 +487,7 @@ def resource_inputs(recipe, kind, observer, writer_settings=None):
                 "vae_config": json.loads((model_root / "sidecars/yue2-vae-config.json").read_text()),
                 "vae_bytes": (model_root / configured["vae_file"]).stat().st_size,
                 "decoder": recipe.get("decoder", {}), "backend": configured["backend"],
-                "device": observation.get("device_identity") or f"cuda:{configured['device']}",
+                "device": _farm_device(observation, configured),
                 "margin": float(os.environ.get("RIFF_MODEL_MEMORY_MARGIN", "0.2"))}
     writer = kind == "writer"
     model_root = platform_support.writer_settings()["model"] if writer else Path(configured["model_root"])
@@ -511,7 +519,7 @@ def resource_inputs(recipe, kind, observer, writer_settings=None):
     return {"kind": kind, "config": config, "model_bytes": model_file.stat().st_size if model_file.is_file() else 0,
             "adapter_bytes": 0 if writer else recipe.get("lora_memory_bytes", 0),
             "vae_bytes": vae_file.stat().st_size if not writer and vae_file.is_file() else 0,
-            "backend": backend, "device": observation.get("device_identity") or f"cuda:{configured['device']}",
+            "backend": backend, "device": _farm_device(observation, configured),
             "text_bytes": len(text.encode()), "seconds": recipe.get("max_seconds", 0),
             "writer_tokens": recipe.get("writer_tokens", 768), "cfg_scale": recipe.get("cfg_scale", 1.0),
             "planning": not writer and recipe.get("cot", "off") != "off" and not recipe.get("abc", "").strip() and not recipe.get("score_source"),

@@ -43,7 +43,7 @@ def sysctl_int(name):
 
 
 def build_command(*, lyrics, style, max_seconds, steps, cot, seed, threads, output,
-                  backend=None, abc="", mode="lyrics", cfg_scale=1., temperature=1., refinement=None, render_mode="music",
+                  backend=None, device=None, abc="", mode="lyrics", cfg_scale=1., temperature=1., refinement=None, render_mode="music",
                   performance_file=None, semantic_only=False, solver="midpoint", score_file=None,
                   acoustic_out=None, acoustic_only=False, lora_options=None):
     """Shared native invocation for the command line and Riff studio."""
@@ -65,7 +65,7 @@ def build_command(*, lyrics, style, max_seconds, steps, cot, seed, threads, outp
     native_lyrics = "[Instrumental]" if mode == "instrumental" and not lyrics else lyrics
     command = [
         settings["binary"], "--task", "gen", "--family", "yue2", "--model", settings["model_root"],
-        "--backend", backend or settings["backend"], "--device", str(settings["device"]),
+        "--backend", backend or settings["backend"], "--device", str(settings["device"] if device is None else device),
         "--threads", str(threads), "--lyrics", native_lyrics,
         "--session-option", "yue2.model_gguf=" + settings["model_file"],
         "--session-option", "yue2.vae_gguf=" + settings["vae_file"],
