@@ -253,7 +253,9 @@ def build_decode_command(acoustic_file, output, decoder=None, device=None):
     from scripts.checkpoint_sha_identity import verify_runtime
     verify_runtime(settings["binary"])
     from engine_devices import require_device
-    require_device(settings)
+    # The readiness check must judge the device the decode will actually
+    # use (#93): the admission-selected override, not the configured one.
+    require_device(settings if device is None else {**settings, "device": device})
     decoder_contract(settings)
     values = decoder_options({} if decoder is None else decoder)
     command = [settings["binary"], "--task", "gen", "--family", "yue2", "--model", settings["model_root"],

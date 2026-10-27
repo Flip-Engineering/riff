@@ -917,37 +917,35 @@ class Generator:
                                     lora_options=self.store.loras.resolve_saved(recipe["lora_provenance"])
                                     if recipe.get("lora_provenance") else None)
 
-    def _visible_devices(self):
-        observer = getattr(self.admission, "observer", None)
-        if observer is None:
-            return []
-        try:
-            return observer.snapshot().get("visible_devices") or []
-        except Exception:
-            return []
+    def _admitted_device_resolution(self, reservation):
+        """Resolve the admitted GPU identity from ONE observer snapshot.
 
-    def _farm_device_index(self, reservation):
-        """Visible-card index for the device the reservation named (#93),
-        or None when it names no observed visible card."""
+        Returns (visible_index, unmapped).  When admission named a GPU
+        UUID, a missing, empty, failed, or changed snapshot that no longer
+        contains it is unmapped (#93): the launch must not silently fall
+        back to an unrelated configured device.  Non-GPU identities (the
+        indexed fallback, serial reservations) resolve as before."""
         if not isinstance(reservation, dict):
-            return None
-        device = reservation.get("device")
-        if not isinstance(device, str):
-            return None
-        visible = self._visible_devices()
-        return visible.index(device) if device in visible else None
-
-    def _admitted_device_unmapped(self, reservation):
-        """True when admission named an observed GPU identity that the
-        current visible-device snapshot no longer contains (#93): launching
-        then would silently run on an unrelated configured device."""
-        if not isinstance(reservation, dict):
-            return False
+            return None, False
         device = reservation.get("device")
         if not isinstance(device, str) or not device.startswith("GPU-"):
-            return False
-        visible = self._visible_devices()
-        return bool(visible) and device not in visible
+            return None, False
+        observer = getattr(self.admission, "observer", None)
+        visible = None
+        if observer is not None:
+            try:
+                visible = observer.snapshot().get("visible_devices") or []
+            except Exception:
+                visible = None
+        if not visible or device not in visible:
+            return None, True
+        return visible.index(device), False
+
+    def _farm_device_index(self, reservation):
+        return self._admitted_device_resolution(reservation)[0]
+
+    def _admitted_device_unmapped(self, reservation):
+        return self._admitted_device_resolution(reservation)[1]
 
     @staticmethod
     def warm_plan(command):
@@ -1514,10 +1512,13 @@ class Generator:
             # contract.  An admitted GPU identity that no longer maps to
             # a visible card never launches on an unrelated device.
             def build_launch_command():
-                if self._admitted_device_unmapped(reservation):
+                # One snapshot resolves and validates the admitted GPU
+                # for this construction; no second observer read can
+                # quietly change the answer between check and launch.
+                farm_index, unmapped = self._admitted_device_resolution(reservation)
+                if unmapped:
                     raise ValueError("The GPU selected by farm admission is no longer visible; "
                                      "refusing to launch on an unrelated device.")
-                farm_index = self._farm_device_index(reservation)
                 if farm_index is not None and self.command_builder == self.native_command:
                     return self.command_builder(recipe, output, device=farm_index)
                 return self.command_builder(recipe, output)

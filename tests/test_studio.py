@@ -305,6 +305,28 @@ class FarmDeviceLaunchTests(StudioFixture):
         self.assertTrue(generator._admitted_device_unmapped({"device": "GPU-gone"}))
         self.assertFalse(generator._admitted_device_unmapped({"device": "cuda:0"}))
         self.assertFalse(generator._admitted_device_unmapped({"policy": "serial"}))
+        # An empty visible list or a failing observer must not silently
+        # fall back to the configured device for an admitted GPU UUID.
+        generator.admission = SimpleNamespace(
+            observer=SimpleNamespace(snapshot=lambda: {"visible_devices": []}))
+        self.assertEqual(generator._admitted_device_resolution({"device": "GPU-a"}), (None, True))
+        def failing_snapshot():
+            raise RuntimeError("observer down")
+        generator.admission = SimpleNamespace(
+            observer=SimpleNamespace(snapshot=failing_snapshot))
+        self.assertEqual(generator._admitted_device_resolution({"device": "GPU-a"}), (None, True))
+        # Resolution reads exactly one snapshot per construction, so a
+        # changing observer cannot split check and launch decisions.
+        calls = []
+        snapshots = iter([{"visible_devices": ["GPU-a", "GPU-b"]},
+                          {"visible_devices": []}])
+        def changing_snapshot():
+            calls.append(1)
+            return next(snapshots)
+        generator.admission = SimpleNamespace(
+            observer=SimpleNamespace(snapshot=changing_snapshot))
+        self.assertEqual(generator._admitted_device_resolution({"device": "GPU-b"}), (1, False))
+        self.assertEqual(len(calls), 1)
 
     def test_unmapped_admitted_gpu_never_launches(self):
         from admission_fixture import FixtureAdmission
@@ -333,6 +355,33 @@ class FarmDeviceLaunchTests(StudioFixture):
             error = db.execute("SELECT error FROM jobs WHERE id=?", (job_id,)).fetchone()[0]
         self.assertIn("no longer visible", error)
         # No launch command was ever built for the unmapped device.
+        self.assertEqual(launches, [])
+        self.assertEqual(self.store.snapshot()["tracks"], [])
+
+    def test_empty_snapshot_for_admitted_gpu_never_launches(self):
+        # Same refusal when the observer snapshot is empty: a missing
+        # mapping is not permission to use the configured device.
+        from admission_fixture import FixtureAdmission
+        from types import SimpleNamespace
+
+        class EmptySnapshotAdmission(FixtureAdmission):
+            def reserve(self, identity, recipe, kind, cancelled, on_wait=None, writer_settings=None):
+                super().reserve(identity, recipe, kind, cancelled, on_wait, writer_settings)
+                return {"device": "GPU-a", "host_peak": 1, "device_peak": 1}
+
+        admission = EmptySnapshotAdmission()
+        admission.observer = SimpleNamespace(
+            snapshot=lambda: {"visible_devices": [], "devices": {}, "device_processes": {}})
+        launches = []
+
+        def command(settings, output):
+            launches.append(output)
+            return GeneratorTests.fake_command(self, settings, output)
+
+        self.generator = Generator(self.store, command, admission=admission)
+        job_id = self.generator.submit(recipe())["id"]
+        wait_until(lambda: self.status(job_id) in ("done", "failed", "cancelled"))
+        self.assertEqual(self.status(job_id), "failed")
         self.assertEqual(launches, [])
         self.assertEqual(self.store.snapshot()["tracks"], [])
 
