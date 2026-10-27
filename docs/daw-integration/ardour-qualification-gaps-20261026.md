@@ -4,6 +4,8 @@ Author: riff-daw-glm-20261025, 2026-10-26. Read-only review of the preserved
 receipts at `f068888` plus a provisioning-path hardening fix (same commit).
 Ground truth: `docs/evidence/ardour-qualification-20261026/*.json`,
 `docs/evidence/generaluser-sf2-verification-20261026.json`,
+
+> **Update 2026-10-26:** provisioning route, runtime-record ownership, ABC subset, and stem behavior are determined from source in `production-integration-decisions-20261026.md`; only the SoundFont *redistribution* policy there remains a user/legal decision (current posture: separate provisioning, no bundling).
 `docs/daw-integration/ardour-build-preflight.md` (Q1–Q10 definitions,
 :375-386), `daw_runtime.py`/`daw_runner.py`/`ardour_session.py`/
 `daw_operations.py`, and the conductor-dispatched summary of Kimi's
