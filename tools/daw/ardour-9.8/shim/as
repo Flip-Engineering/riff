@@ -1,0 +1,26 @@
+#!/bin/sh
+# Build-time assembler shim for the pinned Ardour 9.8 build (#78).
+#
+# waf's asm task maps the libardour target's global C defines onto the
+# assembler command line via ASMDEFINES_ST ('-D%s').  GNU as accepts '-D'
+# only as a bare compatibility no-op, so '-DHAVE_GLIB=1' is parsed as
+# bundle '-D' + option 'H' and the build fails with "invalid option -- 'H'"
+# (observed with both binutils 2.42 and 2.46).  The defines are C-side
+# preprocessor state; the assembled file is plain '.s' (no preprocessing),
+# so dropping them changes nothing about the generated object.
+#
+# This shim removes every '-D*' argument and delegates to the real
+# assembler.  It is build tooling, recorded in the build receipt; the
+# pinned source tree stays untouched.
+set -eu
+REAL_AS=${REAL_AS:-/usr/bin/as}
+out=""
+for arg in "$@"; do
+  case "$arg" in
+    -D*) ;;  # strip define passthroughs; see header
+    *) out="$out
+$arg";;
+  esac
+done
+# shellcheck disable=SC2086
+exec "$REAL_AS" $out

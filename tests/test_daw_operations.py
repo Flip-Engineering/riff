@@ -248,12 +248,15 @@ class DawFixture(StudioFixture):
         template.write_text(TEMPLATE)
         for binary in bin_dir.iterdir():
             binary.chmod(binary.stat().st_mode | stat.S_IEXEC)
+        bank = self.root / "GeneralUser_LV2.sf2"
+        bank.write_bytes(b"bank-bytes")
         record = {"version": "9.8", "commit": "22ed8656c2533e325322ff11831448e5123e0d4b",
                   "kind": "source-build", "prefix": str(bin_dir),
                   "abc2midi": str(abc2midi), "template": str(template),
                   "converter": "abc2midi 5.07 6582eb8",
                   "instrument": {"uri": "http://gareus.org/oss/lv2/gmsynth",
-                                 "sf2_sha256": "c278464b823daf9c52106c0957f752817da0e52964817ff682fe3a8d2f8446ce"},
+                                 "sf2_path": str(bank),
+                                 "sf2_sha256": _sha(bank)},
                   "sha256": {name: _sha(bin_dir / name)
                              for name in ("ardour9-lua", "ardour9-export", "ardour9-new_session")},
                   "tools": {"abc2midi": _sha(abc2midi), "template": _sha(template)}}
@@ -397,12 +400,12 @@ class SubmitTests(DawFixture):
         import daw_runner
         real = getattr(daw_runner, name)
 
-        def cancelling(store, job_id, recipe, runtime, cancelled, stage_update, attach=None):
+        def cancelling(store, job_id, recipe, runtime, cancelled, stage_update, attach=None, **kwargs):
             def wrapped(stage_name, facts):
                 stage_update(stage_name, facts)
                 if stage_name == stage and facts.get("state") == state:
                     cancelled.set()
-            return real(store, job_id, recipe, runtime, cancelled, wrapped, attach=attach)
+            return real(store, job_id, recipe, runtime, cancelled, wrapped, attach=attach, **kwargs)
 
         return cancelling
 
@@ -452,6 +455,78 @@ class SubmitTests(DawFixture):
         self.assertIsNone(receipt["outputs"]["stem_manifest"])
         # Late cancellation erases nothing that was legitimately recorded.
         self.assertEqual(self.store.arrangements.describe(reference)["reference"], reference)
+
+    def _cancel_during(self, barrier_target, barrier_attr, submit):
+        """Run a real Generator.cancel() from another thread while the
+        publication call is held at a barrier inside it."""
+        entered, release = threading.Event(), threading.Event()
+        real = getattr(barrier_target, barrier_attr)
+
+        def blocking(*args, **kwargs):
+            entered.set()
+            release.wait(10)
+            return real(*args, **kwargs)
+
+        outcome = {}
+
+        def do_cancel(job_id):
+            try:
+                outcome["result"] = self.generator.cancel(job_id)
+            except Exception as error:  # noqa: BLE001 - captured for assertion
+                outcome["error"] = f"{type(error).__name__}: {error}"
+
+        patcher = patch.object(barrier_target, barrier_attr, blocking)
+        patcher.start()
+        try:
+            status, body = submit()
+            self.assertEqual(status, 201)
+            self.assertTrue(entered.wait(10), "publication barrier was not reached")
+            thread = threading.Thread(target=do_cancel, args=(body["job_id"],))
+            thread.start()
+            time.sleep(0.5)
+            release.set()
+            wait_until(lambda: self.store.job(body["job_id"])["status"]
+                       in ("done", "failed", "cancelled"))
+            thread.join(10)
+        finally:
+            release.set()
+            patcher.stop()
+        return body, outcome
+
+    def test_cancel_during_arrangement_record_is_serialized(self):
+        # Cancel lands while ArrangementArtifacts.record is publishing:
+        # publication and cancellation are serialized, so the job ends done
+        # with the arrangement recorded and the late cancel is refused,
+        # never cancelled-with-a-persisted-arrangement.
+        from arrangement_artifacts import ArrangementArtifacts
+        from operations import Operations
+        body, outcome = self._cancel_during(
+            ArrangementArtifacts, "record", lambda: self.compose("cancel-during-record"))
+        job = self.store.job(body["job_id"])
+        self.assertEqual(job["status"], "done")
+        self.assertIn("being saved", outcome.get("error", ""))
+        with self.store.db() as db:
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM arrangements").fetchone()[0], 1)
+        receipt = Operations(self.store, self.generator).receipt(body["operation_id"])
+        self.assertTrue(receipt["outputs"]["arrangement_source"].startswith("riff-arrangement-v1:"))
+
+    def test_cancel_during_render_track_publication_is_serialized(self):
+        # Same serialization at the render publication (Store.add_track):
+        # the job ends done with its track, and the late cancel is refused.
+        from operations import Operations
+        from studio_core import Store
+        _, made = self.compose("render-record-base")
+        wait_until(lambda: self.store.job(made["job_id"])["status"] == "done")
+        reference = Operations(self.store, self.generator).receipt(
+            made["operation_id"])["outputs"]["arrangement_source"]
+        body, outcome = self._cancel_during(
+            Store, "add_track",
+            lambda: self.post("daw.render", {"arrangement_source": reference,
+                                             "idempotency_key": "r-cancel-during"}))
+        job = self.store.job(body["job_id"])
+        self.assertEqual(job["status"], "done")
+        self.assertTrue(job["track_id"])
+        self.assertIn("being saved", outcome.get("error", ""))
 
 
 class UnavailableRuntimeTests(StudioFixture):
@@ -525,7 +600,8 @@ class UnavailableRuntimeTests(StudioFixture):
                 "kind": "demo", "prefix": str(bin_dir),
                 "abc2midi": str(bin_dir / "tool"), "template": str(template),
                 "instrument": {"uri": "http://gareus.org/oss/lv2/gmsynth",
-                               "sf2_sha256": "c278464b823daf9c52106c0957f752817da0e52964817ff682fe3a8d2f8446ce"},
+                               "sf2_path": str(template),
+                               "sf2_sha256": _sha(template)},
                 "sha256": {n: _sha(bin_dir / "tool") for n in ("ardour9-lua", "ardour9-export", "ardour9-new_session")},
                 "tools": {"abc2midi": _sha(bin_dir / "tool"), "template": _sha(template)}}
         record_path.write_text(json.dumps(demo))

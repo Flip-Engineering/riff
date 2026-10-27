@@ -25,7 +25,7 @@ studio.png composition.png studio-mobile.png export-performance.md'''.split()
 
 def public_files():
     files = [ROOT / name for name in ROOT_FILES] + [ROOT / "docs" / name for name in PUBLIC_DOCS]
-    for directory in ("web", "patches", "scripts", "tests", ".github", "site"):
+    for directory in ("web", "patches", "scripts", "tests", ".github", "site", "tools/daw"):
         files += [path for path in (ROOT / directory).rglob("*") if path.is_file()
                   and "__pycache__" not in path.parts and path.name != ".DS_Store"]
     # Desktop build trees contain downloaded dependencies and private acceptance

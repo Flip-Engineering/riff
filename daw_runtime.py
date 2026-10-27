@@ -89,12 +89,23 @@ def probe(store):
     with ``RuntimeUnavailable`` — a missing hash never means verified.
     """
     path = record_path(store)
-    if not path.exists():
-        return None
-    if path.is_symlink():
-        _refuse("The pinned Ardour runtime record is a symlink.")
     try:
-        record = json.loads(path.read_text())
+        # O_NOFOLLOW makes the symlink refusal and the bytes read refer to
+        # the same directory entry: a record swapped in after a check cannot
+        # redirect the read (the gate is atomic, not check-then-use).
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except FileNotFoundError:
+        return None
+    except OSError as error:
+        if error.errno == errno.ELOOP:
+            _refuse("The pinned Ardour runtime record is a symlink.")
+        _refuse("The pinned Ardour runtime record is not readable.")
+    with os.fdopen(fd, "rb") as content:
+        if not stat.S_ISREG(os.fstat(content.fileno()).st_mode):
+            _refuse("The pinned Ardour runtime record is not a regular file.")
+        raw = content.read()
+    try:
+        record = json.loads(raw.decode("utf-8"))
     except (ValueError, UnicodeDecodeError):
         _refuse("The pinned Ardour runtime record is not readable JSON.")
     if not isinstance(record, dict):
@@ -127,10 +138,14 @@ def probe(store):
     instrument = record.get("instrument")
     if not isinstance(instrument, dict) or instrument.get("uri") != GMSYNTH_URI:
         _refuse("The pinned Ardour runtime instrument must be the bundled gmsynth LV2.")
-    sf2 = instrument.get("sf2_sha256")
-    if sf2 != GENERALUSER_SF2_SHA256:
-        _refuse("The pinned Ardour runtime instrument bank does not match the recorded "
-                "GeneralUser_LV2.sf2 provenance hash.")
+    # The bank's identity is retained in the record (sf2_sha256, written by
+    # the provisioner after verifying the staged bytes against
+    # GENERALUSER_SF2_SHA256); probe verifies the installed file at the
+    # recorded path byte-for-byte against that identity, atomically.
+    sf2_path = instrument.get("sf2_path")
+    if not isinstance(sf2_path, str) or not sf2_path:
+        _refuse("The pinned Ardour runtime record is malformed: no instrument.sf2_path.")
+    _hashed_file("", sf2_path, instrument.get("sf2_sha256"))
     if record.get("converter") != APPROVED_CONVERTER:
         _refuse(f"The pinned Ardour runtime converter must be the approved {APPROVED_CONVERTER!r}.")
     return record

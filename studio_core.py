@@ -877,6 +877,7 @@ class Generator:
         self.writer_gate = threading.Lock()
         self.active_job_id = None
         self.job_cancelled = None
+        self.publication_committed = False
         self.quiescing = False
         self.live = None
         self.monitor = engine.platform_runtime.ProcessMemory()
@@ -1367,6 +1368,8 @@ class Generator:
                     db.execute("UPDATE jobs SET status='cancelled',finished=? WHERE id=?", (time.time(), job_id))
                     status = "cancelled"
                 elif row["status"] in ("running", "cancelling"):
+                    if self.active_job_id == job_id and self.publication_committed:
+                        raise ValueError("This take has finished and is being saved.")
                     if self.active_job_id == job_id and self.process and self.process.poll() is not None:
                         raise ValueError("This take has finished and is being saved.")
                     db.execute("UPDATE jobs SET status='cancelling' WHERE id=?", (job_id,))
@@ -1399,6 +1402,7 @@ class Generator:
                                 db.execute("UPDATE jobs SET status='running',started=? WHERE id=?", (time.time(), row["id"]))
                                 self.active_job_id = row["id"]
                                 self.job_cancelled = threading.Event()
+                                self.publication_committed = False
                                 self.live = {"id": row["id"], "title": row["title"], "stage": "Preparing the studio",
                                              "stage_index": 0, "elapsed": 0, "footprint": 0, "peak_footprint": 0}
                 if row is None:
@@ -1451,23 +1455,30 @@ class Generator:
                                                  on_wait=lambda reason: stage_update("queue", {"state": "waiting", "reason": reason}))
             try:
                 if daw["kind"] == "compose":
+                    def committed():
+                        self.publication_committed = True
                     daw["arrangement_source"] = daw_runner.compose(
                         self.store, job_id, recipe, runtime, cancelled, stage_update,
-                        attach=lambda process: self.admission.attach(identity, process))
+                        attach=lambda process: self.admission.attach(identity, process),
+                        publish_lock=self.lock, on_published=committed)
                 else:
                     result = daw_runner.render(
                         self.store, job_id, recipe, runtime, cancelled, stage_update,
                         attach=lambda process: self.admission.attach(identity, process))
                     # Publication boundary: the library track is published
-                    # here, so cancellation is checked here as well as at the
-                    # runner's return; a cancelled job publishes nothing new.
-                    if cancelled.is_set():
-                        raise daw_runner.StageError("cancelled", "Cancelled.")
-                    mix = self.store.outputs / "riff" / f"{job_id}.wav"
-                    mix.parent.mkdir(exist_ok=True)
-                    shutil.copyfile(result["mix"], mix)
-                    track_id = self.store.add_track(mix, recipe, {}, job_id)
-                    daw["stem_manifest"] = result["stems"]
+                    # here under the same lock cancel() takes, so a cancel
+                    # either lands before publication (nothing is published)
+                    # or is refused as already-being-saved; it can never
+                    # produce a cancelled job with a published track.
+                    with self.lock:
+                        if cancelled.is_set():
+                            raise daw_runner.StageError("cancelled", "Cancelled.")
+                        mix = self.store.outputs / "riff" / f"{job_id}.wav"
+                        mix.parent.mkdir(exist_ok=True)
+                        shutil.copyfile(result["mix"], mix)
+                        track_id = self.store.add_track(mix, recipe, {}, job_id)
+                        daw["stem_manifest"] = result["stems"]
+                        self.publication_committed = True
             finally:
                 self.admission.release(identity)
         except daw_runner.StageError as error:
@@ -1496,6 +1507,7 @@ class Generator:
                 self.live = None
                 self.active_job_id = None
                 self.job_cancelled = None
+                self.publication_committed = False
 
     def execute(self, job):
         recipe, job_id = json.loads(job["recipe"]), job["id"]

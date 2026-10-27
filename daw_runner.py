@@ -142,7 +142,8 @@ def _expect_save(log_path, snapshot):
         raise StageError("evidence", f"{Path(log_path).name} lacks 'save ok=true'.")
 
 
-def compose(store, job_id, recipe, runtime, cancelled=None, stage_update=None, attach=None):
+def compose(store, job_id, recipe, runtime, cancelled=None, stage_update=None, attach=None,
+            publish_lock=None, on_published=None):
     """Build, instrument, patch and reopen the session; record the arrangement.
 
     Returns the arrangement reference.  ``stage_update(stage, facts)``
@@ -231,15 +232,28 @@ def compose(store, job_id, recipe, runtime, cancelled=None, stage_update=None, a
     if stage_update:
         stage_update("session", {"state": "done"})
     # Cancellation boundary: the arrangement record is the compose
-    # publication.  A cancel landing at the final stage must not publish a
-    # new arrangement; earlier artifacts stay untouched.
-    if cancelled is not None and cancelled.is_set():
-        raise StageError("cancelled", "Cancelled.")
-    recorded = store.arrangements.record(job_id, session_dir, recipe.get("title", ""),
-                                         runtime["converter"],
-                                         composition={"abc": daw.get("abc"), "voice_map": daw.get("voice_map"),
-                                                      "timing": daw.get("timing"),
-                                                      "session_name": daw.get("session_name")})
+    # publication.  Check-and-record runs under publish_lock (the same lock
+    # Generator.cancel() takes), so a cancel either lands before the record
+    # (nothing is published) or waits until the record is committed and is
+    # then refused as already-being-saved; it can never produce a cancelled
+    # job with a persisted arrangement.
+    def publish():
+        if cancelled is not None and cancelled.is_set():
+            raise StageError("cancelled", "Cancelled.")
+        recorded = store.arrangements.record(job_id, session_dir, recipe.get("title", ""),
+                                             runtime["converter"],
+                                             composition={"abc": daw.get("abc"), "voice_map": daw.get("voice_map"),
+                                                          "timing": daw.get("timing"),
+                                                          "session_name": daw.get("session_name")})
+        if on_published is not None:
+            on_published()
+        return recorded
+
+    if publish_lock is not None:
+        with publish_lock:
+            recorded = publish()
+    else:
+        recorded = publish()
     return recorded["reference"]
 
 

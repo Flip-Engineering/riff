@@ -36,6 +36,8 @@ class RuntimeGate(unittest.TestCase):
         self.template = self.root / "template" / "1region.ardour"
         self.template.parent.mkdir(parents=True)
         self.template.write_bytes(b"session-template")
+        self.bank = self.root / "GeneralUser_LV2.sf2"
+        self.bank.write_bytes(b"bank-bytes")
         self.record = {
             "version": daw_runtime.APPROVED_VERSION,
             "commit": daw_runtime.APPROVED_COMMIT,
@@ -45,7 +47,8 @@ class RuntimeGate(unittest.TestCase):
             "template": str(self.template),
             "converter": daw_runtime.APPROVED_CONVERTER,
             "instrument": {"uri": daw_runtime.GMSYNTH_URI,
-                           "sf2_sha256": daw_runtime.GENERALUSER_SF2_SHA256},
+                           "sf2_path": str(self.bank),
+                           "sf2_sha256": digest(b"bank-bytes")},
             "sha256": {name: digest(data) for name, data in BIN.items()},
             "tools": {"abc2midi": digest(b"abc2midi-bytes"),
                       "template": digest(b"session-template")},
@@ -132,6 +135,30 @@ class RuntimeGate(unittest.TestCase):
         self.write_record()
         with self.assertRaises(daw_runtime.RuntimeUnavailable):
             daw_runtime.probe(self.store)
+
+    def test_changed_bank_is_refused(self):
+        """A bank swapped after provisioning fails the byte verification."""
+        self.write_record()
+        self.bank.write_bytes(b"tampered-bank")
+        with self.assertRaises(daw_runtime.RuntimeUnavailable) as caught:
+            daw_runtime.probe(self.store)
+        self.assertIn("no longer", str(caught.exception))
+
+    def test_missing_bank_path_is_refused(self):
+        del self.record["instrument"]["sf2_path"]
+        self.write_record()
+        with self.assertRaises(daw_runtime.RuntimeUnavailable):
+            daw_runtime.probe(self.store)
+
+    def test_symlinked_bank_is_refused(self):
+        target = self.root / "real-bank.sf2"
+        target.write_bytes(b"bank-bytes")
+        self.bank.unlink()
+        os.symlink(target, self.bank)
+        self.write_record()
+        with self.assertRaises(daw_runtime.RuntimeUnavailable) as caught:
+            daw_runtime.probe(self.store)
+        self.assertIn("symlink", str(caught.exception))
 
     def write_record_at(self, path):
         path.write_text(json.dumps(self.record))

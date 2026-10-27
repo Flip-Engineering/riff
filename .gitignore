@@ -13,7 +13,9 @@ test-results/
 *.key
 
 engines/
-tools/
+tools/*
+!tools/daw/
+!tools/daw/**
 releases/
 dist/
 .mix-venv/
