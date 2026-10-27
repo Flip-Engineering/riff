@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 import daw_runtime
 
@@ -38,6 +39,12 @@ class RuntimeGate(unittest.TestCase):
         self.template.write_bytes(b"session-template")
         self.bank = self.root / "GeneralUser_LV2.sf2"
         self.bank.write_bytes(b"bank-bytes")
+        # The fixture bank stands in for the approved GeneralUser bank:
+        # pin the provenance identity to its digest so the runtime check
+        # enforces both the provenance name and the actual bytes.
+        pinned = patch.object(daw_runtime, "GENERALUSER_SF2_SHA256", digest(b"bank-bytes"))
+        pinned.start()
+        self.addCleanup(pinned.stop)
         self.record = {
             "version": daw_runtime.APPROVED_VERSION,
             "commit": daw_runtime.APPROVED_COMMIT,
@@ -143,6 +150,17 @@ class RuntimeGate(unittest.TestCase):
         with self.assertRaises(daw_runtime.RuntimeUnavailable) as caught:
             daw_runtime.probe(self.store)
         self.assertIn("no longer", str(caught.exception))
+
+    def test_unapproved_bank_identity_is_refused(self):
+        """A self-consistent record naming another bank is still refused:
+        the approved GeneralUser provenance identity is enforced, not
+        merely agreement between the record and the file."""
+        self.bank.write_bytes(b"other-bank")
+        self.record["instrument"]["sf2_sha256"] = digest(b"other-bank")
+        self.write_record()
+        with self.assertRaises(daw_runtime.RuntimeUnavailable) as caught:
+            daw_runtime.probe(self.store)
+        self.assertIn("provenance", str(caught.exception))
 
     def test_missing_bank_path_is_refused(self):
         del self.record["instrument"]["sf2_path"]

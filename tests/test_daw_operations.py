@@ -250,6 +250,10 @@ class DawFixture(StudioFixture):
             binary.chmod(binary.stat().st_mode | stat.S_IEXEC)
         bank = self.root / "GeneralUser_LV2.sf2"
         bank.write_bytes(b"bank-bytes")
+        import daw_runtime
+        pinned = patch.object(daw_runtime, "GENERALUSER_SF2_SHA256", _sha(bank))
+        pinned.start()
+        self.addCleanup(pinned.stop)
         record = {"version": "9.8", "commit": "22ed8656c2533e325322ff11831448e5123e0d4b",
                   "kind": "source-build", "prefix": str(bin_dir),
                   "abc2midi": str(abc2midi), "template": str(template),
@@ -504,7 +508,12 @@ class SubmitTests(DawFixture):
             ArrangementArtifacts, "record", lambda: self.compose("cancel-during-record"))
         job = self.store.job(body["job_id"])
         self.assertEqual(job["status"], "done")
-        self.assertIn("being saved", outcome.get("error", ""))
+        # The late cancel is refused as a publication that already won:
+        # "being saved" while finalizing, or "already finished" if the
+        # cancel thread wakes after the terminal update (slow runners).
+        self.assertTrue("being saved" in outcome.get("error", "")
+                        or "already finished" in outcome.get("error", ""),
+                        outcome)
         with self.store.db() as db:
             self.assertEqual(db.execute("SELECT COUNT(*) FROM arrangements").fetchone()[0], 1)
         receipt = Operations(self.store, self.generator).receipt(body["operation_id"])
@@ -526,7 +535,9 @@ class SubmitTests(DawFixture):
         job = self.store.job(body["job_id"])
         self.assertEqual(job["status"], "done")
         self.assertTrue(job["track_id"])
-        self.assertIn("being saved", outcome.get("error", ""))
+        self.assertTrue("being saved" in outcome.get("error", "")
+                        or "already finished" in outcome.get("error", ""),
+                        outcome)
 
 
 class UnavailableRuntimeTests(StudioFixture):

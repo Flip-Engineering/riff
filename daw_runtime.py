@@ -138,10 +138,15 @@ def probe(store):
     instrument = record.get("instrument")
     if not isinstance(instrument, dict) or instrument.get("uri") != GMSYNTH_URI:
         _refuse("The pinned Ardour runtime instrument must be the bundled gmsynth LV2.")
-    # The bank's identity is retained in the record (sf2_sha256, written by
-    # the provisioner after verifying the staged bytes against
-    # GENERALUSER_SF2_SHA256); probe verifies the installed file at the
-    # recorded path byte-for-byte against that identity, atomically.
+    # The bank contract is the approved GeneralUser provenance identity:
+    # the record must name GENERALUSER_SF2_SHA256 (written by the
+    # provisioner after verifying the staged bytes against it), and probe
+    # verifies the installed file at the recorded path byte-for-byte
+    # against that identity, atomically.  A self-consistent record naming
+    # any other bank is refused, not silently trusted.
+    if instrument.get("sf2_sha256") != GENERALUSER_SF2_SHA256:
+        _refuse("The pinned Ardour runtime instrument bank does not match the approved "
+                "GeneralUser_LV2.sf2 provenance hash.")
     sf2_path = instrument.get("sf2_path")
     if not isinstance(sf2_path, str) or not sf2_path:
         _refuse("The pinned Ardour runtime record is malformed: no instrument.sf2_path.")
