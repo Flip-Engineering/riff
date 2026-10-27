@@ -248,7 +248,7 @@ def decoder_options(value):
     return dict(value)
 
 
-def build_decode_command(acoustic_file, output, decoder=None):
+def build_decode_command(acoustic_file, output, decoder=None, device=None):
     settings = platform_runtime.settings()
     from scripts.checkpoint_sha_identity import verify_runtime
     verify_runtime(settings["binary"])
@@ -257,7 +257,7 @@ def build_decode_command(acoustic_file, output, decoder=None):
     decoder_contract(settings)
     values = decoder_options({} if decoder is None else decoder)
     command = [settings["binary"], "--task", "gen", "--family", "yue2", "--model", settings["model_root"],
-               "--backend", settings["backend"], "--device", str(settings["device"]),
+               "--backend", settings["backend"], "--device", str(settings["device"] if device is None else device),
                "--threads", str(settings["threads"]), "--session-option", "yue2.vae_gguf=" + settings["vae_file"],
                "--request-option", "acoustic_latents_file=" + str(acoustic_file),
                "--out", str(output), "--log", "--metrics"]

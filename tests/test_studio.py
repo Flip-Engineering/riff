@@ -265,6 +265,78 @@ class LyricsTests(StudioFixture):
         self.assertEqual(len(self.store.snapshot()["tracks"]), 3)
 
 
+class FarmDeviceLaunchTests(StudioFixture):
+    """Admission-to-launch device routing for the shared farm (#93)."""
+
+    def status(self, job_id):
+        with self.store.db() as db:
+            return db.execute("SELECT status FROM jobs WHERE id=?", (job_id,)).fetchone()[0]
+
+    def tearDown(self):
+        generator = getattr(self, "generator", None)
+        if generator:
+            generator.close()
+        super().tearDown()
+
+    def test_decode_command_carries_the_admitted_device(self):
+        from types import SimpleNamespace
+        generator = Generator.__new__(Generator)
+        generator.store = SimpleNamespace(
+            acoustics=SimpleNamespace(input_path=lambda job_id: self.root / "latents.bin"))
+        captured = {}
+
+        def fake_decode(acoustic_file, output, decoder=None, device=None):
+            captured.update(acoustic_file=acoustic_file, device=device)
+            return ["decode", "--device", str(device)]
+
+        with patch("studio_core.engine.build_decode_command", fake_decode):
+            command = generator.native_command(
+                {"acoustic_source": "riff-acoustic-v1:x", "decoder": {}}, self.root / "take.wav", device=1)
+        self.assertEqual(command, ["decode", "--device", "1"])
+        self.assertEqual(captured["device"], 1)
+
+    def test_admitted_device_mapping_and_unmapped_refusal(self):
+        from types import SimpleNamespace
+        generator = Generator.__new__(Generator)
+        generator.admission = SimpleNamespace(
+            observer=SimpleNamespace(snapshot=lambda: {"visible_devices": ["GPU-a", "GPU-b"]}))
+        self.assertEqual(generator._farm_device_index({"device": "GPU-b"}), 1)
+        self.assertFalse(generator._admitted_device_unmapped({"device": "GPU-b"}))
+        self.assertTrue(generator._admitted_device_unmapped({"device": "GPU-gone"}))
+        self.assertFalse(generator._admitted_device_unmapped({"device": "cuda:0"}))
+        self.assertFalse(generator._admitted_device_unmapped({"policy": "serial"}))
+
+    def test_unmapped_admitted_gpu_never_launches(self):
+        from admission_fixture import FixtureAdmission
+        from types import SimpleNamespace
+
+        class UnmappedAdmission(FixtureAdmission):
+            def reserve(self, identity, recipe, kind, cancelled, on_wait=None, writer_settings=None):
+                super().reserve(identity, recipe, kind, cancelled, on_wait, writer_settings)
+                return {"device": "GPU-gone", "host_peak": 1, "device_peak": 1}
+
+        admission = UnmappedAdmission()
+        admission.observer = SimpleNamespace(
+            snapshot=lambda: {"visible_devices": ["GPU-a"], "farm_device": "GPU-gone",
+                              "device_identity": "GPU-a", "devices": {}, "device_processes": {}})
+        launches = []
+
+        def command(settings, output):
+            launches.append(output)
+            return GeneratorTests.fake_command(self, settings, output)
+
+        self.generator = Generator(self.store, command, admission=admission)
+        job_id = self.generator.submit(recipe())["id"]
+        wait_until(lambda: self.status(job_id) in ("done", "failed", "cancelled"))
+        self.assertEqual(self.status(job_id), "failed")
+        with self.store.db() as db:
+            error = db.execute("SELECT error FROM jobs WHERE id=?", (job_id,)).fetchone()[0]
+        self.assertIn("no longer visible", error)
+        # No launch command was ever built for the unmapped device.
+        self.assertEqual(launches, [])
+        self.assertEqual(self.store.snapshot()["tracks"], [])
+
+
 class GeneratorTests(StudioFixture):
     def setUp(self):
         super().setUp()

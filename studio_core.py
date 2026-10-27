@@ -897,7 +897,8 @@ class Generator:
 
     def native_command(self, recipe, output, device=None):
         if recipe.get("acoustic_source"):
-            return engine.build_decode_command(self.store.acoustics.input_path(Path(output).stem), output, recipe.get("decoder"))
+            return engine.build_decode_command(self.store.acoustics.input_path(Path(output).stem), output,
+                                               recipe.get("decoder"), device=device)
         if recipe.get("render_mode", "music") in ("music", "sound"):
             engine.require_solver(recipe.get("solver", "midpoint"), engine.platform_runtime.settings()["binary"])
         return engine.build_command(lyrics=recipe["lyrics"], style=recipe["style"], max_seconds=recipe["max_seconds"],
@@ -916,6 +917,15 @@ class Generator:
                                     lora_options=self.store.loras.resolve_saved(recipe["lora_provenance"])
                                     if recipe.get("lora_provenance") else None)
 
+    def _visible_devices(self):
+        observer = getattr(self.admission, "observer", None)
+        if observer is None:
+            return []
+        try:
+            return observer.snapshot().get("visible_devices") or []
+        except Exception:
+            return []
+
     def _farm_device_index(self, reservation):
         """Visible-card index for the device the reservation named (#93),
         or None when it names no observed visible card."""
@@ -924,14 +934,20 @@ class Generator:
         device = reservation.get("device")
         if not isinstance(device, str):
             return None
-        observer = getattr(self.admission, "observer", None)
-        if observer is None:
-            return None
-        try:
-            visible = observer.snapshot().get("visible_devices") or []
-        except Exception:
-            return None
+        visible = self._visible_devices()
         return visible.index(device) if device in visible else None
+
+    def _admitted_device_unmapped(self, reservation):
+        """True when admission named an observed GPU identity that the
+        current visible-device snapshot no longer contains (#93): launching
+        then would silently run on an unrelated configured device."""
+        if not isinstance(reservation, dict):
+            return False
+        device = reservation.get("device")
+        if not isinstance(device, str) or not device.startswith("GPU-"):
+            return False
+        visible = self._visible_devices()
+        return bool(visible) and device not in visible
 
     @staticmethod
     def warm_plan(command):
@@ -1493,14 +1509,20 @@ class Generator:
                 self.store.prepare_loras(recipe)
             # Launch on the device admission named under the shared farm
             # policy (#93): the reservation's device identity mapped back
-            # to its visible-card index.  Custom command builders keep
-            # their own device handling; an unmapped identity launches
-            # on the configured device as before.
-            farm_index = self._farm_device_index(reservation)
-            if farm_index is not None and self.command_builder == self.native_command:
-                command = self.command_builder(recipe, output, device=farm_index)
-            else:
-                command = self.command_builder(recipe, output)
+            # to its visible-card index for the default builder (decode
+            # included).  Custom builders keep their two-argument
+            # contract.  An admitted GPU identity that no longer maps to
+            # a visible card never launches on an unrelated device.
+            def build_launch_command():
+                if self._admitted_device_unmapped(reservation):
+                    raise ValueError("The GPU selected by farm admission is no longer visible; "
+                                     "refusing to launch on an unrelated device.")
+                farm_index = self._farm_device_index(reservation)
+                if farm_index is not None and self.command_builder == self.native_command:
+                    return self.command_builder(recipe, output, device=farm_index)
+                return self.command_builder(recipe, output)
+
+            command = build_launch_command()
             warm_enabled, warm = self.warm_plan(command)
             if policy["key"] is not None and (warm is None or engine_key(warm[0]) != policy["key"]):
                 self.admission.release(identity)
@@ -1511,6 +1533,7 @@ class Generator:
                 policy["reason"] = "Engine inputs changed while waiting; using a cold reservation"
                 policy["resident"] = None
                 warm = None
+                command = build_launch_command()
             if policy["decision"] is not None and not policy["decision"]["keep"]:
                 warm = None
             if warm:
@@ -1529,6 +1552,7 @@ class Generator:
                     reserved = True
                     policy["reason"], policy["resident"] = str(error) + "; using a cold reservation", None
                     engine_reused, warm = False, None
+                    command = build_launch_command()
             elif not warm_enabled or policy["decision"] is not None:
                 self._stop_warm()
             with log_path.open("w") as log, self.lock:
