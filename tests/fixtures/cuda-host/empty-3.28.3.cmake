@@ -1,0 +1,3 @@
+set(CMAKE_CUDA_HOST_COMPILER "")
+set(CMAKE_CUDA_HOST_LINK_LAUNCHER "/usr/lib/nvidia-cuda-toolkit/bin/g++")
+set(CMAKE_CUDA_HOST_COMPILER_ENV_VAR "CUDAHOSTCXX")

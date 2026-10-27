@@ -13,6 +13,7 @@ from unittest.mock import Mock, patch
 import launcher
 import maintenance
 import setup_engine
+from scripts import cuda_host_compiler
 
 
 class ManagedBuildQueueTests(unittest.TestCase):
@@ -26,7 +27,7 @@ class ManagedBuildQueueTests(unittest.TestCase):
         self.source.mkdir(parents=True)
         for name in ('sources.json', 'setup_engine.py', 'paths.py', 'platform_support.py',
                      'scripts/run_native_build_queued.sh', 'scripts/build_cached_native.exs',
-                     'scripts/native_cache.exs', 'scripts/checkpoint_sha_identity.py',
+                     'scripts/native_cache.exs', 'scripts/checkpoint_sha_identity.py', 'scripts/cuda_host_compiler.py',
                      'scripts/compiler_cache_tool.json', '.github/workflows/ci.yml'):
             destination = self.source / name
             destination.parent.mkdir(parents=True, exist_ok=True)
@@ -39,13 +40,13 @@ class ManagedBuildQueueTests(unittest.TestCase):
         self.tools.mkdir()
         self.log = self.root / 'queue.jsonl'
         self.queue = self.executable('queue', '''
-import json, os, subprocess, sys
+import hashlib, json, os, subprocess, sys
 from pathlib import Path
 args = sys.argv[1:]
 assert args[:2] == ['--', 'run'], args
 assert '--source-root' in args and '--artifact' in args
 with Path(os.environ['FIXTURE_LOG']).open('a') as f:
-    f.write(json.dumps({'queue': args, 'cwd': os.getcwd()}) + '\\n')
+    f.write(json.dumps({'queue': args, 'cwd': os.getcwd(), 'host': os.environ.get('CUDAHOSTCXX'), 'nvcc': os.environ.get('CUDACXX'), 'aux_sha256': hashlib.sha256(Path(args[args.index('--aux') + 1]).read_bytes()).hexdigest()}) + '\\n')
 if os.environ.get('FIXTURE_QUEUE_FAIL'):
     sys.exit(7)
 command = args[args.index('--', 2) + 1:]
@@ -87,6 +88,9 @@ else:
     if os.environ.get('FIXTURE_BAD_VALIDATION'):
         sys.exit(9)
 ''')
+        self.cuda_toolchain = {'path': str(self.tools / 'c++'), 'nvcc': str(self.tools / 'fixture-nvcc')}
+        (self.source / 'scripts/cuda_host_compiler.py').write_text(
+            'import json\nprint(' + repr(json.dumps(self.cuda_toolchain)) + ')\n')
         self.state = self.root / 'queue-state'
         self.state.mkdir()
         self.environment = {'PATH': str(self.tools) + os.pathsep + os.environ['PATH'],
@@ -99,6 +103,7 @@ else:
         self.patches = [patch.dict(os.environ, self.environment),
                         patch.object(setup_engine, 'WORKSPACE', self.workspace),
                         patch.object(setup_engine, 'prerequisites', return_value=[]),
+                        patch.object(cuda_host_compiler, 'select', return_value=self.cuda_toolchain),
                         patch.object(setup_engine.platform_support, 'configure')]
         for context in self.patches:
             context.start()
@@ -142,6 +147,9 @@ else:
         stage = Path(events[0]['cwd'])
         self.assertNotEqual(stage, self.source)
         self.assertTrue(stage.is_relative_to(self.workspace / 'native-builds'))
+        self.assertEqual(events[0]['host'], self.cuda_toolchain['path'])
+        self.assertEqual(events[0]['nvcc'], self.cuda_toolchain['nvcc'])
+        self.assertIn('scripts/cuda_host_compiler.py', [entry['path'] for entry in json.loads((stage / 'request.json').read_text())['inputs']])
         self.assertEqual(events[1]['home'], str(stage))
         self.assertEqual(events[1]['queue_policy'], [])
         self.assertIn('--compile-only', events[1]['elixir'])
@@ -155,9 +163,16 @@ else:
         setup_engine.platform_support.configure.assert_not_called()
         self.assertFalse(any('--build' in command for command in self.commands))
         # A second preparation owns a new cwd, avoiding an existing CMakeCache.
+        helper = self.source / 'scripts/cuda_host_compiler.py'
+        helper.write_text(helper.read_text() + '# revised selector policy\n')
         second = self.prepare(jobs=1, probe=False)
         self.assertNotEqual(value['binary'], second['binary'])
         self.assertTrue(binary.is_file())
+        queue_events = [event for event in self.events() if 'queue' in event]
+        self.assertNotEqual(queue_events[0]['aux_sha256'], queue_events[1]['aux_sha256'])
+        second_stage = Path(queue_events[1]['cwd'])
+        self.assertNotEqual(json.loads((stage / 'request.json').read_text())['source_id'],
+                            json.loads((second_stage / 'request.json').read_text())['source_id'])
 
     def test_required_queue_missing_or_unavailable_never_falls_back(self):
         for environment in ({'RIFF_COMPILE_QUEUE': str(self.root / 'missing')},
@@ -273,7 +288,7 @@ class NativeReceiptValidationTests(unittest.TestCase):
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
         for name in ('setup_engine.py', 'paths.py', 'platform_support.py', 'scripts/checkpoint_sha_identity.py',
-                     'scripts/native_cache.exs', 'scripts/build_cached_native.exs',
+                     'scripts/native_cache.exs', 'scripts/build_cached_native.exs', 'scripts/cuda_host_compiler.py',
                      'scripts/compiler_cache_tool.json', '.github/workflows/ci.yml'):
             target = self.root / name
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -316,7 +331,7 @@ class NativeReceiptValidationTests(unittest.TestCase):
 
     def test_actual_toolchain_and_source_identity_changes_are_rejected(self):
         self.assertEqual(self.validate().returncode, 0)
-        for path in (self.compiler, self.root / 'setup_engine.py'):
+        for path in (self.compiler, self.root / 'setup_engine.py', self.root / 'scripts/cuda_host_compiler.py'):
             original = path.read_bytes()
             path.write_bytes(original + b'changed')
             self.assertNotEqual(self.validate().returncode, 0)

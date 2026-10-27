@@ -95,6 +95,26 @@ class MetalDeviceTests(unittest.TestCase):
                 seed=1, threads=1, output=self.root / "out.wav", backend="cpu")
             self.assertEqual(command[command.index("--backend") + 1], "cpu")
 
+    def test_decode_command_uses_the_admitted_device_override(self):
+        settings = {**self.settings, "backend": "cuda", "device": 0}
+        checked = []
+
+        def require(settings_arg, backend=None):
+            checked.append(settings_arg["device"])
+            return {}
+
+        with patch.object(platform_support, "settings", return_value=settings), \
+                patch("scripts.checkpoint_sha_identity.verify_runtime"), \
+                patch.object(run, "decoder_contract", return_value={}), \
+                patch.object(engine_devices, "require_device", require):
+            command = run.build_decode_command(self.root / "audio.bin", self.root / "out.wav", device=1)
+            self.assertEqual(command[command.index("--device") + 1], "1")
+            # Readiness judged the same effective device the decode uses.
+            self.assertEqual(checked, [1])
+            command = run.build_decode_command(self.root / "audio.bin", self.root / "out.wav")
+            self.assertEqual(command[command.index("--device") + 1], "0")
+            self.assertEqual(checked, [1, 0])
+
     def test_cpu_readiness_does_not_probe_metal(self):
         required = ["model.gguf", "vae.gguf", "sidecars/yue2-model-config.json", "sidecars/yue2-generation-config.json",
                     "sidecars/yue2-vae-config.json", "sidecars/yue2-qwen.tiktoken"]

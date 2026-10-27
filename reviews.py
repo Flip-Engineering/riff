@@ -58,7 +58,19 @@ class Reviews:
             for name in ("attachments", "observations", "warnings", "sent_audio"):
                 if name not in columns:
                     db.execute(f"ALTER TABLE reviews ADD COLUMN {name} TEXT NOT NULL DEFAULT '[]'")
+            for name in ("master", "edit_context", "result"):
+                if name not in columns:
+                    db.execute(f"ALTER TABLE reviews ADD COLUMN {name} TEXT NOT NULL DEFAULT '{{}}'")
+            for name in ("request_id", "request_hash"):
+                if name not in columns:
+                    db.execute(f"ALTER TABLE reviews ADD COLUMN {name} TEXT")
+            if "source_track_id" not in columns:
+                db.execute("ALTER TABLE reviews ADD COLUMN source_track_id TEXT NOT NULL DEFAULT ''")
+            db.execute("CREATE UNIQUE INDEX IF NOT EXISTS reviews_request ON reviews(request_id)")
             db.executescript("""
+                CREATE TABLE IF NOT EXISTS review_masters (
+                    sha256 TEXT PRIMARY KEY, bytes INTEGER NOT NULL, duration REAL NOT NULL,
+                    format TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS review_references (
                     id TEXT PRIMARY KEY, sha256 TEXT NOT NULL, label TEXT NOT NULL,
                     link TEXT NOT NULL DEFAULT '', note TEXT NOT NULL DEFAULT '',
@@ -128,7 +140,8 @@ class Reviews:
     @staticmethod
     def unpack(row):
         item = dict(row)
-        for name in ("source_recipe", "revision", "generation", "usage", "observations", "warnings", "sent_audio"):
+        for name in ("source_recipe", "revision", "generation", "usage", "observations", "warnings", "sent_audio",
+                     "master", "edit_context", "result"):
             item[name] = json.loads(item[name])
         item["references"] = json.loads(item.pop("attachments"))
         # Historical recommendations may predate seed retention. Present an
@@ -159,6 +172,100 @@ class Reviews:
     def submit(self, track_id, payload):
         with self.lock:
             return self._submit(track_id, payload)
+
+    def master_path(self, digest):
+        if not isinstance(digest, str) or not re.fullmatch(r"[a-f0-9]{64}", digest):
+            raise ValueError("Supply the uploaded primary master's SHA-256.")
+        return self.store.data_root / "review-masters" / digest
+
+    def add_master(self, source, expected_sha256):
+        """Keep exact primary audio separately from generated tracks and comparison clips."""
+        blob = self.master_path(expected_sha256)
+        source = Path(source)
+        digest = hashlib.sha256()
+        with source.open("rb") as handle:
+            while chunk := handle.read(1024 * 1024):
+                digest.update(chunk)
+        size = source.stat().st_size
+        if not size or digest.hexdigest() != expected_sha256:
+            raise ValueError("The primary master is empty or differs from the artist's SHA-256.")
+        audio_format, duration = self._probe(source)
+        with self.lock:
+            blob.parent.mkdir(parents=True, exist_ok=True)
+            part = blob.with_name(blob.name + "." + uuid.uuid4().hex + ".part")
+            try:
+                shutil.copyfile(source, part)
+                os.replace(part, blob)
+            finally:
+                part.unlink(missing_ok=True)
+            with self.store.db() as db:
+                db.execute("INSERT OR IGNORE INTO review_masters VALUES(?,?,?,?)",
+                           (expected_sha256, size, duration, audio_format))
+                return dict(db.execute("SELECT * FROM review_masters WHERE sha256=?", (expected_sha256,)).fetchone())
+
+    def _stored_master(self, item):
+        path = self.master_path(item["sha256"])
+        digest = hashlib.sha256()
+        try:
+            with path.open("rb") as handle:
+                while chunk := handle.read(1024 * 1024):
+                    digest.update(chunk)
+            valid = path.stat().st_size == item["bytes"] and digest.hexdigest() == item["sha256"]
+        except OSError:
+            valid = False
+        if not valid:
+            raise ValueError("The primary master is missing or changed. Upload the artist's exact master again.")
+        return path
+
+    def submit_master(self, payload):
+        """One artist identity binds one immutable request, including failed/cancelled attempts."""
+        fields = {"request_id", "master", "source_recipe", "edit_context", "source_track_id", "model", "focus", "keep_lyrics"}
+        if not isinstance(payload, dict) or set(payload) - fields:
+            raise ValueError("Send primary master metadata and artist review context, never host paths.")
+        identity = payload.get("request_id")
+        if not isinstance(identity, str) or not re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", identity):
+            raise ValueError("Supply a stable artist request_id (1–128 letters, digits, dot, underscore, colon or dash).")
+        source, master = payload.get("source_recipe"), payload.get("master")
+        if not isinstance(source, dict) or not isinstance(master, dict) or set(master) != {"sha256", "bytes", "duration"}:
+            raise ValueError("Supply source_recipe and the master's sha256, bytes and duration.")
+        self.master_path(master["sha256"])
+        if (type(master["bytes"]) is not int or master["bytes"] <= 0 or type(master["duration"]) not in (int, float)
+                or not math.isfinite(master["duration"]) or master["duration"] <= 0):
+            raise ValueError("Supply the exact primary master's positive byte count and duration.")
+        if (not isinstance(payload.get("model"), str) or not payload["model"].strip()
+                or not isinstance(payload.get("focus"), str) or type(payload.get("keep_lyrics")) is not bool
+                or not isinstance(payload.get("edit_context", {}), dict)):
+            raise ValueError("Supply model, focus, keep_lyrics and an edit_context object.")
+        track_id = payload.get("source_track_id", "")
+        if not isinstance(track_id, str) or (track_id and not re.fullmatch(r"[a-f0-9]{32}", track_id)):
+            raise ValueError("source_track_id must be an existing library track ID or empty.")
+        fingerprint = hashlib.sha256(json.dumps(payload, sort_keys=True, allow_nan=False).encode()).hexdigest()
+        with self.lock:
+            with self.store.db() as db:
+                previous = db.execute("SELECT id,request_hash FROM reviews WHERE request_id=?", (identity,)).fetchone()
+            if previous:
+                if previous["request_hash"] != fingerprint:
+                    raise ValueError("This artist request_id already names different review inputs. Preserve it; choose a new ID for a new request.")
+                return self.get(previous["id"])
+            settings = self.connection()
+            if not settings["enabled"] or not settings["has_key"]:
+                raise ValueError("Enable reviews and save an OpenRouter key in this studio owner's review settings.")
+            if track_id:
+                self.store.track(track_id)  # Association only; its audio and recipe stay untouched.
+            with self.store.db() as db:
+                row = db.execute("SELECT * FROM review_masters WHERE sha256=?", (master["sha256"],)).fetchone()
+            if not row or row["bytes"] != master["bytes"] or abs(row["duration"] - master["duration"]) > .001:
+                raise ValueError("Upload the exact primary master and confirm its byte count and duration first.")
+            receipt = dict(row)
+            self._stored_master(receipt)
+            review_id = uuid.uuid4().hex
+            with self.store.db() as db:
+                db.execute("""INSERT INTO reviews(id,track_id,created,status,model,focus,keep_lyrics,source_recipe,
+                              master,edit_context,request_id,request_hash,source_track_id) VALUES(?,'',?,'queued',?,?,?,?,?,?,?,?,?)""",
+                           (review_id, time.time(), payload["model"], payload["focus"], int(payload["keep_lyrics"]),
+                            json.dumps(source), json.dumps(receipt), json.dumps(payload.get("edit_context", {})), identity, fingerprint, track_id))
+            self.wake.set()
+            return self.get(review_id)
 
     def _submit(self, track_id, payload):
         settings = self.connection()
@@ -438,15 +545,21 @@ class Reviews:
     def execute(self, review):
         result, error, secret = None, "", ""
         try:
-            secret = self.keychain.get()
-            track = self.store.track(review["track_id"])
             source = dict(review["source_recipe"])
-            source["available_scores"] = self.store.available_scores(source, cancelled=self.stop)
-            source["available_acoustics"] = self.store.available_acoustics(source, cancelled=self.stop)
+            if review["master"]:
+                audio = self._stored_master(review["master"])
+                duration = review["master"]["duration"]
+            else:
+                track = self.store.track(review["track_id"])
+                audio, duration = self.store.audio_path(review["track_id"]), track["audio"]["duration"]
+                source["available_scores"] = self.store.available_scores(source, cancelled=self.stop)
+                source["available_acoustics"] = self.store.available_acoustics(source, cancelled=self.stop)
+            secret = self.keychain.get()
             settings = {"model": review["model"], "focus": review["focus"], "keep_lyrics": review["keep_lyrics"],
-                        "recipe": source, "audio": str(self.store.audio_path(review["track_id"])),
-                        "duration": track["audio"]["duration"],
+                        "recipe": source, "audio": str(audio), "duration": duration,
                         "api_key": secret}
+            if review["master"]:
+                settings.update(primary_kind="edited_master", edit_context=review["edit_context"])
             if review["references"]:
                 # The client reads these local files; their paths never go to the model or the page.
                 settings["references"] = [{**item, "path": str(self._stored_reference(item))} for item in review["references"]]
@@ -476,6 +589,8 @@ class Reviews:
                         result["observations"], result["warnings"] = attribute_observations(
                             result.get("observations"), review["references"])
                         result["sent_audio"] = sent_audio_receipt(result.get("sent_audio"))
+                    elif review["master"]:
+                        result["sent_audio"] = sent_audio_receipt(result.get("sent_audio"))
         except Exception as exc:
             error = str(exc).replace(secret, "[redacted]") if secret else str(exc)
         finally:
@@ -485,6 +600,11 @@ class Reviews:
                     self.process.wait()
                 self.process = None
                 with self.store.db() as db:
+                    if result is not None:
+                        db.execute("UPDATE reviews SET result=? WHERE id=?", (json.dumps(result), review["id"]))
+                        if review["master"]:
+                            db.execute("UPDATE reviews SET sent_audio=? WHERE id=?",
+                                       (json.dumps(sent_audio_receipt(result.get("sent_audio"))), review["id"]))
                     status = db.execute("SELECT status FROM reviews WHERE id=?", (review["id"],)).fetchone()[0]
                     status = "interrupted" if self.stop.is_set() else "cancelled" if status == "cancelling" else "failed" if error or not result else "done"
                     if status == "done":

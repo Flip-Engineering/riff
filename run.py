@@ -43,7 +43,7 @@ def sysctl_int(name):
 
 
 def build_command(*, lyrics, style, max_seconds, steps, cot, seed, threads, output,
-                  backend=None, abc="", mode="lyrics", cfg_scale=1., temperature=1., refinement=None, render_mode="music",
+                  backend=None, device=None, abc="", mode="lyrics", cfg_scale=1., temperature=1., refinement=None, render_mode="music",
                   performance_file=None, semantic_only=False, solver="midpoint", score_file=None,
                   acoustic_out=None, acoustic_only=False, lora_options=None):
     """Shared native invocation for the command line and Riff studio."""
@@ -65,7 +65,7 @@ def build_command(*, lyrics, style, max_seconds, steps, cot, seed, threads, outp
     native_lyrics = "[Instrumental]" if mode == "instrumental" and not lyrics else lyrics
     command = [
         settings["binary"], "--task", "gen", "--family", "yue2", "--model", settings["model_root"],
-        "--backend", backend or settings["backend"], "--device", str(settings["device"]),
+        "--backend", backend or settings["backend"], "--device", str(settings["device"] if device is None else device),
         "--threads", str(threads), "--lyrics", native_lyrics,
         "--session-option", "yue2.model_gguf=" + settings["model_file"],
         "--session-option", "yue2.vae_gguf=" + settings["vae_file"],
@@ -248,16 +248,18 @@ def decoder_options(value):
     return dict(value)
 
 
-def build_decode_command(acoustic_file, output, decoder=None):
+def build_decode_command(acoustic_file, output, decoder=None, device=None):
     settings = platform_runtime.settings()
     from scripts.checkpoint_sha_identity import verify_runtime
     verify_runtime(settings["binary"])
     from engine_devices import require_device
-    require_device(settings)
+    # The readiness check must judge the device the decode will actually
+    # use (#93): the admission-selected override, not the configured one.
+    require_device(settings if device is None else {**settings, "device": device})
     decoder_contract(settings)
     values = decoder_options({} if decoder is None else decoder)
     command = [settings["binary"], "--task", "gen", "--family", "yue2", "--model", settings["model_root"],
-               "--backend", settings["backend"], "--device", str(settings["device"]),
+               "--backend", settings["backend"], "--device", str(settings["device"] if device is None else device),
                "--threads", str(settings["threads"]), "--session-option", "yue2.vae_gguf=" + settings["vae_file"],
                "--request-option", "acoustic_latents_file=" + str(acoustic_file),
                "--out", str(output), "--log", "--metrics"]
