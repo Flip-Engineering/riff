@@ -6,7 +6,13 @@ const RiffArtwork = (() => {
     { paper: "#e1e7e1", ink: "#527e70", accent: "#79749e", glow: "#b1ced0" },
     { paper: "#eae1df", ink: "#956c7c", accent: "#5e8286", glow: "#c0becf" },
   ];
-  const defaults = Object.freeze({ surface: .72, motion: 1, color: .7, texture: .48 });
+  const defaults = Object.freeze({ surface: .72, motion: 1, color: .7, texture: .48, mark: "riff" });
+  const marks = Object.freeze(["riff", "flip"]);
+  // The "flip" mark draws the @Flip face (docs/branding.md) before its word.
+  const flipFace = typeof Image === "function" ? new Image() : null;
+  if (flipFace) flipFace.src = "/flip-face.svg";
+  // Covers use the mark chosen in the studio; drawing calls may pass their own.
+  let currentMark = defaults.mark;
   const cache = new Map(), rings = 40, steps = 128;
   let surfaceRenderer, surfaceRetryAt = 0;
   const clamp = (x, low = 0, high = 1) => Math.max(low, Math.min(high, Number(x) || 0));
@@ -370,12 +376,41 @@ const RiffArtwork = (() => {
       }
     }
     context.setTransform(1, 0, 0, 1, 0, 0);
-    const unit = Math.min(width, height);
-    context.fillStyle = c.ink; context.globalAlpha = .76;
-    context.font = `600 ${unit * .061}px Arial, sans-serif`;
-    context.fillText("riff.", unit * .064, height - unit * .064);
+    drawMark(context, width, height, c, appearance.mark ?? currentMark);
     context.restore();
     return surfaced;
+  }
+
+  function drawMark(context, width, height, c, mark) {
+    const unit = Math.min(width, height), size = unit * .061;
+    let x = unit * .064;
+    const baseline = height - unit * .064;
+    context.fillStyle = c.ink; context.globalAlpha = .76;
+    context.font = `600 ${size}px Arial, sans-serif`;
+    if (mark === "flip") {
+      if (flipFace?.complete && flipFace.naturalWidth) {
+        const face = size * 1.18;
+        context.globalAlpha = 1;
+        context.drawImage(flipFace, x, baseline - face * .86, face, face);
+        context.globalAlpha = .76;
+        x += face * 1.12;
+      }
+      context.fillText("flip.", x, baseline);
+    } else {
+      context.fillText("riff.", x, baseline);
+    }
+  }
+
+  /** Resolves once everything the mark draws has loaded, so a first frame carries it. */
+  function ready(appearance = defaults) {
+    if ((appearance.mark ?? currentMark) !== "flip" || !flipFace) return Promise.resolve();
+    return flipFace.decode().catch(() => {});
+  }
+
+  function setMark(mark) {
+    if (!marks.includes(mark) || mark === currentMark) return;
+    currentMark = mark;
+    for (const g of cache.values()) g.poster = null;
   }
 
   function svg(seed, refresh = false) {
@@ -392,7 +427,7 @@ const RiffArtwork = (() => {
     g.poster = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 440 340" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><image width="440" height="340" href="${canvas.toDataURL("image/png")}"/></svg>`;
     return g.poster;
   }
-  return { draw, svg, scene, defaults };
+  return { draw, svg, scene, defaults, marks, ready, setMark };
 })();
 
 function drawSeedArtwork(context, width, height, seed, seconds = 0, motion = [], appearance) {

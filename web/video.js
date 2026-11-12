@@ -481,6 +481,7 @@ async function createVideo(event) {
   $("#video-progress").hidden = false;
   $("#video-progress").value = 0;
   $("#video-status").textContent = "Preparing the artwork…";
+  await RiffArtwork.ready(appearance);
   let complete = false, encoder = null;
   const producer = new AbortController();
   const started = performance.now();
