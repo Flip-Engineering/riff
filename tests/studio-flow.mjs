@@ -72,7 +72,10 @@ try {
   await page.locator("#sound-view-seek").fill("4");
   await page.waitForFunction(() => Math.abs(audio.currentTime - 4) < .1);
   assert.equal(await page.locator("#sound-view-canvas").evaluate(canvas => canvas.toDataURL()), stillShape);
-  assert.deepEqual(await page.evaluate(() => JSON.parse(localStorage.getItem("riff.soundAppearance"))), { surface: 0, motion: 0, color: .7, texture: 0 });
+  assert.deepEqual(await page.evaluate(() => JSON.parse(localStorage.getItem("riff.soundAppearance"))), { surface: 0, motion: 0, color: .7, texture: 0, mark: "riff" });
+  await page.locator("#sound-mark").selectOption("flip");
+  assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem("riff.soundAppearance")).mark), "flip");
+  await page.locator("#sound-mark").selectOption("riff");
   assert.deepEqual(await page.evaluate(() => formRecipe()), draft);
   await page.locator("#sound-surface").fill("0.72");
   await page.locator("#sound-motion").fill("1");

@@ -94,4 +94,8 @@ try {
   assert.deepEqual(await page.evaluate(() => formRecipe()), before);
   assert.deepEqual(errors, []);
   console.log("PASS Desktop update recovery, operation-specific status, dialog errors and draft preservation");
-} finally { await browser.close(); }
+} finally {
+  // The state poll can start a route handler's fetch just as the browser closes. Release handlers first.
+  await page.unrouteAll({ behavior: "ignoreErrors" });
+  await browser.close();
+}

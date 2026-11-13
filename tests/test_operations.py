@@ -103,6 +103,8 @@ with wave.open(str(target), 'wb') as wav:
     def finish(self, job_id):
         self.gate.write_text("open")
         wait_until(lambda: self.store.job(job_id)["status"] == "done")
+        # Close the gate again: a take queued after this one waits, so which takes are done stays the test's choice.
+        self.gate.unlink()
 
 
 class SurfaceTests(OperationFixture):
