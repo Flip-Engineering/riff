@@ -1,0 +1,58 @@
+{
+ "schema": "riff.daw.q8-edit.v1",
+ "date": "2026-10-26",
+ "gate": "Q8 edit",
+ "method": "daw.compose/daw.render of probes/fixtures/arrangement-v2.abc (the documented v1->v2 same-topology edit: Flute bars 3-4 up one octave, bars 6-7 harmony G/D7->Em) in a fresh store (project copy semantics; v1 artifacts never mutated), compared against the fresh v1 baseline above.",
+ "acceptance": {
+  "same_topology_tracks": [
+   "Flute",
+   "Bass",
+   "Piano"
+  ],
+  "note_counts_v1": {
+   "Flute": 12,
+   "Bass": 30,
+   "Piano": 37
+  },
+  "note_counts_q8": {
+   "Flute": 12,
+   "Bass": 30,
+   "Piano": 37
+  },
+  "duration_s_v1": 21.166666666666668,
+  "duration_s_q8": 21.166666666666668,
+  "all_stem_hashes_change": true,
+  "mix_hash_differs": true,
+  "pitch_sequences_reflect_documented_edit": true
+ },
+ "stems_v1": {
+  "Flute": {
+   "sha256": "ff36b4f8397a77cc0983042ee2d1c464b1f348ea12e09d1afcbdc69f2a56cc18"
+  },
+  "Bass": {
+   "sha256": "407b548d2e253384ebad3c23eb862b0dbf811d88e204f403b0b34aa3d9d41245"
+  },
+  "Piano": {
+   "sha256": "c5be98a95386299db3b58fde967ac9e68b4db6184c80ce6f80aceda4bfd85b57"
+  }
+ },
+ "stems_q8": {
+  "Flute": {
+   "sha256": "612e893ce7937ab784a1d96974c3e2e72839874018275b8a9219658a51fff8ed"
+  },
+  "Bass": {
+   "sha256": "d55f5f7753e8e61354d7c106c4e8ffba1d02d6270d415305c756e0793e25adbd"
+  },
+  "Piano": {
+   "sha256": "a0a9a65896cc9cbb158a68892734fd7ea4a843ccc6eb20183cb9123e2c4aec68"
+  }
+ },
+ "mix": {
+  "v1_sha256": "4175c184a15cc678d7656cad52797641641a3609e653e4fbe7dcf9f060c2babe",
+  "q8_sha256": "8cc9087aac836d018475c49d6d8b0399b8ce554361df21d9849d6b079dab86e9"
+ },
+ "result": "PASS - edited score re-renders through the same operation surface with identical topology/duration and changed audio on every track. Q8 passed on the 1st attempt.",
+ "run_receipts": [
+  "run-v1.json and run-q8.json in qualification scratch q78/ (conductor-retained)"
+ ]
+}

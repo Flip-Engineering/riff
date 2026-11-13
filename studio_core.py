@@ -877,6 +877,7 @@ class Generator:
         self.writer_gate = threading.Lock()
         self.active_job_id = None
         self.job_cancelled = None
+        self.publication_committed = False
         self.quiescing = False
         self.live = None
         self.monitor = engine.platform_runtime.ProcessMemory()
@@ -889,19 +890,22 @@ class Generator:
             self.admission.on_change = self.wake.set
         from score_artifacts import ScoreArtifacts
         from acoustic_artifacts import AcousticArtifacts
+        from arrangement_artifacts import ArrangementArtifacts
         store.artifacts = ScoreArtifacts(store, self.admission)
         store.acoustics = AcousticArtifacts(store, self.admission)
+        store.arrangements = ArrangementArtifacts(store)
         store.recover_jobs(cancelled=self.stop)
         self.thread = threading.Thread(target=self.work, name="riff-generator", daemon=True)
         self.thread.start()
 
-    def native_command(self, recipe, output):
+    def native_command(self, recipe, output, device=None):
         if recipe.get("acoustic_source"):
-            return engine.build_decode_command(self.store.acoustics.input_path(Path(output).stem), output, recipe.get("decoder"))
+            return engine.build_decode_command(self.store.acoustics.input_path(Path(output).stem), output,
+                                               recipe.get("decoder"), device=device)
         if recipe.get("render_mode", "music") in ("music", "sound"):
             engine.require_solver(recipe.get("solver", "midpoint"), engine.platform_runtime.settings()["binary"])
         return engine.build_command(lyrics=recipe["lyrics"], style=recipe["style"], max_seconds=recipe["max_seconds"],
-                                    steps=recipe["steps"], cot=recipe["cot"], seed=int(recipe["seed"]),
+                                    steps=recipe["steps"], cot=recipe["cot"], seed=int(recipe["seed"]), device=device,
                                     threads=engine.platform_runtime.settings()["threads"], output=output, abc=recipe["abc"],
                                     mode=recipe.get("mode", "lyrics"), cfg_scale=recipe.get("cfg_scale", 1.),
                                     temperature=recipe.get("temperature", 1.), refinement=recipe.get("refinement", {}),
@@ -915,6 +919,36 @@ class Generator:
                                     acoustic_only=recipe.get("render_mode") == "sound",
                                     lora_options=self.store.loras.resolve_saved(recipe["lora_provenance"])
                                     if recipe.get("lora_provenance") else None)
+
+    def _admitted_device_resolution(self, reservation):
+        """Resolve the admitted GPU identity from ONE observer snapshot.
+
+        Returns (visible_index, unmapped).  When admission named a GPU
+        UUID, a missing, empty, failed, or changed snapshot that no longer
+        contains it is unmapped (#93): the launch must not silently fall
+        back to an unrelated configured device.  Non-GPU identities (the
+        indexed fallback, serial reservations) resolve as before."""
+        if not isinstance(reservation, dict):
+            return None, False
+        device = reservation.get("device")
+        if not isinstance(device, str) or not device.startswith("GPU-"):
+            return None, False
+        observer = getattr(self.admission, "observer", None)
+        visible = None
+        if observer is not None:
+            try:
+                visible = observer.snapshot().get("visible_devices") or []
+            except Exception:
+                visible = None
+        if not visible or device not in visible:
+            return None, True
+        return visible.index(device), False
+
+    def _farm_device_index(self, reservation):
+        return self._admitted_device_resolution(reservation)[0]
+
+    def _admitted_device_unmapped(self, reservation):
+        return self._admitted_device_resolution(reservation)[1]
 
     @staticmethod
     def warm_plan(command):
@@ -1306,6 +1340,9 @@ class Generator:
 
         The review's reference clips are recorded here, so every route that queues a take, the Studio's
         and the operation surface's, records the same provenance."""
+        if isinstance(payload, dict) and payload.get("daw"):
+            import daw_operations
+            return daw_operations.prepare(self.store, payload)
         if isinstance(payload, dict) and payload.get("acoustic_source"):
             recipe = self.store.acoustics.recipe(payload)
         else:
@@ -1362,6 +1399,8 @@ class Generator:
                     db.execute("UPDATE jobs SET status='cancelled',finished=? WHERE id=?", (time.time(), job_id))
                     status = "cancelled"
                 elif row["status"] in ("running", "cancelling"):
+                    if self.active_job_id == job_id and self.publication_committed:
+                        raise ValueError("This take has finished and is being saved.")
                     if self.active_job_id == job_id and self.process and self.process.poll() is not None:
                         raise ValueError("This take has finished and is being saved.")
                     db.execute("UPDATE jobs SET status='cancelling' WHERE id=?", (job_id,))
@@ -1394,6 +1433,7 @@ class Generator:
                                 db.execute("UPDATE jobs SET status='running',started=? WHERE id=?", (time.time(), row["id"]))
                                 self.active_job_id = row["id"]
                                 self.job_cancelled = threading.Event()
+                                self.publication_committed = False
                                 self.live = {"id": row["id"], "title": row["title"], "stage": "Preparing the studio",
                                              "stage_index": 0, "elapsed": 0, "footprint": 0, "peak_footprint": 0}
                 if row is None:
@@ -1412,8 +1452,103 @@ class Generator:
             self.wake.wait()
             self.wake.clear()
 
+    def execute_daw(self, job, recipe):
+        """Run a daw.compose / daw.render job on the pinned Ardour runtime.
+
+        Truthful failure: an unprovisioned or corrupted runtime fails the job
+        before any stage runs, and a stage failure records its error.  Nothing
+        is ever published as a no-op success.  Cancellation terminates the
+        current tool and lands the job as cancelled.
+        """
+        import daw_runtime
+        import daw_runner
+        job_id = job["id"]
+        cancelled = self.job_cancelled or threading.Event()
+        started = time.monotonic()
+        track_id, failure = None, ""
+        daw = recipe["daw"]
+
+        def stage_update(stage, facts):
+            daw.setdefault("stages", {})[stage] = facts
+            with self.store.db() as db:
+                db.execute("UPDATE jobs SET recipe=? WHERE id=?", (json.dumps(recipe), job_id))
+            with self.lock:
+                if self.live and self.live["id"] == job_id:
+                    self.live.update(stage=f"Ardour {stage}", elapsed=time.monotonic() - started)
+
+        try:
+            runtime = daw_runtime.require(self.store)
+            identity = f"daw:{job_id}"
+            # The same admission queue as native work: a CPU/file-only
+            # reservation, tool custody attached per child, released on every
+            # exit path.  A denied or cancelled reservation launches nothing.
+            reservation = self.admission.reserve(identity, recipe, "daw", cancelled,
+                                                 on_wait=lambda reason: stage_update("queue", {"state": "waiting", "reason": reason}))
+            try:
+                if daw["kind"] == "compose":
+                    def committed():
+                        self.publication_committed = True
+                    daw["arrangement_source"] = daw_runner.compose(
+                        self.store, job_id, recipe, runtime, cancelled, stage_update,
+                        attach=lambda process: self.admission.attach(identity, process),
+                        publish_lock=self.lock, on_published=committed)
+                else:
+                    result = daw_runner.render(
+                        self.store, job_id, recipe, runtime, cancelled, stage_update,
+                        attach=lambda process: self.admission.attach(identity, process))
+                    # Publication boundary: the library track is published
+                    # here under the same lock cancel() takes, so a cancel
+                    # either lands before publication (nothing is published)
+                    # or is refused as already-being-saved; it can never
+                    # produce a cancelled job with a published track.
+                    with self.lock:
+                        if cancelled.is_set():
+                            raise daw_runner.StageError("cancelled", "Cancelled.")
+                        mix = self.store.outputs / "riff" / f"{job_id}.wav"
+                        mix.parent.mkdir(exist_ok=True)
+                        shutil.copyfile(result["mix"], mix)
+                        track_id = self.store.add_track(mix, recipe, {}, job_id)
+                        daw["stem_manifest"] = result["stems"]
+                        self.publication_committed = True
+            finally:
+                self.admission.release(identity)
+        except daw_runner.StageError as error:
+            failure = f"Cancelled." if error.stage == "cancelled" else str(error)
+        except AdmissionCancelled:
+            cancelled.set()
+        except daw_runtime.RuntimeUnavailable as error:
+            failure = str(error)
+        except Exception as error:
+            failure = f"{type(error).__name__}: {error}"
+        if not failure and daw["kind"] == "compose":
+            daw.setdefault("stages", {}).get("session", {}).setdefault("state", "done")
+        with self.store.db() as db:
+            db.execute("UPDATE jobs SET recipe=? WHERE id=?", (json.dumps(recipe), job_id))
+            row = db.execute("SELECT status FROM jobs WHERE id=?", (job_id,)).fetchone()
+            # A committed publication is terminal truth: cancellation or
+            # shutdown (Generator.close sets the same event) landing after
+            # it cannot rewrite the job as cancelled while its arrangement
+            # or track persists.
+            if (cancelled.is_set() or (row and row[0] == "cancelling")) \
+                    and not self.publication_committed:
+                status, failure = "cancelled", ""
+            elif failure:
+                status = "failed"
+            else:
+                status = "done"
+            db.execute("UPDATE jobs SET status=?,error=?,finished=?,track_id=? WHERE id=?",
+                       (status, failure, time.time(), track_id, job_id))
+        with self.lock:
+            if self.active_job_id == job_id:
+                self.live = None
+                self.active_job_id = None
+                self.job_cancelled = None
+                self.publication_committed = False
+
     def execute(self, job):
         recipe, job_id = json.loads(job["recipe"]), job["id"]
+        if recipe.get("daw"):
+            return self.execute_daw(job, recipe)
         directory = self.store.outputs / "riff"
         directory.mkdir(exist_ok=True)
         output = directory / f"{job_id}.wav"
@@ -1474,7 +1609,25 @@ class Generator:
             # Recheck at the actual child boundary, even for custom builders.
             if kind == "native" and recipe.get("lora_provenance"):
                 self.store.prepare_loras(recipe)
-            command = self.command_builder(recipe, output)
+            # Launch on the device admission named under the shared farm
+            # policy (#93): the reservation's device identity mapped back
+            # to its visible-card index for the default builder (decode
+            # included).  Custom builders keep their two-argument
+            # contract.  An admitted GPU identity that no longer maps to
+            # a visible card never launches on an unrelated device.
+            def build_launch_command():
+                # One snapshot resolves and validates the admitted GPU
+                # for this construction; no second observer read can
+                # quietly change the answer between check and launch.
+                farm_index, unmapped = self._admitted_device_resolution(reservation)
+                if unmapped:
+                    raise ValueError("The GPU selected by farm admission is no longer visible; "
+                                     "refusing to launch on an unrelated device.")
+                if farm_index is not None and self.command_builder == self.native_command:
+                    return self.command_builder(recipe, output, device=farm_index)
+                return self.command_builder(recipe, output)
+
+            command = build_launch_command()
             warm_enabled, warm = self.warm_plan(command)
             if policy["key"] is not None and (warm is None or engine_key(warm[0]) != policy["key"]):
                 self.admission.release(identity)
@@ -1485,6 +1638,7 @@ class Generator:
                 policy["reason"] = "Engine inputs changed while waiting; using a cold reservation"
                 policy["resident"] = None
                 warm = None
+                command = build_launch_command()
             if policy["decision"] is not None and not policy["decision"]["keep"]:
                 warm = None
             if warm:
@@ -1503,6 +1657,7 @@ class Generator:
                     reserved = True
                     policy["reason"], policy["resident"] = str(error) + "; using a cold reservation", None
                     engine_reused, warm = False, None
+                    command = build_launch_command()
             elif not warm_enabled or policy["decision"] is not None:
                 self._stop_warm()
             with log_path.open("w") as log, self.lock:

@@ -122,6 +122,9 @@ def main():
     }
     report['pass'] = report['pass'] and session_ok
     print(json.dumps(report, indent=1))
+    # Fail closed for scripted gates: the verdict is the exit status, not
+    # only the printed receipt (#78 unified battery Q5/Q8/Q10).
+    sys.exit(0 if report['pass'] else 1)
 
 if __name__ == '__main__':
     main()

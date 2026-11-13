@@ -1,0 +1,40 @@
+{
+ "schema": "riff.daw.q7-program-control.v1",
+ "date": "2026-10-26",
+ "gate": "Q7 program control",
+ "method": "Through the daw.compose/daw.render operation surface (e2e driver variant) on the preserved pinned Ardour 9.8 source-build runtime (runtime record ardour-runtime.json from the qualification scratch area). Variant changes ONLY the Flute program: ABC %%MIDI program 73->0 and voice_map Flute program_raw 73->0; every note event identical. Baseline is a fresh v1 run in the same session; its mix sha256 4175c184a15cc678d7656cad52797641641a3609e653e4fbe7dcf9f060c2babe and stem hashes ff36b4f8/407b548d/c5be98a9 reproduce the preserved demo/e2e receipts exactly (cross-run determinism anchor).",
+ "acceptance": {
+  "note_counts_unchanged": true,
+  "flute_notes_v1": 12,
+  "flute_notes_q7": 12,
+  "flute_pitch_sequence_identical": true,
+  "flute_program_v1": 73,
+  "flute_program_q7": 0,
+  "other_tracks_stems_byte_identical": true
+ },
+ "flute_stem": {
+  "v1": {
+   "sha256": "ff36b4f8397a77cc0983042ee2d1c464b1f348ea12e09d1afcbdc69f2a56cc18",
+   "peak_linear": 10828,
+   "rms_linear": 3285.337,
+   "centroid_hz_ffmpeg_aspectralstats_ch1_mean_over_frames": 1035.5
+  },
+  "q7": {
+   "sha256": "51236db644c99d35b6b3e1d754a316672f9712b493ccb489e2dc2b50977dccb3",
+   "peak_linear": 7548,
+   "rms_linear": 771.224,
+   "centroid_hz_ffmpeg_aspectralstats_ch1_mean_over_frames": 858.1
+  }
+ },
+ "mix": {
+  "v1_sha256": "4175c184a15cc678d7656cad52797641641a3609e653e4fbe7dcf9f060c2babe",
+  "q7_sha256": "9bd918abf329832b6127490cc67c07acc08c58a35aa18babbf544af9a0d74cd8",
+  "differs": true,
+  "duration_s": 21.166666666666668
+ },
+ "result": "PASS - gmsynth responds to the per-track program change on identical events (peak/RMS/centroid all shift; Bass/Piano stems byte-identical). No timbre-quality claim. Method note: centroid here is the per-track stem via ffmpeg aspectralstats, not the contract section 2.2 solo render (715.8->652.6 Hz), so absolute values differ while direction agrees.",
+ "attempts": "Baseline v1 passed on the 4th attempt in this session (3 prior session-stage ardour9-lua SIGABRT teardown aborts after save ok=true, the known upstream intermittent recorded in finding 75efbde9); Q7 passed on the 1st attempt. Stores retained under the qualification scratch q78/ directory.",
+ "run_receipts": [
+  "run-v1.json and run-q7.json in qualification scratch q78/ (conductor-retained)"
+ ]
+}

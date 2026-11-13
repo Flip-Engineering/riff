@@ -279,12 +279,38 @@ class ResourceObservationTests(unittest.TestCase):
         cards = "0, GPU-a, 8192, 4096\n1, GPU-b, 24576, 16384\n"
         processes = "42, GPU-a, 1024\n42, GPU-b, 2048\n77, GPU-b, [N/A]\n"
         with patch("platform_support.shutil.which", return_value="/test/nvidia-smi"), patch("platform_support.subprocess.check_output", side_effect=[cards, processes]), patch.dict(os.environ, {"CUDA_VISIBLE_DEVICES": "1,0"}):
-            devices, usage, identity = platform_support._cuda_memory(0)
+            devices, usage, identity, visible = platform_support._cuda_memory(0)
         self.assertEqual(identity, "GPU-b")
+        self.assertEqual(visible, ["GPU-b", "GPU-a"])
         self.assertEqual(devices["GPU-b"]["available"], 16384 * 1024 ** 2)
         self.assertEqual(usage["GPU-a"]["42"], 1024 * 1024 ** 2)
         self.assertEqual(usage["GPU-b"]["42"], 2048 * 1024 ** 2)
         self.assertNotIn("77", usage["GPU-b"])
+
+    def test_farm_device_selects_the_freest_visible_card(self):
+        devices = {"GPU-a": {"available": 4 * 1024 ** 2}, "GPU-b": {"available": 16 * 1024 ** 2},
+                   "GPU-c": {"available": 32 * 1024 ** 2}}
+        # The freest card wins over the configured one; invisible cards
+        # are never selected even when freer.
+        self.assertEqual(platform_support.farm_device(devices, ["GPU-a", "GPU-b"], "GPU-a"), "GPU-b")
+        # Ties keep the configured card; no observation keeps it too.
+        tied = {"GPU-a": {"available": 8}, "GPU-b": {"available": 8}}
+        self.assertEqual(platform_support.farm_device(tied, ["GPU-a", "GPU-b"], "GPU-a"), "GPU-a")
+        self.assertEqual(platform_support.farm_device({}, [], "GPU-a"), "GPU-a")
+
+    def test_farm_device_flows_into_snapshot_and_admission_inputs(self):
+        cards = "0, GPU-a, 8192, 4096\n1, GPU-b, 24576, 16384\n"
+        processes = "42, GPU-a, 1024\n"
+        with patch("platform_support.shutil.which", return_value="/test/nvidia-smi"), \
+             patch("platform_support.subprocess.check_output", side_effect=[cards, processes]), \
+             patch.dict(os.environ, {"CUDA_VISIBLE_DEVICES": "0,1"}):
+            snapshot = platform_support.MemoryObserver(backend="cuda").snapshot()
+        self.assertEqual(snapshot["device_identity"], "GPU-a")
+        self.assertEqual(snapshot["farm_device"], "GPU-b")
+        self.assertEqual(snapshot["visible_devices"], ["GPU-a", "GPU-b"])
+        from model_admission import _farm_device
+        self.assertEqual(_farm_device(snapshot, {"device": 0}), "GPU-b")
+        self.assertEqual(_farm_device({}, {"device": 1}), "cuda:1")
 
     def test_linux_container_budget_limits_host_available_memory(self):
         files = {"/proc/meminfo": "MemTotal: 16000 kB\nMemAvailable: 12000 kB\n",

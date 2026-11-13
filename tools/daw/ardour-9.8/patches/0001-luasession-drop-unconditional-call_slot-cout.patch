@@ -1,0 +1,15 @@
+diff --git a/luasession/luasession.cc b/luasession/luasession.cc
+index 6cda71fe6..79018ac2c 100644
+--- a/luasession/luasession.cc
++++ b/luasession/luasession.cc
+@@ -111,10 +111,8 @@ public:
+ 	bool call_slot (InvalidationRecord* ir, const std::function<void ()>& f)
+ 	{
+ 		if (g_thread_self () == run_loop_thread) {
+-			cout << string_compose ("%1/%2 direct dispatch of call slot via functor @ %3, invalidation %4\n", event_loop_name (), pthread_name (), &f, ir);
+ 			f ();
+ 		} else {
+-			cout << string_compose ("%1/%2 queue call-slot using functor @ %3, invalidation %4\n", event_loop_name (), pthread_name (), &f, ir);
+ 			assert (!ir);
+ 			f (); // XXX TODO, queue and process during run ()
+ 		}
