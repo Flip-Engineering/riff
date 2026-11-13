@@ -1,5 +1,5 @@
-Riff 0.6.33 routes edited-master producer reviews through the studio owner service.
+Riff 0.6.34 adds a mark setting to the artwork.
 
-Edited masters are queued for review through the same owner service that owns the studio library, so a review submitted from an edited master reaches the worker with its session, client and reference context intact. The edited-master review flow passed focused source checks, real worker fake-HTTP/session/client/reference checks, and an isolated installed HTTP/fallback/workspace check before release.
+The artwork's lower-left mark can be Riff's "riff." wordmark, the default, or the Flip face followed by "flip.". The setting is in the immersive view's Shape & light panel beside Surface, Movement, Color and Texture. It saves with those settings and applies to covers, the immersive view and exported videos. A video export draws the mark on every frame.
 
 Updates keep the library, recordings, saved material and settings in the persistent workspace. Verified model downloads are reused; source installations may rebuild a changed engine. Music, writing, reviews and exports must finish or be cancelled before activation.
