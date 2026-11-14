@@ -21,3 +21,8 @@ rounded face, original pink palette, gold cheek sparkles, and freckles.
 It appears as a small overlay at the base of the **r** in Riff; the **i** keeps
 its normal dot. The app icon uses the same artwork and placement. Flip
 Engineering attribution stays in the footer and About dialog.
+
+Artwork carries the Flip mark: covers, the immersive view and exported video
+draw the same face followed by "flip." at the lower left. `RiffArtwork.ready()`
+resolves when the face image has decoded; cover painting, the image export and
+video export wait for it.

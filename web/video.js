@@ -370,6 +370,7 @@ async function updateVideoPassage() {
   if (!Number.isFinite(start) || start < 0 || start >= track.audio.duration) return;
   try {
     const motion = await visualizationFor(track.id);
+    await RiffArtwork.ready();
     if (revision !== videoPreviewRevision || videoExport || videoTrack !== track) return;
     const canvas = $("#video-preview");
     drawSeedArtwork(canvas.getContext("2d"), canvas.width, canvas.height, track.recipe.seed, start, motionAt(motion, start), artworkAppearance());
@@ -395,6 +396,7 @@ async function openVideoExport() {
   $("#video-selection").value = "whole";
   $("#video-start").value = videoTime(0);
   $("#video-end").value = videoTime(videoTrack.audio.duration);
+  await RiffArtwork.ready();
   const canvas = $("#video-preview");
   drawSeedArtwork(canvas.getContext("2d"), canvas.width, canvas.height, videoTrack.recipe.seed, 0, [], artworkAppearance());
   $("#video-dialog").showModal();
@@ -481,7 +483,7 @@ async function createVideo(event) {
   $("#video-progress").hidden = false;
   $("#video-progress").value = 0;
   $("#video-status").textContent = "Preparing the artwork…";
-  await RiffArtwork.ready(appearance);
+  await RiffArtwork.ready();
   let complete = false, encoder = null;
   const producer = new AbortController();
   const started = performance.now();

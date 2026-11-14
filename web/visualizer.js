@@ -14,9 +14,7 @@ try {
   for (const [key, maximum] of [["surface", 1], ["motion", 2], ["color", 1], ["texture", 1]]) {
     if (Number.isFinite(saved[key])) soundAppearance[key] = Math.max(0, Math.min(maximum, saved[key]));
   }
-  if (RiffArtwork.marks.includes(saved.mark)) soundAppearance.mark = saved.mark;
 } catch {}
-RiffArtwork.setMark(soundAppearance.mark);
 function artworkAppearance() { return { ...soundAppearance }; }
 
 function visualizationFor(trackId) {
@@ -222,14 +220,8 @@ document.addEventListener("DOMContentLoaded", () => {
       synchronizeSoundField();
     });
   }
-  const mark = $("#sound-mark");
-  mark.value = soundAppearance.mark;
-  mark.addEventListener("change", () => {
-    soundAppearance.mark = mark.value;
-    try { localStorage.setItem("riff.soundAppearance", JSON.stringify(soundAppearance)); } catch {}
-    RiffArtwork.setMark(mark.value);
-    RiffArtwork.ready(soundAppearance).then(synchronizeSoundField);
-  });
+  // A still view drawn before the mark's face image loaded is drawn again with it.
+  RiffArtwork.ready().then(() => { lastSoundDrawKey = null; synchronizeSoundField(); });
   function immersivePlayback() {
     $("#sound-view-play").innerHTML = icon(audio.paused ? "play" : "pause");
     $("#sound-view-play").setAttribute("aria-label", audio.paused ? "Play recording" : "Pause recording");
