@@ -996,6 +996,7 @@ $("#export-art").addEventListener("click", async () => {
   if (!detailTrack) return;
   const track = detailTrack, canvas = document.createElement("canvas");
   canvas.width = 1760; canvas.height = 1360;
+  await RiffArtwork.ready();
   drawSeedArtwork(canvas.getContext("2d"), canvas.width, canvas.height, track.recipe.seed, 0, [], artworkAppearance());
   const blob = await new Promise(resolve => canvas.toBlob(resolve, "image/png"));
   if (!blob) { notify("The artwork could not be exported."); return; }

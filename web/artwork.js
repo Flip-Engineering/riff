@@ -6,13 +6,11 @@ const RiffArtwork = (() => {
     { paper: "#e1e7e1", ink: "#527e70", accent: "#79749e", glow: "#b1ced0" },
     { paper: "#eae1df", ink: "#956c7c", accent: "#5e8286", glow: "#c0becf" },
   ];
-  const defaults = Object.freeze({ surface: .72, motion: 1, color: .7, texture: .48, mark: "riff" });
-  const marks = Object.freeze(["riff", "flip"]);
-  // The "flip" mark draws the @Flip face (docs/branding.md) before its word.
+  const defaults = Object.freeze({ surface: .72, motion: 1, color: .7, texture: .48 });
+  // The artwork's mark is the @Flip face (docs/branding.md) followed by "flip.".
   const flipFace = typeof Image === "function" ? new Image() : null;
   if (flipFace) flipFace.src = "/flip-face.svg";
-  // Covers use the mark chosen in the studio; drawing calls may pass their own.
-  let currentMark = defaults.mark;
+  const faceDrawable = () => Boolean(flipFace?.complete && flipFace.naturalWidth);
   const cache = new Map(), rings = 40, steps = 128;
   let surfaceRenderer, surfaceRetryAt = 0;
   const clamp = (x, low = 0, high = 1) => Math.max(low, Math.min(high, Number(x) || 0));
@@ -376,41 +374,30 @@ const RiffArtwork = (() => {
       }
     }
     context.setTransform(1, 0, 0, 1, 0, 0);
-    drawMark(context, width, height, c, appearance.mark ?? currentMark);
+    drawMark(context, width, height, c);
     context.restore();
     return surfaced;
   }
 
-  function drawMark(context, width, height, c, mark) {
+  function drawMark(context, width, height, c) {
     const unit = Math.min(width, height), size = unit * .061;
     let x = unit * .064;
     const baseline = height - unit * .064;
     context.fillStyle = c.ink; context.globalAlpha = .76;
     context.font = `600 ${size}px Arial, sans-serif`;
-    if (mark === "flip") {
-      if (flipFace?.complete && flipFace.naturalWidth) {
-        const face = size * 1.18;
-        context.globalAlpha = 1;
-        context.drawImage(flipFace, x, baseline - face * .86, face, face);
-        context.globalAlpha = .76;
-        x += face * 1.12;
-      }
-      context.fillText("flip.", x, baseline);
-    } else {
-      context.fillText("riff.", x, baseline);
+    if (faceDrawable()) {
+      const face = size * 1.18;
+      context.globalAlpha = 1;
+      context.drawImage(flipFace, x, baseline - face * .86, face, face);
+      context.globalAlpha = .76;
+      x += face * 1.12;
     }
+    context.fillText("flip.", x, baseline);
   }
 
-  /** Resolves once everything the mark draws has loaded, so a first frame carries it. */
-  function ready(appearance = defaults) {
-    if ((appearance.mark ?? currentMark) !== "flip" || !flipFace) return Promise.resolve();
-    return flipFace.decode().catch(() => {});
-  }
-
-  function setMark(mark) {
-    if (!marks.includes(mark) || mark === currentMark) return;
-    currentMark = mark;
-    for (const g of cache.values()) g.poster = null;
+  /** Resolves once the face image has decoded, so the first thing drawn carries the whole mark. */
+  function ready() {
+    return flipFace ? flipFace.decode().catch(() => {}) : Promise.resolve();
   }
 
   function svg(seed, refresh = false) {
@@ -420,14 +407,16 @@ const RiffArtwork = (() => {
     // covers do not stay degraded for the session. Where WebGL never becomes
     // available the fallback poster stays cached and is not repainted. A lost
     // context keeps the renderer, so repainting waits one probe interval.
-    if (g.poster && !refresh && (g.posterSurface || performance.now() < g.posterRetryAt || !surfaceAvailable())) return g.poster;
+    // A poster painted before the face image loaded is painted again with it.
+    if (g.poster && !refresh && (g.posterMarked || !faceDrawable()) && (g.posterSurface || performance.now() < g.posterRetryAt || !surfaceAvailable())) return g.poster;
     const canvas = document.createElement("canvas"); canvas.width = 880; canvas.height = 680;
+    g.posterMarked = faceDrawable();
     g.posterSurface = draw(canvas.getContext("2d"), canvas.width, canvas.height, seed) === true;
     g.posterRetryAt = performance.now() + 5000;
     g.poster = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 440 340" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><image width="440" height="340" href="${canvas.toDataURL("image/png")}"/></svg>`;
     return g.poster;
   }
-  return { draw, svg, scene, defaults, marks, ready, setMark };
+  return { draw, svg, scene, defaults, ready };
 })();
 
 function drawSeedArtwork(context, width, height, seed, seconds = 0, motion = [], appearance) {
@@ -443,9 +432,11 @@ function artThumbnail(seed) {
 }
 const pendingPosters = new Set(), visiblePosters = new Set();
 const schedulePosterIdle = window.requestIdleCallback?.bind(window) || (callback => setTimeout(callback, 16));
-let posterPaintScheduled = false;
+let posterPaintScheduled = false, posterMarkReady = false;
+// Covers wait for the mark's face image, so every cover is painted with it.
+RiffArtwork.ready().then(() => { posterMarkReady = true; schedulePosterPaint(); });
 function schedulePosterPaint() {
-  if (posterPaintScheduled || !visiblePosters.size) return;
+  if (!posterMarkReady || posterPaintScheduled || !visiblePosters.size) return;
   posterPaintScheduled = true;
   // A viewport can reveal several expensive covers together. Yield between
   // covers so scrolling, search and playback do not wait for the whole batch.
