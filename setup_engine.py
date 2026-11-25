@@ -222,6 +222,7 @@ def prepare_prebuilt(backend, asset, sha256, run=None, source=ROOT, download_mod
             print(" ".join(map(str, command)), flush=True)
             subprocess.run(command, cwd=cwd, env=env, check=True)
     version = (source / "VERSION").read_text().strip()
+    WORKSPACE.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="riff-prebuilt-", dir=WORKSPACE) as directory:
         stage = Path(directory)
         with tarfile.open(asset, "r:gz") as archive:

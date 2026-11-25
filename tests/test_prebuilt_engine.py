@@ -17,8 +17,8 @@ class PrebuiltEngineTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
+        # A fresh install has no workspace yet; activation makes it.
         self.workspace = Path(self.temporary.name) / "workspace"
-        self.workspace.mkdir()
         for patch in (mock.patch.object(setup_engine, "WORKSPACE", self.workspace),
                       mock.patch.object(setup_engine.platform, "system", return_value="Linux"),
                       mock.patch.object(setup_engine.platform, "machine", return_value="x86_64")):
