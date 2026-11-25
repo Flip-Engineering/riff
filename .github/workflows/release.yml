@@ -30,6 +30,16 @@ jobs:
           test "${GITHUB_REF_NAME}" = "v$(cat VERSION)"
           python scripts/package_release.py
           python scripts/check_install.py dist/riff-v$(cat VERSION).tar.gz
+      # Prebuilt Linux x86-64 engines, compiled in ubuntu:24.04 with no GPU device.
+      # The CUDA engine holds no NVIDIA file; see scripts/build_linux_engine.sh.
+      - name: Build prebuilt Linux engines
+        run: |
+          set -euo pipefail
+          for backend in cpu cuda; do
+            bash scripts/build_linux_engine.sh "$backend"
+            asset="riff-engine-$backend-linux-x64-v$(cat VERSION).tar.gz"
+            (cd dist && sha256sum "$asset" >> SHA256SUMS)
+          done
       - name: Publish verified assets
         env:
           GH_TOKEN: ${{ github.token }}

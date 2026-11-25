@@ -16,6 +16,12 @@ test -d "${RUNNER_TEMP:?}"
 archive="riff-$GITHUB_REF_NAME.tar.gz"
 test -f "dist/$archive"
 test -f dist/install.py
+engines=()
+for backend in cpu cuda; do
+  engine="dist/riff-engine-$backend-linux-x64-$GITHUB_REF_NAME.tar.gz"
+  test -f "$engine"
+  engines+=("$engine")
+done
 (cd dist && sha256sum --check SHA256SUMS)
 
 notes="$RUNNER_TEMP/riff-source-release-notes.md"
@@ -24,6 +30,10 @@ notes="$RUNNER_TEMP/riff-source-release-notes.md"
   printf 'Source archive qualified on self-hosted Linux x86-64. '
   printf 'This release does not establish Apple Silicon/Metal, CUDA device inference, or desktop-package qualification. '
   printf 'Compatible desktop payloads require their separate platform build and acceptance workflow.\n\n'
+  printf 'Prebuilt Linux x86-64 engines: riff-engine-cpu and riff-engine-cuda (compute capability 7.0 and 8.0, '
+  printf 'linked against the CUDA 12 runtime of Ubuntu 24.04). They hold only the engine and its receipts, no NVIDIA file; '
+  printf 'a CUDA guest installs libcudart12 and libcublas12 from Ubuntu. Activate one with '
+  printf '`setup_engine.py --backend <cpu|cuda> --prebuilt <asset> --prebuilt-sha256 <digest>`.\n\n'
   printf 'Source commit: `%s`\n\n' "$GITHUB_SHA"
   printf 'Linux qualification and publication: https://github.com/%s/actions/runs/%s\n\n' "$GITHUB_REPOSITORY" "${GITHUB_RUN_ID:?}"
   cat .github/release-notes.md
@@ -53,6 +63,6 @@ test "$remote_commit" = "$GITHUB_SHA" || {
   echo 'The remote version tag no longer selects the validated source; refusing publication.' >&2
   exit 1
 }
-gh release create "$GITHUB_REF_NAME" "dist/$archive" dist/install.py dist/SHA256SUMS \
+gh release create "$GITHUB_REF_NAME" "dist/$archive" dist/install.py "${engines[@]}" dist/SHA256SUMS \
   --repo "$GITHUB_REPOSITORY" --verify-tag --notes-file "$notes" \
   --title "Riff $GITHUB_REF_NAME (Linux-qualified source)"
