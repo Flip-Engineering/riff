@@ -202,6 +202,74 @@ def prepare_queued(source, backend, run, jobs, cuda_arch, portable_sha, cuda_too
     return executable
 
 
+def prepare_prebuilt(backend, asset, sha256, run=None, source=ROOT, download_models=True, activate=True, probe=True):
+    """Activate a prebuilt engine asset of this release (build_linux_engine.sh) instead of compiling.
+
+    The asset is checked against the given SHA-256 before it is opened. It must name this
+    release, this backend and this source's native fingerprint, and every file it lists
+    must match its digest. It unpacks beside compiled engines, under engines/<engine>.
+    """
+    import tarfile
+    source, asset = Path(source), Path(asset)
+    if backend not in ("cuda", "cpu"):
+        raise ValueError("Prebuilt engines exist for NVIDIA CUDA and CPU on Linux.")
+    if not (platform.system() == "Linux" and platform.machine() in ("x86_64", "AMD64")):
+        raise ValueError("Prebuilt engines are for Linux x86-64.")
+    if hashlib.sha256(asset.read_bytes()).hexdigest() != sha256:
+        raise ValueError("The prebuilt engine does not match its SHA-256.")
+    if run is None:
+        def run(command, cwd=None, env=None):
+            print(" ".join(map(str, command)), flush=True)
+            subprocess.run(command, cwd=cwd, env=env, check=True)
+    version = (source / "VERSION").read_text().strip()
+    with tempfile.TemporaryDirectory(prefix="riff-prebuilt-", dir=WORKSPACE) as directory:
+        stage = Path(directory)
+        with tarfile.open(asset, "r:gz") as archive:
+            members = archive.getmembers()
+            if any(not member.isfile() and not member.isdir() for member in members) or any(
+                    Path(member.name).is_absolute() or ".." in Path(member.name).parts
+                    or Path(member.name).parts[:1] != ("engine",) for member in members):
+                raise ValueError("The prebuilt engine archive has an unexpected entry.")
+            archive.extractall(stage, filter="data") if sys.version_info >= (3, 12) else archive.extractall(stage)
+        engine_dir = stage / "engine"
+        receipt = json.loads((engine_dir / "engine.json").read_text())
+        if (receipt.get("schema") != "riff.prebuilt-engine.v1" or receipt.get("riff_version") != version
+                or receipt.get("backend") != backend or receipt.get("platform") != "linux-x64"):
+            raise ValueError("The prebuilt engine is for another release, backend or platform.")
+        manifest = json.loads((source / "sources.json").read_text())
+        expected = fingerprint(source)
+        if "patches/yue2-weight-system-sha.patch" in manifest["local_patches"] and (engine_dir / "riff-sha256.json").exists():
+            identity = json.loads((engine_dir / "riff-sha256.json").read_text())
+            expected = fingerprint(source, identity.get("sha256_backend"), identity)
+        if receipt.get("engine") != expected + "-" + backend:
+            raise ValueError("The prebuilt engine was built from other native sources.")
+        listed = receipt.get("files", {})
+        present = {item.name for item in engine_dir.iterdir() if item.is_file() and item.name != "engine.json"}
+        if set(listed) != present or any(hashlib.sha256((engine_dir / name).read_bytes()).hexdigest() != digest
+                                         for name, digest in listed.items()):
+            raise ValueError("A file of the prebuilt engine does not match its receipt.")
+        target = WORKSPACE / "engines" / ("prebuilt-" + receipt["engine"])
+        if target.exists():
+            shutil.rmtree(target)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        engine_dir.rename(target)
+    executable = target / "audiocpp_cli"
+    executable.chmod(0o755)
+    if (target / "riff-sha256.json").exists():
+        from scripts.checkpoint_sha_identity import verify_runtime
+        verify_runtime(executable)
+    if probe:
+        run([str(executable), "--list-devices"], env={**os.environ, "LD_LIBRARY_PATH": str(target)})
+    value = {"backend": backend, "binary": str(executable)}
+    if download_models:
+        model_root = model_directory(manifest["model"])
+        run([sys.executable, str(source / "fetch-models.py"), "--directory", str(model_root)])
+        value.update(model_root=str(model_root), model_file="yue2-3b-q4_0.gguf", vae_file="yue2-vae-f16.gguf")
+    if activate:
+        platform_support.configure(value)
+    return value
+
+
 def prepare(backend, run=None, source=ROOT, download_models=True, jobs=None, cuda_arch=None, activate=True, probe=True,
             configure_only=False, portable_sha=False):
     source = Path(source)
@@ -299,7 +367,14 @@ def main():
     parser.add_argument("--portable-sha", action="store_true", help="Build with portable SHA-256 instead of system crypto discovery")
     parser.add_argument("--jobs", type=int)
     parser.add_argument("--cuda-arch", help="CMake CUDA architectures; default native")
+    parser.add_argument("--prebuilt", help="A prebuilt engine asset of this release to activate instead of compiling")
+    parser.add_argument("--prebuilt-sha256", help="The SHA-256 the prebuilt asset must have")
     args = parser.parse_args()
+    if args.prebuilt:
+        if not args.prebuilt_sha256:
+            parser.error("--prebuilt needs --prebuilt-sha256")
+        prepare_prebuilt(args.backend, args.prebuilt, args.prebuilt_sha256, download_models=not args.build_only)
+        return
     configured = prepare(args.backend, download_models=not (args.build_only or args.compile_only), jobs=args.jobs,
                          cuda_arch=args.cuda_arch, probe=not args.compile_only, activate=not args.compile_only,
                          configure_only=args.configure_only, portable_sha=args.portable_sha)
