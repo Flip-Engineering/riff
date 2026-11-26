@@ -168,6 +168,8 @@ with wave.open(sys.argv[1], "wb") as wav:
             self.assertEqual(metrics["memory"]["observed_peak_bytes"], metrics["peak_process_memory_bytes"])
             # Existing fields are unchanged.
             self.assertEqual((metrics["engine"], metrics["exit_code"]), ("process", 0))
+            # The stand-in engine names no device: the take is done, and says so.
+            self.assertEqual(metrics["engine_device"], {"backend": "not reported", "device": "not reported"})
 
     def test_waits_for_admission_are_measured_with_their_last_reason(self):
         generator = Generator(self.store, self.command)

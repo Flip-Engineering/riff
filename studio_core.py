@@ -871,13 +871,20 @@ class Generator:
         from engine_devices import reported_device
         def option(name, default):
             return command[command.index(name) + 1] if name in command[:-1] else default
-        texts = []
-        for path in ([self.warm.log_path] if warm else []) + [log_path]:
-            try:
-                texts.append(Path(path).read_text(errors="replace"))
-            except OSError:
-                pass
-        return reported_device("\n".join(texts), option("--backend", ""), int(option("--device", 0)))
+        # The logs are streamed line by line (an engine log can be large); only the
+        # device lines are kept. Not finding one is "not reported", never a failure.
+        lines = []
+        try:
+            for path in ([self.warm.log_path] if warm else []) + [log_path]:
+                try:
+                    with open(path, errors="replace") as log:
+                        lines.extend(line for line in log
+                                     if "compute capability" in line or "ggml_metal_device_init" in line)
+                except OSError:
+                    pass
+            return reported_device("".join(lines), option("--backend", ""), int(option("--device", 0)))
+        except Exception:
+            return reported_device("", "")
 
     def record_engine_device(self, job_id, device):
         """Adds the reported device to the take's operation runtime record."""
