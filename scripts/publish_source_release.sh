@@ -36,7 +36,7 @@ notes="$RUNNER_TEMP/riff-source-release-notes.md"
   printf 'Compatible desktop payloads require their separate platform build and acceptance workflow.\n\n'
   printf 'Prebuilt Linux x86-64 engines: riff-engine-cpu and riff-engine-cuda (compute capability 7.0 and 8.0, '
   printf 'linked against the CUDA 12 runtime of Ubuntu 24.04). They hold only the engine and its receipts, no NVIDIA file; '
-  printf 'a CUDA guest installs libcudart12 and libcublas12 from Ubuntu. Activate one with '
+  printf 'a CUDA guest installs them from Ubuntu with `apt-get install --no-install-recommends libcudart12 libcublas12` (recommends would bring a driver library that does not match the computer'"'"'s driver). Activate one with '
   printf '`setup_engine.py --backend <cpu|cuda> --prebuilt <asset> --prebuilt-sha256 <digest>`.\n\n'
   printf 'Source commit: `%s`\n\n' "$GITHUB_SHA"
   printf 'Linux qualification and publication: https://github.com/%s/actions/runs/%s\n\n' "$GITHUB_REPOSITORY" "${GITHUB_RUN_ID:?}"

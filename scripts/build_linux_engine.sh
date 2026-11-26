@@ -8,8 +8,10 @@
 #         compiled with the CUDA 12.0 toolkit Ubuntu 24.04 ships (nvidia-cuda-toolkit).
 #         It is linked dynamically against that CUDA 12 runtime. The asset holds no
 #         NVIDIA file: a guest installs libcudart12 and libcublas12 (which brings
-#         libcublaslt12) from Ubuntu 24.04's multiverse archive, and the NVIDIA driver
-#         on the computer provides libcuda.so.1.
+#         libcublaslt12) from Ubuntu 24.04's multiverse archive with
+#         --no-install-recommends, and the NVIDIA driver on the computer provides
+#         libcuda.so.1. Without that flag apt brings libnvidia-compute-* (a driver
+#         library of its own version), and the guest cannot open the card.
 #
 # The docker engine is named by RIFF_ENGINE_DOCKER_CONTEXT (the release job names the
 # host's own engine, context "default"). The build refuses any engine whose endpoint is

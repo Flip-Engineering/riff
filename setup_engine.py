@@ -203,15 +203,54 @@ def prepare_queued(source, backend, run, jobs, cuda_arch, portable_sha, cuda_too
     return executable
 
 
+CUDA_RUNTIME_INSTALL = "apt-get install --no-install-recommends libcudart12 libcublas12"
+
+
+def nvidia_library_mismatch(proc_version=Path("/proc/driver/nvidia/version"), lib_dirs=None):
+    """The guest's own NVIDIA driver libraries when their version is not the kernel
+    module's, as (module version, [library versions]); None when they match or
+    cannot be read. A guest takes the driver libraries from the computer; a copy of
+    its own (libnvidia-compute-*, which apt brings with libcudart12's recommends)
+    cannot open the card."""
+    try:
+        found = re.search(r"Kernel Module\s+([0-9][0-9.]*)", Path(proc_version).read_text())
+    except OSError:
+        return None
+    if not found:
+        return None
+    module = found.group(1).rstrip(".")
+    dirs = lib_dirs if lib_dirs is not None else [Path("/usr/lib/x86_64-linux-gnu"), Path("/usr/lib64"), Path("/usr/lib")]
+    versions = sorted({path.name[len("libcuda.so."):] for directory in dirs if Path(directory).is_dir()
+                       for path in Path(directory).glob("libcuda.so.*.*")})
+    other = [version for version in versions if version != module]
+    return (module, other) if other else None
+
+
+def mismatch_message(mismatch):
+    module, others = mismatch
+    return (f"This computer's NVIDIA driver is {module}, and the guest holds its own NVIDIA driver "
+            f"libraries of version {', '.join(others)}. A guest must use the computer's driver libraries: "
+            f"remove the guest's libnvidia-compute packages, and install the CUDA runtime with "
+            f"`{CUDA_RUNTIME_INSTALL}`.")
+
+
 def probe_prebuilt(executable, backend):
     """Runs the engine's device list as a render runs the engine (no LD_LIBRARY_PATH:
     its RUNPATH finds its libraries). A CUDA engine must list a CUDA device."""
     env = {key: value for key, value in os.environ.items() if key != "LD_LIBRARY_PATH"}
     result = subprocess.run([str(executable), "--list-devices"], capture_output=True, text=True, timeout=180, env=env)
     output = (result.stdout + "\n" + result.stderr).strip()
+    found_device = result.returncode == 0 and re.search(r"^CUDA:\d+ .*\[GPU\]$", output, re.MULTILINE)
+    if backend == "cuda" and not found_device:
+        mismatch = nvidia_library_mismatch()
+        if mismatch:
+            raise ValueError(mismatch_message(mismatch))
+        if "version mismatch" in output.lower():
+            raise ValueError("The guest's NVIDIA driver libraries are not the computer's driver version "
+                             f"(the driver reported a version mismatch); install the CUDA runtime with `{CUDA_RUNTIME_INSTALL}`: {output[-2000:]}")
     if result.returncode != 0:
         raise ValueError(f"The prebuilt engine did not start (exit {result.returncode}): {output[-2000:]}")
-    if backend == "cuda" and not re.search(r"^CUDA:\d+ .*\[GPU\]$", output, re.MULTILINE):
+    if backend == "cuda" and not found_device:
         raise ValueError(f"The CUDA engine started but listed no CUDA device: {output[-2000:]}")
     return output
 
