@@ -33,6 +33,8 @@ jobs:
       # Prebuilt Linux x86-64 engines, compiled in ubuntu:24.04 with no GPU device.
       # The CUDA engine holds no NVIDIA file; see scripts/build_linux_engine.sh.
       - name: Build prebuilt Linux engines
+        env:
+          RIFF_ENGINE_DOCKER_CONTEXT: default
         run: |
           set -euo pipefail
           for backend in cpu cuda; do

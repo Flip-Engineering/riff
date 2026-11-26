@@ -3,7 +3,7 @@
 # setup_engine.py --compile-only and packs the binary with its own files.
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
-packages="ca-certificates git python3 python3-venv build-essential libssl-dev file"
+packages="ca-certificates git python3 python3-venv build-essential libssl-dev file patchelf"
 if [ "$BACKEND" = cuda ]; then
   # Ubuntu's CUDA 12.0 toolkit; its nvcc accepts g++-12 as the host compiler.
   packages="$packages nvidia-cuda-toolkit g++-12"
@@ -34,9 +34,20 @@ cp "$binary" "$stage/audiocpp_cli"
 # Every shared library the build made (ggml and audio.cpp's own) goes beside the binary.
 find "$(dirname "$binary")" "$(dirname "$(dirname "$binary")")" -maxdepth 2 -name "*.so*" -type f -exec cp -n {} "$stage/" \; || true
 
+# The binary and its libraries find each other beside them ($ORIGIN), with no
+# LD_LIBRARY_PATH at render time. Only the driver's libcuda.so.1 may stay unresolved here.
+for file in "$stage"/audiocpp_cli "$stage"/*.so*; do
+  [ -f "$file" ] && patchelf --set-rpath '$ORIGIN' "$file"
+done
+unresolved=$(env -u LD_LIBRARY_PATH ldd "$stage/audiocpp_cli" | awk '/not found/ {print $1}' | grep -v '^libcuda\.so' || true)
+if [ -n "$unresolved" ]; then
+  echo "The engine does not find these libraries by its RUNPATH: $unresolved" >&2
+  exit 1
+fi
 needed=$(readelf -d "$stage/audiocpp_cli" | sed -n 's/.*(NEEDED).*\[\(.*\)\]/\1/p' | sort -u | paste -sd, -)
 echo "== NEEDED: $needed"
-echo "== ldd:"; LD_LIBRARY_PATH="$stage" ldd "$stage/audiocpp_cli" || true
+echo "== RUNPATH:"; readelf -d "$stage/audiocpp_cli" | grep -E 'RUNPATH|RPATH' || true
+echo "== ldd:"; env -u LD_LIBRARY_PATH ldd "$stage/audiocpp_cli" || true
 python3 - "$stage" "$BACKEND" "$engine" "$needed" "$VERSION" <<'PY'
 import hashlib, json, pathlib, subprocess, sys
 stage, backend, engine, needed, version = pathlib.Path(sys.argv[1]), *sys.argv[2:]

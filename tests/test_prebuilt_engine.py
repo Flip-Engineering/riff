@@ -77,6 +77,33 @@ class PrebuiltEngineTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "does not match its receipt"):
             self.prepare(path, digest)
 
+    def test_a_link_entry_is_refused_before_anything_unpacks(self):
+        path, digest = self.asset()
+        with tarfile.open(path, "r:gz") as tar:
+            members = [(m, tar.extractfile(m).read() if m.isfile() else None) for m in tar.getmembers()]
+        buffer = io.BytesIO()
+        with tarfile.open(fileobj=buffer, mode="w:gz") as tar:
+            for member, data in members:
+                tar.addfile(member, io.BytesIO(data) if data is not None else None)
+            link = tarfile.TarInfo("engine/libescape.so")
+            link.type, link.linkname = tarfile.SYMTYPE, "/etc/passwd"
+            tar.addfile(link)
+        path.write_bytes(buffer.getvalue())
+        with self.assertRaisesRegex(ValueError, "unexpected entry"):
+            self.prepare(path, hashlib.sha256(path.read_bytes()).hexdigest())
+        self.assertFalse((self.workspace / "engines").exists())
+
+    def test_the_probe_runs_without_a_library_path_and_a_cuda_engine_must_list_a_cuda_device(self):
+        engine = Path(self.temporary.name) / "audiocpp_cli"
+        engine.write_text("#!/bin/sh\necho \"LD=${LD_LIBRARY_PATH:-none}\"\necho \"$DEVICES\"\n")
+        engine.chmod(0o755)
+        with mock.patch.dict("os.environ", {"LD_LIBRARY_PATH": "/elsewhere", "DEVICES": "CUDA0: Tesla V100-SXM2-32GB"}):
+            self.assertIn("LD=none", setup_engine.probe_prebuilt(engine, "cuda"))
+        with mock.patch.dict("os.environ", {"DEVICES": "CPU: x86_64"}):
+            with self.assertRaisesRegex(ValueError, "listed no CUDA device"):
+                setup_engine.probe_prebuilt(engine, "cuda")
+            self.assertIn("CPU", setup_engine.probe_prebuilt(engine, "cpu"))
+
     def test_an_entry_outside_the_engine_directory_is_refused(self):
         path, digest = self.asset(extra={"../escape": b"x"})
         with self.assertRaisesRegex(ValueError, "unexpected entry"):

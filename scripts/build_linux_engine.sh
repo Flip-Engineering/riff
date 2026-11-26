@@ -11,8 +11,9 @@
 #         libcublaslt12) from Ubuntu 24.04's multiverse archive, and the NVIDIA driver
 #         on the computer provides libcuda.so.1.
 #
-# The docker engine is the caller's (DOCKER_HOST or DOCKER_CONTEXT); it must run the
-# container on the host's own CPUs.
+# The docker engine is named by RIFF_ENGINE_DOCKER_CONTEXT (the release job names the
+# host's own engine, context "default"). The build refuses any engine whose endpoint is
+# not that host's own socket, so it never runs on another engine on the same host.
 #
 # RIFF_ENGINE_JOBS sets the compile jobs. Without it the job count is half of the CPUs
 # that are idle now (nproc minus the 1-minute load), so the build leaves the host's
@@ -37,7 +38,13 @@ trap 'rm -rf -- "$work"' EXIT
 git -C "$root" archive --format=tar HEAD | tar -x -C "$work" --one-top-level=src
 mkdir "$work/out"
 
-docker run --rm --pull=missing \
+context=${RIFF_ENGINE_DOCKER_CONTEXT:?name the host docker context for the engine build}
+endpoint=$(docker context inspect "$context" --format '{{.Endpoints.docker.Host}}')
+if [ "$endpoint" != "${RIFF_ENGINE_DOCKER_ENDPOINT:-unix:///var/run/docker.sock}" ]; then
+  echo "Docker context $context points at $endpoint, not the host's own engine; refusing the build." >&2
+  exit 1
+fi
+docker --context "$context" run --rm --pull=missing \
   --cpus="$RIFF_ENGINE_JOBS" \
   -e BACKEND="$backend" -e JOBS="$RIFF_ENGINE_JOBS" -e VERSION="$version" \
   -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" \

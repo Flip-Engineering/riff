@@ -20,6 +20,10 @@ engines=()
 for backend in cpu cuda; do
   engine="dist/riff-engine-$backend-linux-x64-$GITHUB_REF_NAME.tar.gz"
   test -f "$engine"
+  grep -q "  ${engine#dist/}\$" dist/SHA256SUMS || {
+    echo "${engine#dist/} is not in SHA256SUMS; refusing publication." >&2
+    exit 1
+  }
   engines+=("$engine")
 done
 (cd dist && sha256sum --check SHA256SUMS)

@@ -3,6 +3,7 @@
 import argparse
 import hashlib
 import json
+import re
 import os
 from pathlib import Path
 import platform
@@ -202,6 +203,19 @@ def prepare_queued(source, backend, run, jobs, cuda_arch, portable_sha, cuda_too
     return executable
 
 
+def probe_prebuilt(executable, backend):
+    """Runs the engine's device list as a render runs the engine (no LD_LIBRARY_PATH:
+    its RUNPATH finds its libraries). A CUDA engine must list a CUDA device."""
+    env = {key: value for key, value in os.environ.items() if key != "LD_LIBRARY_PATH"}
+    result = subprocess.run([str(executable), "--list-devices"], capture_output=True, text=True, timeout=180, env=env)
+    output = (result.stdout + "\n" + result.stderr).strip()
+    if result.returncode != 0:
+        raise ValueError(f"The prebuilt engine did not start (exit {result.returncode}): {output[-2000:]}")
+    if backend == "cuda" and not re.search(r"\bCUDA\d+\b", output):
+        raise ValueError(f"The CUDA engine started but listed no CUDA device: {output[-2000:]}")
+    return output
+
+
 def prepare_prebuilt(backend, asset, sha256, run=None, source=ROOT, download_models=True, activate=True, probe=True):
     """Activate a prebuilt engine asset of this release (build_linux_engine.sh) instead of compiling.
 
@@ -260,7 +274,7 @@ def prepare_prebuilt(backend, asset, sha256, run=None, source=ROOT, download_mod
         from scripts.checkpoint_sha_identity import verify_runtime
         verify_runtime(executable)
     if probe:
-        run([str(executable), "--list-devices"], env={**os.environ, "LD_LIBRARY_PATH": str(target)})
+        probe_prebuilt(executable, backend)
     value = {"backend": backend, "binary": str(executable)}
     if download_models:
         model_root = model_directory(manifest["model"])
