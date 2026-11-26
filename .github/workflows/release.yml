@@ -32,14 +32,26 @@ jobs:
           python scripts/check_install.py dist/riff-v$(cat VERSION).tar.gz
       # Prebuilt Linux x86-64 engines, compiled in ubuntu:24.04 with no GPU device.
       # The CUDA engine holds no NVIDIA file; see scripts/build_linux_engine.sh.
+      # An engine built before on this runner from the same native source (the
+      # runner's RIFF_PREBUILT_ENGINES directory) is used once it passes the same
+      # checks a guest makes (version, backend, native fingerprint, every file's
+      # digest); otherwise the engine is built here.
       - name: Build prebuilt Linux engines
         env:
           RIFF_ENGINE_DOCKER_CONTEXT: default
         run: |
           set -euo pipefail
+          mkdir -p dist
           for backend in cpu cuda; do
-            bash scripts/build_linux_engine.sh "$backend"
             asset="riff-engine-$backend-linux-x64-v$(cat VERSION).tar.gz"
+            staged="${RIFF_PREBUILT_ENGINES:-}/$asset"
+            if [ -n "${RIFF_PREBUILT_ENGINES:-}" ] && [ -f "$staged" ]; then
+              cp "$staged" "dist/$asset"
+              RIFF_HOME="$RUNNER_TEMP/verify-$backend" python3 -c 'import hashlib, sys, setup_engine; asset = sys.argv[2]; setup_engine.prepare_prebuilt(sys.argv[1], asset, hashlib.sha256(open(asset, "rb").read()).hexdigest(), download_models=False, activate=False, probe=False)' "$backend" "dist/$asset"
+              echo "Using the staged $asset"
+            else
+              bash scripts/build_linux_engine.sh "$backend"
+            fi
             (cd dist && sha256sum "$asset" >> SHA256SUMS)
           done
       - name: Publish verified assets

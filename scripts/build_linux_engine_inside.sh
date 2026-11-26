@@ -59,7 +59,6 @@ if backend == "cuda":
     receipt["cuda_architectures"] = "70-real;80"
     receipt["cuda_toolkit"] = subprocess.check_output(["dpkg-query", "-W", "-f=${Version}", "nvidia-cuda-toolkit"], text=True)
     receipt["guest_packages"] = ["libcudart12", "libcublas12", "libcublaslt12"]
-    receipt["guest_install"] = "apt-get install --no-install-recommends libcudart12 libcublas12"
 (stage / "engine.json").write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
 (pathlib.Path("/out") / f"engine-{backend}.json").write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
 PY
