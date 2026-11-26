@@ -44,6 +44,10 @@ if [ "$endpoint" != "${RIFF_ENGINE_DOCKER_ENDPOINT:-unix:///var/run/docker.sock}
   echo "Docker context $context points at $endpoint, not the host's own engine; refusing the build." >&2
   exit 1
 fi
+engine_name=$(docker --context "$context" info --format '{{.Name}}')
+case "$engine_name" in
+  *colima*) echo "Docker context $context runs the engine \"$engine_name\" (colima), not the host's own; refusing the build." >&2; exit 1 ;;
+esac
 docker --context "$context" run --rm --pull=missing \
   --cpus="$RIFF_ENGINE_JOBS" \
   -e BACKEND="$backend" -e JOBS="$RIFF_ENGINE_JOBS" -e VERSION="$version" \

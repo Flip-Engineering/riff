@@ -48,6 +48,25 @@ def metal_device_capability(output, device=0):
     return result
 
 
+def reported_device(output, backend, device=0):
+    """The device the engine reported for a run, from its own log lines.
+
+    CUDA: ggml prints "Device <n>: <name>, compute capability <x.y>" when the CUDA
+    backend starts. Metal: "ggml_metal_device_init: GPU name: MTL<n> (<name>)".
+    The CPU backend prints no device line, so a CPU run is "not reported"; the
+    configured backend is never given in its place.
+    """
+    if backend == "cuda":
+        for match in re.finditer(r"Device (\d+): ([^,\n]+), compute capability (\d+\.\d+)", output):
+            if int(match[1]) == int(device):
+                return {"backend": "cuda", "device": match[2].strip(), "compute_capability": match[3]}
+    if backend == "metal":
+        for match in re.finditer(r"ggml_metal_device_init: GPU name:\s+MTL(\d+) \((.*)\)", output):
+            if int(match[1]) == int(device):
+                return {"backend": "metal", "device": match[2].strip()}
+    return {"backend": "not reported", "device": "not reported"}
+
+
 def _identity(binary):
     info = Path(binary).stat()
     return info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns

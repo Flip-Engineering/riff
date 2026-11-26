@@ -95,11 +95,11 @@ class PrebuiltEngineTests(unittest.TestCase):
 
     def test_the_probe_runs_without_a_library_path_and_a_cuda_engine_must_list_a_cuda_device(self):
         engine = Path(self.temporary.name) / "audiocpp_cli"
-        engine.write_text("#!/bin/sh\necho \"LD=${LD_LIBRARY_PATH:-none}\"\necho \"$DEVICES\"\n")
+        engine.write_text("#!/bin/sh\necho \"LD=${LD_LIBRARY_PATH:-none}\"\nprintf '%b\\n' \"$DEVICES\"\n")
         engine.chmod(0o755)
-        with mock.patch.dict("os.environ", {"LD_LIBRARY_PATH": "/elsewhere", "DEVICES": "CUDA0: Tesla V100-SXM2-32GB"}):
+        with mock.patch.dict("os.environ", {"LD_LIBRARY_PATH": "/elsewhere", "DEVICES": "available_devices=1\\nCUDA:0 Tesla-V100-SXM2-32GB [GPU]"}):
             self.assertIn("LD=none", setup_engine.probe_prebuilt(engine, "cuda"))
-        with mock.patch.dict("os.environ", {"DEVICES": "CPU: x86_64"}):
+        with mock.patch.dict("os.environ", {"DEVICES": "available_devices=1\\nCPU:0 x86_64 [CPU]"}):
             with self.assertRaisesRegex(ValueError, "listed no CUDA device"):
                 setup_engine.probe_prebuilt(engine, "cuda")
             self.assertIn("CPU", setup_engine.probe_prebuilt(engine, "cpu"))

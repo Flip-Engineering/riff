@@ -211,7 +211,7 @@ def probe_prebuilt(executable, backend):
     output = (result.stdout + "\n" + result.stderr).strip()
     if result.returncode != 0:
         raise ValueError(f"The prebuilt engine did not start (exit {result.returncode}): {output[-2000:]}")
-    if backend == "cuda" and not re.search(r"\bCUDA\d+\b", output):
+    if backend == "cuda" and not re.search(r"^CUDA:\d+ .*\[GPU\]$", output, re.MULTILINE):
         raise ValueError(f"The CUDA engine started but listed no CUDA device: {output[-2000:]}")
     return output
 
@@ -245,7 +245,8 @@ def prepare_prebuilt(backend, asset, sha256, run=None, source=ROOT, download_mod
                     Path(member.name).is_absolute() or ".." in Path(member.name).parts
                     or Path(member.name).parts[:1] != ("engine",) for member in members):
                 raise ValueError("The prebuilt engine archive has an unexpected entry.")
-            archive.extractall(stage, filter="data") if sys.version_info >= (3, 12) else archive.extractall(stage)
+            # The data filter exists wherever tarfile has data_filter (3.12, and 3.9.17, 3.10.12, 3.11.4).
+            archive.extractall(stage, filter="data") if hasattr(tarfile, "data_filter") else archive.extractall(stage)
         engine_dir = stage / "engine"
         receipt = json.loads((engine_dir / "engine.json").read_text())
         if (receipt.get("schema") != "riff.prebuilt-engine.v1" or receipt.get("riff_version") != version
