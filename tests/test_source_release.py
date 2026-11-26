@@ -23,10 +23,13 @@ class SourceReleaseTests(unittest.TestCase):
         dist.mkdir()
         (dist / "riff-v0.6.32.tar.gz").write_bytes(b"fixture source archive")
         (dist / "install.py").write_text("# fixture installer\n")
+        self.engines = [f"riff-engine-{backend}-linux-x64-v0.6.32.tar.gz" for backend in ("cpu", "cuda")]
+        for engine in self.engines:
+            (dist / engine).write_bytes(b"fixture engine " + engine.encode())
         (dist / "unrelated-desktop.payload.tar.gz").write_bytes(b"not a source asset")
         (dist / "SHA256SUMS").write_text("".join(
             hashlib.sha256((dist / name).read_bytes()).hexdigest() + "  " + name + "\n"
-            for name in ["riff-v0.6.32.tar.gz", "install.py"]))
+            for name in ["riff-v0.6.32.tar.gz", "install.py", *self.engines]))
         self.git("init", "-q")
         self.git("add", ".")
         self.git("commit", "-qm", "fixture")
@@ -70,8 +73,10 @@ sys.exit(int(os.environ.get('FIXTURE_GH_EXIT', '0')))
         result = self.execute()
         self.assertEqual(result.returncode, 0, result.stderr)
         sent = json.loads(self.publication.read_text())
-        self.assertEqual(sent["args"][:6], ["release", "create", "v0.6.32",
-            "dist/riff-v0.6.32.tar.gz", "dist/install.py", "dist/SHA256SUMS"])
+        self.assertEqual(sent["args"][:8], ["release", "create", "v0.6.32",
+            "dist/riff-v0.6.32.tar.gz", "dist/install.py",
+            "dist/riff-engine-cpu-linux-x64-v0.6.32.tar.gz",
+            "dist/riff-engine-cuda-linux-x64-v0.6.32.tar.gz", "dist/SHA256SUMS"])
         self.assertIn("--verify-tag", sent["args"])
         self.assertNotIn("--clobber", sent["args"])
         self.assertNotIn("dist/unrelated-desktop.payload.tar.gz", sent["args"])
@@ -142,6 +147,18 @@ sys.exit(int(os.environ.get('FIXTURE_GH_EXIT', '0')))
         self.assertEqual(result.returncode, 42)
         self.assertEqual(json.loads(self.publication.read_text())["args"][:2], ["release", "create"])
 
+    def test_a_missing_or_unlisted_engine_refuses_publication(self):
+        (self.root / "dist" / self.engines[1]).unlink()
+        missing = self.execute()
+        self.assertNotEqual(missing.returncode, 0)
+        self.assertFalse(self.publication.exists())
+        (self.root / "dist" / self.engines[1]).write_bytes(b"fixture engine")
+        sums = self.root / "dist/SHA256SUMS"
+        sums.write_text("".join(line for line in sums.read_text().splitlines(keepends=True) if "cuda" not in line))
+        unlisted = self.execute()
+        self.assertNotEqual(unlisted.returncode, 0)
+        self.assertIn("SHA256SUMS", unlisted.stderr)
+        self.assertFalse(self.publication.exists())
 
 if __name__ == "__main__":
     unittest.main()

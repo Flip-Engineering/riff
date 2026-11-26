@@ -142,7 +142,8 @@ jobs:
       matrix:
         # Ordinary push/PR/manual validation retains both backends. Only an
         # explicit reusable-workflow caller can select Linux source qualification.
-        backend: ${{ fromJSON(inputs.linux-source-only && '["cpu"]' || '["cpu","metal"]') }}
+        # Issue #31: Riff has no Apple Silicon runner; the metal row runs only when RIFF_APPLE_RUNNER_LABEL names one.
+        backend: ${{ fromJSON((inputs.linux-source-only || vars.RIFF_APPLE_RUNNER_LABEL == '') && '["cpu"]' || '["cpu","metal"]') }}
     # Missing Apple infrastructure still runs its diagnostic on riff-linux in
     # ordinary validation; source-only qualification never selects that lane.
     runs-on: ${{ fromJSON(matrix.backend == 'cpu' && '["self-hosted","Linux","X64","riff-linux"]' || (vars.RIFF_APPLE_RUNNER_LABEL != '' && format('["self-hosted","macOS","ARM64",{0}]', toJSON(vars.RIFF_APPLE_RUNNER_LABEL)) || '["self-hosted","Linux","X64","riff-linux"]')) }}

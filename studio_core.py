@@ -865,6 +865,36 @@ class Store:
 
 
 class Generator:
+    def reported_device(self, command, log_path, warm):
+        """The device the engine reported for this take. A warm engine reported it
+        when it started, in its own log; a process reports it in the take's log."""
+        from engine_devices import reported_device
+        def option(name, default):
+            return command[command.index(name) + 1] if name in command[:-1] else default
+        # The logs are streamed line by line (an engine log can be large); only the
+        # device lines are kept. Not finding one is "not reported", never a failure.
+        lines = []
+        try:
+            for path in ([self.warm.log_path] if warm else []) + [log_path]:
+                try:
+                    with open(path, errors="replace") as log:
+                        lines.extend(line for line in log
+                                     if "compute capability" in line or "ggml_metal_device_init" in line)
+                except OSError:
+                    pass
+            return reported_device("".join(lines), option("--backend", ""), int(option("--device", 0)))
+        except Exception:
+            return reported_device("", "")
+
+    def record_engine_device(self, job_id, device):
+        """Adds the reported device to the take's operation runtime record."""
+        with self.store.db() as db:
+            row = db.execute("SELECT id, runtime FROM operations WHERE job_id=?", (job_id,)).fetchone()
+            if row is not None:
+                runtime = json.loads(row[1] or "{}")
+                runtime["engine_device"] = device
+                db.execute("UPDATE operations SET runtime=? WHERE id=?", (json.dumps(runtime), row[0]))
+
     def __init__(self, store, command_builder=None, admission=None):
         self.store = store
         self.command_builder = command_builder or self.native_command
@@ -1568,6 +1598,8 @@ class Generator:
             metrics["timings"] = summary
             metrics["warm"] = timings.warm_record(metrics["engine"], summary, prepare_seconds)
             metrics["queue"] = queue
+            metrics["engine_device"] = self.reported_device(command, log_path, warm)
+            self.record_engine_device(job_id, metrics["engine_device"])
             metrics["memory"] = {"observed_peak_bytes": peak, **{name: reservation[key] for name, key in (
                 ("reserved_host_bytes", "host_peak"), ("reserved_device_bytes", "device_peak"))
                 if isinstance(reservation, dict) and isinstance(reservation.get(key), int)}}
