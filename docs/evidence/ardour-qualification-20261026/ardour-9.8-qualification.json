@@ -1,0 +1,62 @@
+{
+ "schema": "riff.daw.ardour-qualification.v1",
+ "prefix": "/mnt/nvme4tb/ci-runners/baton2-native-homelab/home/tmp-riff-conductor/ardour-qualification-20261026/runtime/ardour-9.8.0",
+ "runtime_record": "/mnt/nvme4tb/ci-runners/baton2-native-homelab/home/tmp-riff-conductor/ardour-qualification-20261026/runtime/ardour-runtime.json",
+ "gates": {
+  "Q1_identity": {
+   "ok": true,
+   "checks": [
+    {
+     "artifact": "ardour9-lua",
+     "sha256": "7010c0468bf5b5f0497d50e35c44e305f2e8ffade7ec93aabf7fb02197dd81e2",
+     "matches_receipt": true
+    },
+    {
+     "artifact": "ardour9-export",
+     "sha256": "7d06e8246ff579c9fab95c2bfbb783205ba0108db3aac1d6c3f8a189123755d5",
+     "matches_receipt": true
+    },
+    {
+     "artifact": "ardour9-new_session",
+     "sha256": "7d06e8246ff579c9fab95c2bfbb783205ba0108db3aac1d6c3f8a189123755d5",
+     "matches_receipt": true
+    }
+   ],
+   "lua_help_exit": 0,
+   "ardour9_version": [
+    "WARNING: Your system has a limit for maximum amount of locked memory!"
+   ],
+   "ardour9_version_exit": 0
+  },
+  "Q2_clean_session": {
+   "ok": true,
+   "new_session_exit": -6,
+   "teardown_note": "intermittent upstream SIGABRT at teardown; artifact complete",
+   "session_file": "/mnt/nvme4tb/ci-runners/baton2-native-homelab/home/tmp-riff-conductor/ardour-qualification-20261026/work/q2-session-s297bap9/session/q2clean.ardour",
+   "bytes": 10085,
+   "stdout_tail": "Created session in '/mnt/nvme4tb/ci-runners/baton2-native-homelab/home/tmp-riff-conductor/ardour-qualification-20261026/work/q2-session-s297bap9/session'\n",
+   "stderr_tail": "FATAL: exception not rethrown\n",
+   "reopen_ok": true
+  },
+  "Q10_negative": {
+   "ok": true,
+   "cases": [
+    {
+     "case": "valid record",
+     "accepted": true
+    },
+    {
+     "case": "tampered ardour9-lua hash",
+     "accepted": false,
+     "reason": "The pinned Ardour runtime changed since provisioning: ardour9-lua no longer matches its recorded hash. Re-run the coordinated provisioning step."
+    },
+    {
+     "case": "missing commit pin",
+     "accepted": false,
+     "reason": "The pinned Ardour runtime commit does not match the approved 9.8 pin (22ed8656c2533e325322ff11831448e5123e0d4b). Re-run the coordinated provisioning step."
+    }
+   ]
+  }
+ },
+ "ok": true
+}

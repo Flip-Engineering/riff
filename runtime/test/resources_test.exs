@@ -27,6 +27,30 @@ defmodule Riff.Runtime.ResourcesTest do
     }
   end
 
+  test "daw work reserves a conservative host-only bound with no model, KV or device" do
+    result =
+      Resources.estimate(%{
+        "kind" => "daw",
+        "input_bytes" => 10_000,
+        "margin" => 0.2
+      })
+
+    assert result["device_peak"] == 0
+    assert result["device"] == nil
+    assert result["host_peak"] > 0
+    assert result["basis"]["operation"] == "daw"
+    assert result["basis"]["weights"] == 0
+    assert result["basis"]["kv"] == 0
+    assert result["basis"]["tokens"] == 0
+    assert result["basis"]["branches"] == 0
+    assert result["basis"]["bound"] == "unmeasured_toolchain"
+    bigger = Resources.estimate(%{"kind" => "daw", "input_bytes" => 1_000_000})
+    assert bigger["host_peak"] > result["host_peak"]
+    assert_raise ArgumentError, fn ->
+      Resources.estimate(%{"kind" => "daw", "input_bytes" => -1})
+    end
+  end
+
   test "longer scores, longer music and CFG reserve the later growth" do
     inputs = %{
       "kind" => "native",

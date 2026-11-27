@@ -1,0 +1,53 @@
+{
+ "schema": "riff.daw.ardour-qualification.v1",
+ "runtime_prefix": "/mnt/nvme4tb/ci-runners/baton2-native-homelab/home/tmp-riff-conductor/ardour-qualification-20261026/runtime/ardour-9.8.0",
+ "gates": [
+  {
+   "gate": "q1_identity",
+   "status": "pass",
+   "lua": "ardour-lua version 9.8.0",
+   "export": "ardour-utils version 9.8.0",
+   "new_session": "ardour-utils version 9.8.0"
+  },
+  {
+   "gate": "q2_clean_session",
+   "status": "pass"
+  },
+  {
+   "gate": "q3_fixture_build",
+   "status": "pass"
+  },
+  {
+   "gate": "q4_chain",
+   "status": "pass",
+   "duration": "1016000/48000"
+  },
+  {
+   "gate": "q5_events",
+   "status": "pass"
+  },
+  {
+   "gate": "q6_stems",
+   "status": "pass"
+  },
+  {
+   "gate": "q7_program_control",
+   "status": "pass"
+  },
+  {
+   "gate": "q8_edit",
+   "status": "pass",
+   "v1_mix": "4175c184a15cc678d7656cad52797641641a3609e653e4fbe7dcf9f060c2babe",
+   "v2_mix": "8cc9087aac836d018475c49d6d8b0399b8ce554361df21d9849d6b079dab86e9"
+  },
+  {
+   "gate": "q9_determinism",
+   "status": "pass"
+  },
+  {
+   "gate": "q10_negative",
+   "status": "pass"
+  }
+ ],
+ "status": "pass"
+}

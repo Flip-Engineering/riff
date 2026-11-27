@@ -21,7 +21,7 @@ SCHEMA = """
     CREATE UNIQUE INDEX IF NOT EXISTS families_key ON families(idempotency_key) WHERE idempotency_key IS NOT NULL;
 """
 ROLES = {"study.create": "study", "generate": "study", "take.develop": "develop", "take.replay": "replay",
-         "operation.resume": "resume"}
+         "operation.resume": "resume", "daw.compose": "arrangement", "daw.render": "render"}
 
 
 def text(value, label):

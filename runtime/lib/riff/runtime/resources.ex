@@ -25,6 +25,11 @@ defmodule Riff.Runtime.Resources do
   # not by charging the entire no_alloc virtual arena as resident memory.
   @graph_metadata 524_288 * 16 + 1_048_583 * 12 + div(1_048_583 + 63, 64) * 8
 
+  # CPU/file-only DAW toolchain (Ardour CLI + Lua + converter): no model
+  # weights, no KV, no device. The bound is a conservative unmeasured working
+  # allowance plus the composition input bytes; never a GPU allocation.
+  @daw_working_bytes 2_000_000_000
+
   def estimate(%{"kind" => "acoustic_decode"} = input) do
     acoustic = input["acoustic"] || %{}
     decoder = input["decoder"] || %{}
@@ -128,6 +133,31 @@ defmodule Riff.Runtime.Resources do
           "bound" => "native_oobleck_unfused",
           "measurement" => "unverified"
         }
+      }
+    }
+  end
+
+  def estimate(%{"kind" => "daw"} = input) do
+    input_bytes = dimension!(Map.get(input, "input_bytes", 0), 0)
+    margin = max(0, input["margin"] || 0.2)
+    peak = ceil((@daw_working_bytes + input_bytes) * (1 + margin))
+
+    %{
+      "host_peak" => peak,
+      "device_peak" => 0,
+      "device" => nil,
+      "basis" => %{
+        "operation" => "daw",
+        "weights" => 0,
+        "adapters" => 0,
+        "kv" => 0,
+        "working_tensors" => @daw_working_bytes + input_bytes,
+        "tokens" => 0,
+        "branches" => 0,
+        "cache_element_bytes" => 0,
+        "uncertainty_margin" => margin,
+        "bound" => "unmeasured_toolchain",
+        "measurement" => "unverified"
       }
     }
   end
