@@ -32,6 +32,10 @@ jobs:
         shell: bash
     env:
       RIFF_PUBLISH_REQUESTED: ${{ inputs.publish }}
+      # Keep files for preview review and dispatch a fresh preview after expiry.
+      DESKTOP_PREVIEW_DAYS: ${{ vars.DESKTOP_PREVIEW_DAYS || 14 }}
+      # Keep files from release builds for 90 days and use the tagged release after expiry.
+      DESKTOP_RELEASE_FILES_DAYS: ${{ vars.DESKTOP_RELEASE_FILES_DAYS || 90 }}
       RIFF_APPLE_RUNNER_LABEL: ${{ vars.RIFF_APPLE_RUNNER_LABEL }}
       RUSTUP_TOOLCHAIN: '1.89.0'
       MACOSX_DEPLOYMENT_TARGET: '15.0'
@@ -285,7 +289,7 @@ jobs:
           path: ${{ env.RIFF_PREVIEW_ROOT }}/artifacts/
           if-no-files-found: error
           compression-level: 0
-          retention-days: 14
+          retention-days: ${{ inputs.publish && env.DESKTOP_RELEASE_FILES_DAYS || env.DESKTOP_PREVIEW_DAYS }}
 
       - name: Retain build diagnostics
         if: always() && env.RIFF_PREVIEW_ROOT != ''
@@ -307,7 +311,8 @@ jobs:
             ${{ env.RIFF_PREVIEW_ROOT }}/control/package-proof.json
             ${{ env.RIFF_PREVIEW_ROOT }}/setup/package-proof.json
           if-no-files-found: warn
-          retention-days: 14
+          # Keep build diagnostics for review and rerun the build after expiry.
+          retention-days: ${{ vars.DESKTOP_DIAGNOSTICS_DAYS || 14 }}
 
       - name: Summarize the preview
         if: success()

@@ -131,6 +131,8 @@ jobs:
         with:
           name: browser-results
           path: test-results/
+          # Keep browser evidence for review and rerun the tests after expiry.
+          retention-days: ${{ vars.BROWSER_RESULTS_DAYS || 14 }}
   native:
     # Preserve the existing check names while selecting the backend matrix.
     name: ${{ format('native ({0}, {1})', matrix.backend == 'cpu' && '["self-hosted","Linux","X64","riff-linux"]' || (vars.RIFF_APPLE_RUNNER_LABEL != '' && format('["self-hosted","macOS","ARM64",{0}]', toJSON(vars.RIFF_APPLE_RUNNER_LABEL)) || '["self-hosted","Linux","X64","riff-linux"]'), matrix.backend) }}
@@ -212,6 +214,8 @@ jobs:
           name: native-cache-${{ matrix.backend }}
           path: native-cache-receipts/
           if-no-files-found: ignore
+          # Keep cache receipts for review and rerun the native job after expiry.
+          retention-days: ${{ vars.NATIVE_CACHE_RECEIPTS_DAYS || 14 }}
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
@@ -220,3 +224,5 @@ jobs:
             data/native-lora-check/receipt.json
             data/native-lora-check/numerical.log
           if-no-files-found: ignore
+          # Keep numerical results for review and rerun the native job after expiry.
+          retention-days: ${{ vars.NATIVE_LORA_RESULTS_DAYS || 14 }}

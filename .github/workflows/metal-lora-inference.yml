@@ -131,3 +131,5 @@ jobs:
             ${{ runner.temp }}/riff-metal-lora-evidence/inference/*.log
             native-cache-receipts/*.json
           if-no-files-found: warn
+          # Keep qualification evidence for review and rerun with the same source SHA after expiry.
+          retention-days: ${{ vars.METAL_LORA_EVIDENCE_DAYS || 14 }}

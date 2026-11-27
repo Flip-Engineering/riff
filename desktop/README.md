@@ -129,7 +129,8 @@ archive, component and toolchain receipts, `preview.json`, and `SHA256SUMS`.
 The workflow summary links to that artifact. Component-internal build logs,
 available receipts and OTP linkage diagnostics are retained even if a build
 fails; incomplete installers are not uploaded as
-successful previews. Preview artifacts expire after 14 days. [Actions artifact
+successful previews. Preview artifacts expire after 14 days by default, or 90 days
+when publishing is requested. [Actions artifact
 behavior](https://github.com/actions/upload-artifact/tree/043fb46d1a93c77aae656e7c1c64a875d1fc6a0a).
 
 The build has only `contents: read` permission. By default it ends with the
