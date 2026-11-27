@@ -160,3 +160,5 @@ jobs:
             test-results/
             native-cache-receipts/
           if-no-files-found: warn
+          # Keep qualification evidence for review and rerun with the same source SHA after expiry.
+          retention-days: ${{ vars.HOMELAB_LINUX_EVIDENCE_DAYS || 14 }}
